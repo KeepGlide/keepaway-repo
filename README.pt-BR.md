@@ -1,10 +1,47 @@
+<div align="center">
+
+<img src="assets/keeptrack-cover-1600x400.png" alt="KeepTrack: o trabalho do seu repositório, ao lado do chat." width="100%" />
+
 # 🧭 KeepTrack
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
-O KeepTrack é um mod do Claude Code Desktop que mostra em qual issue cada sessão de um repositório trabalha, e o que o repositório está fazendo agora.
+**Um mod do Claude Code Desktop para quem mantém várias sessões em um mesmo repositório do GitHub. Ele mostra qual issue cada sessão está trabalhando, e o que o repositório está fazendo agora.**
 
-![Versão](https://img.shields.io/badge/version-0.2.0--beta.5-orange.svg) ![Licença: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+[![Versão](https://img.shields.io/badge/vers%C3%A3o-0.2.0--beta.5-2BB8AE.svg)](CHANGELOG.md) [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-1E2A47.svg)](LICENSE) ![Plataforma](https://img.shields.io/badge/Claude%20Code%20Desktop-mod-1E2A47.svg)
+
+[Instalação](#-instalação) · [Uso](#-uso) · [Changelog](CHANGELOG.md) · [Reportar um bug](https://github.com/KeepGlide/keeptrack/issues/new) · [Segurança](SECURITY.md)
+
+</div>
+
+<details>
+<summary><strong>📑 Conteúdo</strong></summary>
+
+- [📌 Status](#-status)
+- [💡 Por que existe](#-por-que-existe)
+- [🎁 O que entrega](#-o-que-entrega)
+- [📸 Screenshots](#-screenshots)
+- [⚙️ Como funciona](#%EF%B8%8F-como-funciona)
+- [📋 Pré-requisitos](#-pré-requisitos)
+- [🚀 Instalação](#-instalação)
+- [🤖 Instalação por um agente de IA (spec)](#-instalação-por-um-agente-de-ia-spec)
+- [🔄 Atualização](#-atualização)
+- [🧹 Desinstalação](#-desinstalação)
+- [🧭 Uso](#-uso)
+- [🎛️ Configuração](#%EF%B8%8F-configuração)
+- [📚 Documentação](#-documentação)
+- [🔒 Segurança e privacidade](#-segurança-e-privacidade)
+- [🩺 Solução de problemas](#-solução-de-problemas)
+- [🐞 Problemas conhecidos](#-problemas-conhecidos)
+- [🧪 Testes](#-testes)
+- [🔧 Desenvolvimento](#-desenvolvimento)
+- [🌿 Branches e releases](#-branches-e-releases)
+- [📝 Changelog](#-changelog)
+- [🤝 Contribuindo](#-contribuindo)
+- [🧑‍🔧 Mantenedora](#-mantenedora)
+- [📄 Licença](#-licença)
+
+</details>
 
 ## 📌 Status
 
@@ -12,23 +49,26 @@ Beta (`0.2.0-beta.5`). O projeto segue o [SemVer](https://semver.org/): enquanto
 
 ## 💡 Por que existe
 
-Quando um repositório tem várias sessões do Desktop abertas ao mesmo tempo, cada sessão mostra só a própria conversa. Nada diz qual sessão trabalha em qual issue, quais issues nenhuma sessão toca, ou se uma sessão está esperando por você. O KeepTrack lê essa informação do GitHub e desta máquina, e a desenha em dois lugares: um painel e uma faixa acima do prompt.
+Quando um repositório tem várias sessões do Desktop abertas ao mesmo tempo, cada sessão mostra só a própria conversa. Nada indica qual sessão trabalha em qual issue, quais issues nenhuma sessão toca, ou se alguma sessão está esperando por você. O KeepTrack lê essas informações do GitHub e desta máquina, e as mostra em dois lugares: um painel e uma faixa acima do prompt.
 
-Ele **não** muda nada no GitHub nem no seu repositório. Não mede tempo, não guarda relatórios e não sincroniza entre máquinas.
+Ele é para uma pessoa em uma máquina: lê os registros de sessão dessa máquina.
 
-## 🎁 O que ele entrega
+Ele **não** altera nada no GitHub nem no seu repositório. Não registra tempo, não guarda relatórios e não sincroniza entre máquinas.
 
-- **`/keeptrack`** abre o painel. `/keeptrack issue <n>` define a issue desta janela, e `/keeptrack issue none` a limpa. `/keeptrack lang en|pt-BR|auto` define o idioma.
-- **Esta janela primeiro**: a sessão da janela com os detalhes da issue e a linha do tempo.
-- **Sessões aninhadas**: as outras sessões do Desktop do mesmo repositório, sob a sessão-mãe quando são derivadas (fork ou spawn). O título de cada sessão é um link para a sessão no Desktop.
-- **Issues abertas por milestone**: as issues abertas que nenhuma sessão trabalha, agrupadas por milestone aberta, com o progresso da milestone.
-- **Uma faixa acima do prompt** com o estado desta janela: executando ou ociosa, a ferramenta ou o servidor MCP atual com o seu ícone, o número de agentes, o tempo decorrido, um estado de aguardando você, um estado de erro de dados, o progresso da milestone e o número da issue.
-- **Um botão Open** na faixa, com a marca KeepGlide antes dele.
+## 🎁 O que entrega
+
+- **`/keeptrack`** abre o painel (`/keeptrack open` faz o mesmo). `/keeptrack issue <n>` define a issue desta janela, `/keeptrack issue none` a limpa, e `/keeptrack lang en|pt-BR|auto` define o idioma.
+- **Esta janela primeiro**: a sessão da janela com os detalhes e a linha do tempo da sua issue.
+- **Sessões aninhadas**: as outras sessões do Desktop do mesmo repositório, sob a sessão-mãe quando são derivadas (fork ou spawn). Cada título de sessão leva à sessão no Desktop.
+- **Issues abertas por milestone**: as issues abertas que nenhuma sessão trabalha, agrupadas por milestone aberto, com o progresso do milestone.
+- **Uma faixa acima do prompt** com o estado desta janela: executando ou ociosa, a ferramenta ou o servidor MCP atual com seu ícone, a quantidade de agentes, o tempo decorrido, um estado de espera por você, um estado de erro de dados, o progresso do milestone e o número da issue.
+- **Um botão Open** na faixa, com a marca KeepGlide antes dele (a marca aparece só no Desktop).
 - **Inglês e português do Brasil** no painel e na faixa.
 
 ## 📸 Screenshots
 
-> **Mockups de design, não capturas.** As duas imagens abaixo são o mockup de design aprovado do layout com a sessão primeiro (claro e escuro), não capturas do app Desktop em execução. Capturas reais da faixa e do painel saem com a próxima release.
+> [!NOTE]
+> **Mockups de design, não capturas.** As duas imagens abaixo são o mockup de design aprovado do layout com sessões em primeiro lugar (claro e escuro), não capturas do app Desktop em execução. As capturas reais da faixa e do painel virão com a próxima release.
 
 | Claro | Escuro |
 |---|---|
@@ -38,16 +78,16 @@ Ele **não** muda nada no GitHub nem no seu repositório. Não mede tempo, não 
 
 ```mermaid
 flowchart LR
-    GH[GitHub via gh: milestones, issues, PRs] --> POLL
-    GIT[git local: remote, branch, log] --> POLL
+    GH[GitHub via gh: marcos, issues, PRs] --> POLL
+    GIT[Git local: remote, branch, log] --> POLL
     REC[Registros de sessão do Desktop] --> POLL
     ASK[Pasta de perguntas do Askaway] --> POLL
-    POLL[Consulta a cada 60 s aberto, 5 min fechado, prazo de 30 s] --> SNAP[Instantâneo em um único átomo]
+    POLL[Consulta a cada 60 s aberto, 5 min fechado, prazo de 30 s] --> SNAP[Snapshot em um único átomo]
     SNAP --> PANE[Painel: /keeptrack]
     SNAP --> BAND[Faixa acima do prompt]
 ```
 
-A ida e volta principal de uma consulta:
+A volta principal de uma consulta:
 
 ```mermaid
 sequenceDiagram
@@ -55,29 +95,36 @@ sequenceDiagram
     participant K as KeepTrack
     participant G as gh e git
     participant D as Registros do Desktop
-    T->>K: tique na cadência da flag de aberto
-    K->>G: milestones, issues abertas e PRs abertos (3 chamadas gh, em paralelo)
+    T->>K: tique na cadência do sinal de aberto
+    K->>G: marcos, issues abertas e PRs abertos (3 chamadas gh, em paralelo)
     G-->>K: JSON do GitHub
-    K->>D: lista os registros, lê os que mudaram
+    K->>D: lista os registros, lê os alterados
     D-->>K: registros de sessão
     K->>G: git rev-parse, git log das sessões mantidas (local)
     G-->>K: branches e commits
-    K-->>T: um instantâneo gravado no átomo, depois um redesenho
+    K-->>T: um snapshot gravado no átomo, depois um redesenho
 ```
 
-Uma consulta que não termina em 30 segundos é abandonada, e uma consulta nova pode começar. O painel e a faixa só leem o instantâneo; não chamam nenhum processo nem nenhum arquivo.
+O temporizador consulta a cada 60 segundos enquanto o painel está aberto, e a cada 5 minutos enquanto ele está fechado, para a faixa continuar atualizada. Uma consulta que não termina em 30 segundos é abandonada, e uma nova consulta pode começar. O painel e a faixa só leem o snapshot; não chamam processo nem arquivo.
 
-O mapeamento sessão-para-issue fica com a primeira correspondência e nunca junta duas sessões. As regras completas estão em [a spec](plugins/keeptrack-repo-pane/SPEC.md) (em inglês).
+O mapeamento de sessão para issue usa a primeira correspondência e nunca junta duas sessões. As regras completas estão na [especificação](plugins/keeptrack-repo-pane/SPEC.md), em inglês.
 
 ## 📋 Pré-requisitos
 
 - Claude Code Desktop com o carregador de mods.
-- [`gh`](https://cli.github.com/), autenticado com `gh auth login`, com acesso de leitura ao repositório.
-- `git`, e um repositório cujo remote aponta para o GitHub.
+- [`gh`](https://cli.github.com/), com login feito por `gh auth login` e com acesso de leitura ao repositório.
+- `git`, e um repositório com um remote no GitHub: `origin`, ou o primeiro remote quando não há `origin`. Um remote em outro host aparece como `no GitHub remote`.
+
+| Plataforma | Status | Observações |
+|---|---|---|
+| Claude Code Desktop no Linux | ✅ | |
+| Claude Code Desktop no macOS | ⚠️ | Não testado. O caminho padrão dos registros é o mesmo `~/.config/Claude/claude-code-sessions`; o código não o verifica no macOS. |
+| Claude Code Desktop no Windows | ⚠️ | Não testado. As duas pastas padrão são montadas a partir de `HOME`; sem `HOME`, o código não encontra nenhuma pasta. |
 
 ## 🚀 Instalação
 
-> **Pendente:** o catálogo da KeepGlide ([KeepGlide/claude-plugins](https://github.com/KeepGlide/claude-plugins)) ainda não tem uma entrada `keeptrack`, então não há instalação em um comando. Os comandos abaixo seguem o padrão do Askaway e ainda não foram executados para este plugin. A entrada e os comandos verificados saem com a próxima release.
+> [!IMPORTANT]
+> **Pendente:** o catálogo KeepGlide ([KeepGlide/claude-plugins](https://github.com/KeepGlide/claude-plugins)) ainda não tem uma entrada `keeptrack`, por isso não há instalação com um único comando. Os comandos abaixo seguem o padrão do Askaway e ainda não foram executados para este plugin. A entrada e os comandos verificados virão com a próxima release.
 
 Quando a entrada for publicada, a instalação será:
 
@@ -95,71 +142,187 @@ claude plugin install keeptrack-repo-pane@keepglide
 
 ### 3️⃣ Carregue o plugin
 
-Reinicie o Claude Code, ou rode `/reload-plugins` se a sua versão tiver o comando. Depois rode `/keeptrack` em uma sessão de um repositório com remote no GitHub.
+Reinicie o Claude Code, ou rode `/reload-plugins` se a sua versão tiver esse comando. Depois, rode `/keeptrack` em uma sessão de um repositório com remote no GitHub.
 
-### Desinstalar
+## 🤖 Instalação por um agente de IA (spec)
+
+> **Para o agente:** siga esta spec passo a passo e compare cada resultado com **Expect**. Pare e relate à pessoa a qualquer divergência. As instruções da sua usuária vêm primeiro. Esta spec está **pendente**: não a execute antes de a entrada do catálogo existir, como diz [Instalação](#-instalação).
+
+Regras de base:
+
+- 🔑 **Segredos:** o agente nunca lê, digita nem imprime um token ou chave. O `gh` usa o próprio login; a pessoa roda `gh auth login` se o passo 1 falhar.
+- 🧑 **Com OK da pessoa:** os passos 3, 4 e os passos de desfazer mudam a configuração do Claude Code (marketplace, instalação e remoção do plugin). Pergunte antes.
+- 💸 **Custo:** nenhum passo custa dinheiro. O mod chama só `gh` e `git` (veja [Segurança e privacidade](#-segurança-e-privacidade)).
+- **Plataformas:** Linux é ✅ (veja [Pré-requisitos](#-pré-requisitos)); macOS e Windows são ⚠️, não testados. Os passos 5 a 8 rodam em uma sessão do Claude Code Desktop, não em um terminal comum.
+
+| # | Passo | Rodar | Expect |
+|---|---|---|---|
+| 1 | Conferir se o gh está logado | `gh auth status` | Saída 0 e uma linha `Logged in to github.com`. Se não, a pessoa roda `gh auth login`. |
+| 2 | Conferir se o repositório tem um remote no GitHub | `git remote get-url origin` | Saída 0 e uma URL cujo host é `github.com`, ou um alias SSH com `github` no nome (por exemplo `git@github-<label>:<owner>/<repo>.git`). Se não, o painel mostra `sem remote no GitHub para este repo`. |
+| 3 🧑 | Adicionar o marketplace | `claude plugin marketplace add KeepGlide/claude-plugins` | Saída 0. Ainda não conferido: a entrada do catálogo está pendente. |
+| 4 🧑 | Instalar o plugin | `claude plugin install keeptrack-repo-pane@keepglide` | Saída 0. Ainda não conferido: a entrada do catálogo está pendente. |
+| 5 | Conferir se o comando está registrado | Em uma sessão do Desktop, `/keeptrack bogus` | Um toast com a linha de uso `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em inglês, ou `Uso: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em português (`hooks/i18n.ts:28` e `:110`). Nada muda. |
+| 6 | Abrir o painel | `/keeptrack` | Abre um painel com o título `KeepTrack`. Mostra `Carregando o repo...`, depois as issues abertas por milestone, ou uma linha de erro de [Solução de problemas](#-solução-de-problemas). |
+| 7 | Trocar o idioma para português | `/keeptrack lang pt-BR` | O painel e a faixa mudam para português. Durante o carregamento, o painel mostra `Carregando o repo...` (`hooks/i18n.ts:96`). |
+| 8 | Voltar ao idioma automático | `/keeptrack lang auto` | A escolha guardada é removida. O idioma segue a primeira variável definida entre `LC_ALL`, `LC_MESSAGES`, `LANG` ou `LANGUAGE`: `pt*` dá português; qualquer outra coisa dá inglês. |
+| 9 | Conferir se o gh lê o repositório | `gh issue list -R <owner>/<repo> --state open --limit 1 --json number` | Saída 0 e um array JSON: `[]` ou `[{"number":<n>}]`. |
+| 10 | Devolver à pessoa | nenhum | Relatar à pessoa o resultado de cada passo, a saída do passo 9 e qualquer passo pulado. Nenhum token é impresso. |
+
+✅ **Pronto quando:** os passos 1, 2 e 9 batem; os passos 5 a 8 batem em uma sessão do Desktop; os passos 3 e 4 batem quando a entrada do catálogo existir.
+
+**Relatório:** o resultado de cada passo, a saída do passo 9 e cada passo pulado com o motivo.
+
+**Desfazer** (🧑 a pessoa decide):
+
+1. Rode `/keeptrack lang auto` e `/keeptrack issue none` em cada janela onde foram usados.
+2. Rode `claude plugin uninstall keeptrack-repo-pane@keepglide`.
+3. Rode `claude plugin marketplace remove keepglide` só se nenhum outro plugin usar esse marketplace.
+
+## 🔄 Atualização
+
+> [!NOTE]
+> Pendente, como a instalação: o comando de atualização abaixo existe na CLI do Claude Code, mas ainda não foi executado contra a entrada do catálogo.
+
+```bash
+claude plugin update keeptrack-repo-pane@keepglide
+```
+
+Reinicie o Claude Code, ou rode `/reload-plugins`, depois de uma atualização, como depois de uma instalação.
+
+## 🧹 Desinstalação
 
 ```bash
 claude plugin uninstall keeptrack-repo-pane@keepglide
 ```
 
-## 🤖 Instalação por um agente de IA (spec)
+Reinicie o Claude Code, ou rode `/reload-plugins`, depois. O que o mod deixa para trás:
 
-> **Pendente.** Esta spec é escrita quando a entrada do catálogo existir, e cada **Expect** é conferido contra uma execução real. Até lá, nenhum agente deve segui-la.
+| Item | Onde fica | Depois da desinstalação |
+|---|---|---|
+| Código e hooks do plugin | Instalação de plugins do Claude Code | Removidos por `claude plugin uninstall`. |
+| Idioma guardado (`lang`) e issues de janela (`override:<id da sessão>`) | Armazenamento do mod no Claude Code | Ficam. O mod não tem nenhum passo que os apague. As substituições expiram em 30 dias, ou antes, quando nenhum registro de sessão lista a sessão. Para limpar o idioma antes, rode `/keeptrack lang auto`. |
+| Registros de sessão e pasta do Askaway | `~/.config/Claude/claude-code-sessions` e `~/.claude/state/askaway` | Não são tocados. O mod só os lê. |
+| GitHub e o repositório | GitHub e a sua árvore de trabalho | Não são tocados. O mod não grava nada lá. |
 
 ## 🧭 Uso
 
 | Comando | O que faz |
 |---|---|
-| `/keeptrack` ou `/keeptrack open` | Abre o painel e consulta na hora quando o instantâneo é mais antigo que um intervalo. |
-| `/keeptrack issue <n>` | Define a issue desta janela. O valor é guardado por sessão. |
+| `/keeptrack` ou `/keeptrack open` | Abre o painel. Consulta na hora quando o snapshot é mais antigo que um intervalo. O botão Open da faixa faz o mesmo. |
+| `/keeptrack issue <n>` | Define a issue desta janela, de 1 a 999999. Guardada por sessão como `override:<id da sessão>` por 30 dias. Só uma sessão do Desktop pode defini-la; qualquer outra janela recebe um toast. |
 | `/keeptrack issue none` | Limpa a issue desta janela. |
-| `/keeptrack lang en\|pt-BR\|auto` | Guarda o idioma e troca na hora. `auto` segue o ambiente. |
+| `/keeptrack lang en\|pt-BR\|auto` | Guarda o idioma (não importa maiúsculas) e troca na hora. `auto` remove a escolha guardada e segue o ambiente. |
+| Qualquer outro argumento | Um toast com a linha de uso. Nada muda. |
 
 ## 🎛️ Configuração
 
 | Nome | Padrão | Efeito |
 |---|---|---|
-| `KEEPTRACK_POLL_MS` | `60000` | Intervalo de consulta com o painel aberto. Mínimo de 1000 ms. |
-| `KEEPTRACK_BAND_POLL_MS` | `300000` | Intervalo de consulta com o painel fechado. Mínimo de 1000 ms. |
-| `KEEPTRACK_DESKTOP_SESSIONS` | Pasta do Desktop sob o diretório pessoal | Raiz dos registros lida no lugar do padrão. Usada nos testes. |
+| `KEEPTRACK_POLL_MS` | `60000` | Intervalo de consulta com o painel aberto. Um valor abaixo de 1000, ou que não seja número inteiro, é ignorado e vale o padrão. |
+| `KEEPTRACK_BAND_POLL_MS` | `300000` | Intervalo de consulta com o painel fechado. Mesma regra de `KEEPTRACK_POLL_MS`. |
+| `KEEPTRACK_DESKTOP_SESSIONS` | `$HOME/.config/Claude/claude-code-sessions` | Pasta de registros de sessão que é lida (somente leitura). Definida para os testes. |
+| `ASKAWAY_HOME` | `$HOME/.claude/state/askaway` | Pasta de estado do Askaway cujas perguntas são lidas (somente leitura). |
+| `LC_ALL`, `LC_MESSAGES`, `LANG`, `LANGUAGE` | sem valor | Idioma quando nenhuma escolha está guardada: decide a primeira variável definida. `pt*` dá português; qualquer outra coisa dá inglês. Uma escolha guardada com `/keeptrack lang` sempre vence. |
 
-Fixo no código, não configurável: o prazo da consulta é de 30 segundos (`POLL_DEADLINE_MS` em `plugins/keeptrack-repo-pane/hooks/register.tsx`), e a faixa é redesenhada a cada 30 segundos (`BAND_TICK_MS`).
+As duas pastas padrão são montadas a partir de `HOME`. Sem `HOME`, o mod não encontra a pasta de registros.
+
+Fixo no código, não configurável:
+
+| Ajuste | Valor | Onde |
+|---|---|---|
+| Prazo de uma consulta | 30 s | `POLL_DEADLINE_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:73` |
+| Tique de redesenho da faixa | 30 s | `BAND_TICK_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:48` |
+| Timeout de chamada do gh | 15 s | `GH_TIMEOUT_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:55` |
+| Timeout de chamada do git | 5 s | `GIT_TIMEOUT_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:56` |
+| Issues abertas por consulta | 500 | `ISSUE_LIMIT`, `plugins/keeptrack-repo-pane/hooks/register.tsx:60` |
+| Pull requests abertos por consulta | 100 | `PR_LIMIT`, `plugins/keeptrack-repo-pane/hooks/register.tsx:61` |
+| Corte de sessões recentes | 72 h | `SESSION_CUTOFF_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:54` |
+| Validade de uma issue de janela | 30 dias | `OVERRIDE_TTL_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:78` |
+| Consultas abandonadas ao mesmo tempo | 2 | `MAX_ABANDONED_POLLS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:76` |
+| Janela do estado "trabalhando" | 5 min após a última atividade | `WORKING_WINDOW_MS`, `plugins/keeptrack-repo-pane/hooks/model.ts:27` |
+
+## 📚 Documentação
+
+- [SPEC.md](plugins/keeptrack-repo-pane/SPEC.md): o que o código faz hoje, e em que ele difere do registro de design (em inglês).
+- [CONTRIBUTING.md](CONTRIBUTING.md): o layout do repositório e o protocolo de testes (em inglês).
+- [CHANGELOG.md](CHANGELOG.md): cada mudança, por versão (em inglês).
 
 ## 🔒 Segurança e privacidade
 
-- **O que sai da máquina:** só chamadas `gh` ao GitHub, para ler milestones, issues abertas, pull requests abertos e os detalhes de uma issue. Não há chamadas pagas nem chamadas a outros serviços.
-- **O que é lido localmente:** o remote, o branch e o log do git do repositório e das suas sessões, os registros de sessão do Desktop e a pasta de perguntas do Askaway (`ASKAWAY_HOME`, ou `~/.claude/state/askaway`).
-- **O que é gravado:** só o estado do mod (a flag de aberto, o idioma e a issue definida por `/keeptrack issue`). Nada é gravado no GitHub nem no repositório.
-- Para relatar uma vulnerabilidade, veja [SECURITY.md](SECURITY.md) (em inglês).
+- **O que sai da máquina:** só chamadas do `gh` ao GitHub, para ler milestones, issues abertas, pull requests abertos e os detalhes de uma issue. Não há chamadas pagas nem chamadas a outros serviços.
+- **O que é lido localmente:** o remote, a branch e o log do git do repositório e das suas sessões, os registros de sessão do Desktop, e a pasta de perguntas do Askaway (`ASKAWAY_HOME`, ou `~/.claude/state/askaway`).
+- **O que é gravado:** só o estado do mod (o sinal de aberto, o idioma e a issue definida por `/keeptrack issue`). Nada é gravado no GitHub nem no repositório.
+- Para reportar uma vulnerabilidade, veja [SECURITY.md](SECURITY.md).
+
+## 🩺 Solução de problemas
+
+| Sintoma | Causa | Solução |
+|---|---|---|
+| `claude plugin install keeptrack-repo-pane@keepglide` não encontra o plugin | A entrada do catálogo ainda não foi publicada (veja [Instalação](#-instalação)). | Aguarde a entrada. |
+| `gh not found: showing sessions only` (`gh não encontrado: mostrando só as sessões`) | O `gh` não inicia (não instalado, ou fora do caminho que o Claude Code enxerga). | Instale o [`gh`](https://cli.github.com/) e confira com `gh --version`. |
+| `gh is not signed in` (`gh sem login`) | O `gh` sai com uma mensagem de login. | Rode `gh auth login`. A próxima consulta já usa o login (60 s com o painel aberto, 5 min fechado). |
+| `GitHub rate limit: showing the last data` (`limite do GitHub: mostrando o último dado`) | Foi atingido o limite de requisições da API do GitHub. | Aguarde. O último dado fica na tela até uma consulta dar certo. |
+| `GitHub did not answer in time` (`o GitHub não respondeu a tempo`) | Uma chamada do `gh` passou de 15 s. | Confira a rede e rode a chamada que falhou à mão. A próxima consulta tenta de novo. |
+| `GitHub did not answer as expected: showing the last data` (`O GitHub não respondeu como esperado: mostrando os últimos dados`) | Uma chamada do `gh` falhou sem causa conhecida, ou a saída não pôde ser lida. | Rode `gh issue list -R <owner>/<repo> --state open` à mão para ver o erro. |
+| `no GitHub remote for this repo` (`sem remote no GitHub para este repo`) | O repositório não tem remote no GitHub. | Confira com `git remote -v`. O remote deve apontar para `github.com`, ou para um alias SSH com `github` no nome. |
+| `list is partial (first 500)` (ou `first 100`) (`lista parcial (primeiros 500)`) | O repositório tem mais issues abertas (ou pull requests abertos) do que uma consulta lê. | Nada no mod. A lista é parcial por desenho. |
+| `{count} session records could not be read` (`{count} registros de sessão não puderam ser lidos`) | Um arquivo de registro não foi lido, ou um campo de texto passa de 4096 caracteres. | O registro ruim é pulado e as outras sessões são mostradas. |
+| `git failed in this folder · sessions shown without branch` (`git falhou nesta pasta · sessões sem branch`) | O `git` falhou na pasta de uma sessão. | Confira se a pasta existe e se `git status` funciona lá. |
+| `This window is not a Desktop session: nothing to set` (`Esta janela não é uma sessão do Desktop: nada a definir`) | `/keeptrack issue` foi rodado em uma janela sem registro do Desktop. | Rode o comando em uma janela de sessão do Desktop. |
+| O painel fica em `Loading the repo...` (`Carregando o repo...`) | A primeira consulta não terminou, ou foi abandonada após 30 s. | Aguarde uma consulta. O mod registra `poll skipped` quando há duas consultas abandonadas ainda rodando, e então não inicia outra até uma terminar. |
+
+## 🐞 Problemas conhecidos
+
+Nenhum problema conhecido em aberto em 2026-10-21. Achou um? [Abra uma issue](https://github.com/KeepGlide/keeptrack/issues/new).
+
+Limitações conhecidas, como o código se comporta hoje:
+
+- **Um pull request mesclado não vincula a sua issue.** Só pull requests abertos são consultados, então uma issue cujo PR foi mesclado não mostra esse PR. Contorno: `/keeptrack issue <n>` na janela define a issue à mão.
+- **Sessões arquivadas não aparecem como ativas.** Uma sessão arquivada não aparece como sessão ativa, mesmo quando a branch dela tem um PR aberto; um pai arquivado de uma sessão exibida é desenhado como ancestral ocioso. A sessão da própria janela é a exceção. Contorno: nenhum.
+- **Checks sempre mostram `no CI`.** O mod lê o resumo de checks dos pull requests abertos, mas a linha Checks sempre mostra `no CI`, porque os detalhes da issue não repassam esse valor (register.tsx:926). Os repositórios KeepGlide não rodam GitHub Actions. Contorno: nenhum.
+- **O estado "trabalhando" é uma heurística.** Uma sessão conta como trabalhando por 5 minutos após a última atividade, então a faixa pode atrasar em relação ao estado real. Contorno: nenhum.
+- **Só remotes do GitHub contam.** Um remote em outro host aparece como `no GitHub remote`. Contorno: nenhum.
+- **As listas têm limite por consulta.** São lidas 500 issues abertas e 100 pull requests abertos; além disso o painel mostra `list is partial`. Contorno: nenhum.
 
 ## 🧪 Testes
 
 | Categoria | Testes |
 |---|---|
-| Regras: leitura do remote, árvore de sessões, grupos de issues, linhas do tempo, projeção de registros (`tests/model.test.ts`) | 60 |
+| Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo, projeção de registros (`tests/model.test.ts`) | 60 |
 | Módulo de hooks: consulta, comando do painel, temporizadores e fechamento (`tests/register.test.ts`) | 61 |
-| Faixa: linha de estado, estados e botão Open (`tests/band.test.ts`) | 36 |
-| Painel: desenho do instantâneo (`tests/pane.test.ts`) | 23 |
+| Faixa: linha de status, estados e botão Open (`tests/band.test.ts`) | 36 |
+| Painel: desenho do snapshot (`tests/pane.test.ts`) | 23 |
 | Idioma: dicionários em inglês e português do Brasil (`tests/i18n.test.ts`) | 8 |
 | Transições de turno da faixa (`tests/turn.test.ts`) | 6 |
 | **Total** | **194** |
 
-Contagens de `claude plugin test plugins/keeptrack-repo-pane` (194 passam, 0 falham), em 2026-10-21, antes do primeiro commit.
+Contagens de `claude plugin test plugins/keeptrack-repo-pane` (194 passam, 0 falham), executadas de novo em 2026-10-21 no commit `1787401`.
 
 ## 🔧 Desenvolvimento
 
-Na raiz do repositório:
+Da raiz do repositório, valide o manifesto, os hooks e os tipos:
+
+```bash
+claude plugin validate plugins/keeptrack-repo-pane
+```
+
+Rode os testes:
 
 ```bash
 claude plugin test plugins/keeptrack-repo-pane
 ```
 
+Rode a verificação de aparência, que falha em qualquer cor hexadecimal, função de cor ou emoji no código desenhado:
+
 ```bash
 bash plugins/keeptrack-repo-pane/scripts/keeptrack-look-check.sh
 ```
 
-A checagem de aparência falha em qualquer cor hexadecimal, função de cor ou emoji no código desenhado. A organização do repositório e o protocolo de testes estão em [CONTRIBUTING.md](CONTRIBUTING.md) (em inglês).
+A organização do repositório e o protocolo de testes estão em [CONTRIBUTING.md](CONTRIBUTING.md), em inglês.
+
+## 🌿 Branches e releases
+
+`main` é a única branch de longa duração. Faça cada mudança em uma branch curta a partir de `main`, mantenha-a pequena, rode os testes e abra um pull request. Releases são tags SemVer em `main`, cada uma com a sua entrada em [CHANGELOG.md](CHANGELOG.md). Ainda não há GitHub Release publicada.
 
 ## 📝 Changelog
 
@@ -167,7 +330,7 @@ As mudanças de cada versão estão em [CHANGELOG.md](CHANGELOG.md), no formato 
 
 ## 🤝 Contribuindo
 
-Pull requests são bem-vindos. Leia [CONTRIBUTING.md](CONTRIBUTING.md) antes.
+Pull requests são bem-vindos. Leia antes o [CONTRIBUTING.md](CONTRIBUTING.md), em inglês.
 
 ## 🧑‍🔧 Mantenedora
 

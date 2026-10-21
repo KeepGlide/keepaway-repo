@@ -8,6 +8,9 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+### Changed
+- The README pair now follows the KeepGlide README standard: centred banner and header, static badges, a contents block, a platform table, a full AI install spec, Updating and Uninstall sections, Troubleshooting and Known issues. No code change.
+
 ## [0.2.0-beta.5] - 2026-10-21
 
 First public content of the repository. The mod was renamed from github-repo-work-pane on 2026-10-21; the command is now `/keeptrack`.
