@@ -1,4 +1,4 @@
-// Pure rules of the repo work pane: the GitHub remote, the session-to-issue mapping, the session tree, the issue
+// Pure rules of the KeepTrack pane: the GitHub remote, the session-to-issue mapping, the session tree, the issue
 // groups, the timelines, the session state and the projection of a Desktop session record. Nothing here reads the host
 // or the engine; register.tsx reads and calls, pane.tsx draws. Every function is unit-tested (tests/model.test.ts).
 import type {
@@ -10,6 +10,7 @@ import type {
   Milestone,
   ProjectedRecord,
   PullRequest,
+  SessionGroup,
   SessionInput,
   SessionNode,
   TimelineEvent,
@@ -34,9 +35,9 @@ const ISSUE_NUMBER_MAX = 999_999
 const URL_REMOTE = /^(?:https|ssh):\/\/(?:[^@/\s]+@)?([A-Za-z0-9.-]+)(?::\d{1,5})?\/([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})\/?/
 const SCP_REMOTE = /^(?:[^@/:\s]+@)?([A-Za-z0-9._-]+):([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})\/?/
 const SESSION_LINK_ID = /^local_[A-Za-z0-9_-]{1,128}/
-const BRANCH_NUMBER_PREFIX = /^(?:[\w.-]+\/)?(\d{1,6})-/
-const BRANCH_ISSUE_WORD = /\bissue-(\d{1,6})\b/i
-const TITLE_NUMBER = /#(\d{1,6})\b/
+const BRANCH_NUMBER_PREFIX = /^(?:[\w.-]+\/)?(?!\d{4}-\d{2}-\d{2}-)(\d{1,6})-/g
+const BRANCH_ISSUE_WORD = /\bissue-(\d{1,6})\b/gi
+const TITLE_NUMBER = /#(\d{1,6})\b/g
 
 // Text length caps of what reaches the snapshot (see plain): a title or subject 200, a label or a name 100.
 export const TEXT_MAX = 200
@@ -101,16 +102,25 @@ function issueNumberOf(digits: string): number | null {
   return value >= 1 && value <= ISSUE_NUMBER_MAX ? value : null
 }
 
-// The issue a branch names (repo-work-pane-design-spec.md D1, step 3): a leading number after an optional prefix, else an issue-<n> word.
-export function issueFromBranch(branch: string): number | null {
-  const match = BRANCH_NUMBER_PREFIX.exec(branch) ?? BRANCH_ISSUE_WORD.exec(branch)
-  return match === null ? null : issueNumberOf(match[1] ?? '')
+// The first number a pattern captures that is a valid issue number, or null: a number out of range is skipped, so a real reference after it counts.
+function firstIssueOf(text: string, pattern: RegExp): number | null {
+  for (const match of text.matchAll(pattern)) {
+    const number = issueNumberOf(match[1] ?? '')
+    if (number !== null) return number
+  }
+  return null
 }
 
-// The first hash-number reference of a session title (repo-work-pane-design-spec.md D1, step 4).
+// The issue a branch names (repo-work-pane-design-spec.md D1, step 3): a leading number after an optional prefix first, as gh's
+// <n>-<slug> names it, so an issue-<n> word in the slug does not win; a leading date such as 2026-10-22- is skipped. Else an
+// issue-<n> word.
+export function issueFromBranch(branch: string): number | null {
+  return firstIssueOf(branch, BRANCH_NUMBER_PREFIX) ?? firstIssueOf(branch, BRANCH_ISSUE_WORD)
+}
+
+// The first valid hash-number reference of a session title (repo-work-pane-design-spec.md D1, step 4).
 export function issueFromTitle(title: string): number | null {
-  const match = TITLE_NUMBER.exec(title)
-  return match === null ? null : issueNumberOf(match[1] ?? '')
+  return firstIssueOf(title, TITLE_NUMBER)
 }
 
 // The issue a pull request closes for this branch: only an open PR whose head is the branch. Several issues: the lowest
@@ -122,9 +132,9 @@ function closingIssueOf(pr: PullRequest | null, branch: string | null): number |
 }
 
 // The issue of one session, first match wins (repo-work-pane-design-spec.md D1): override, PR closing reference, branch, title, then the
-// parent's issue for a fork or spawn only.
+// parent's issue for a fork or spawn only. The title step takes `titleIssue`, read from the uncut title, when it is given (DL15).
 export function issueOfSession(input: {
-  override: number | null; pr: PullRequest | null; branch: string | null; title: string
+  override: number | null; pr: PullRequest | null; branch: string | null; title: string; titleIssue?: number | null
   parentIssue: IssueRef | null; isDerived: boolean
 }): IssueRef | null {
   if (input.override !== null) return { number: input.override, source: 'override' }
@@ -132,7 +142,7 @@ export function issueOfSession(input: {
   if (closed !== null) return { number: closed, source: 'pr' }
   const branchIssue = input.branch === null ? null : issueFromBranch(input.branch)
   if (branchIssue !== null) return { number: branchIssue, source: 'branch' }
-  const titleIssue = issueFromTitle(input.title)
+  const titleIssue = input.titleIssue === undefined ? issueFromTitle(input.title) : input.titleIssue
   if (titleIssue !== null) return { number: titleIssue, source: 'title' }
   if (input.isDerived && input.parentIssue !== null) return { number: input.parentIssue.number, source: 'parent' }
   return null
@@ -140,13 +150,16 @@ export function issueOfSession(input: {
 
 const clampTo = (at: number, now: number): number => Math.min(at, now)
 
-// The tree options: the reference time, the activity cutoff in ms, this window's Desktop session id, and the breadcrumb
-// facts of the open issues by number (empty when there are none).
+// The tree options: the reference time, the activity cutoff in ms, this window's Desktop session id, the breadcrumb facts of
+// the open issues by number (empty when there are none), the context ancestors (records up the parent chains that are not
+// listed, in any state; none when absent) and the Desktop sidebar groups (none when absent).
 type TreeOptions = {
   now: number
   cutoffMs: number
   thisCliSessionId: string | null
   issueFacts?: ReadonlyMap<number, IssueFacts>
+  ancestors?: readonly ProjectedRecord[]
+  desktopGroups?: DesktopGroups
 }
 
 // The breadcrumb facts of each open issue: its page, and the title of its milestone when that milestone is open too.
@@ -184,23 +197,35 @@ function isLive(record: SessionInput, earliest: number, now: number): boolean {
   return clampTo(record.lastActivityAt, now) >= earliest || record.pr?.state === 'OPEN'
 }
 
-// Adds every ancestor of a kept session that exists in the input, so a kept child never loses its parent.
-function addAncestors(id: string, byId: ReadonlyMap<string, SessionInput>, kept: Set<string>): void {
-  let parentId = byId.get(id)?.parentId ?? null
-  while (parentId !== null && byId.has(parentId) && !kept.has(parentId)) {
-    kept.add(parentId)
-    parentId = byId.get(parentId)?.parentId ?? null
+// Adds every listable ancestor of a kept session, so a kept child never loses a listed ancestor. The walk goes through a
+// context ancestor (archived, or not admitted), which is never added, and stops at a missing id, a revisit or a kept one.
+function addAncestors(
+  id: string,
+  byId: ReadonlyMap<string, SessionInput>,
+  chain: ReadonlyMap<string, ProjectedRecord>,
+  kept: Set<string>,
+): void {
+  const seen = new Set<string>([id])
+  let parentId = chain.get(id)?.parentId ?? null
+  while (parentId !== null && !seen.has(parentId) && !kept.has(parentId)) {
+    seen.add(parentId)
+    if (byId.has(parentId)) kept.add(parentId)
+    parentId = chain.get(parentId)?.parentId ?? null
   }
 }
 
-// The sessions shown: this window's always (archived or not), the live ones, and the ancestors of all of them.
-function keptIds(byId: ReadonlyMap<string, SessionInput>, options: TreeOptions): Set<string> {
+// The sessions listed: this window's always (archived or not), the live ones, and every listable ancestor of all of them.
+function keptIds(
+  byId: ReadonlyMap<string, SessionInput>,
+  chain: ReadonlyMap<string, ProjectedRecord>,
+  options: TreeOptions,
+): Set<string> {
   const earliest = options.now - options.cutoffMs
   const kept = new Set<string>()
   for (const record of byId.values()) {
     if (isThisWindow(record, options.thisCliSessionId) || isLive(record, earliest, options.now)) kept.add(record.sessionId)
   }
-  for (const id of [...kept]) addAncestors(id, byId, kept)
+  for (const id of [...kept]) addAncestors(id, byId, chain, kept)
   return kept
 }
 
@@ -238,16 +263,81 @@ function cutTooDeep(kept: ReadonlySet<string>, parentOf: Map<string, string>): v
   for (const id of deep) parentOf.delete(id)
 }
 
-// The parent each shown session hangs under; a session absent from the map is a root.
-function attachmentsOf(kept: ReadonlySet<string>, byId: ReadonlyMap<string, SessionInput>): Map<string, string> {
+// The family root of a session: its id, and its title ('' when unknown).
+type Family = { id: string; title: string }
+
+// The title a spawn link gives the session it names; '' for a fork, a root or a spawn link without a title.
+const spawnTitleOf = (record: ProjectedRecord | null): string => (record?.parentKind === 'spawn' ? (record.parentTitle ?? '') : '')
+
+// The family root of a session (Askaway's family_of): the top of its fork and spawn links, at most MAX_DEPTH hops up. An
+// untitled root takes the title the spawn link just below it gives. A missing root is named by the spawn link that names it,
+// else the top present record is the root. The missing parent is read before the hop cap, so a top present record MAX_DEPTH
+// hops up is still the root. A cycle, or a root more than MAX_DEPTH hops up, makes the session its own family.
+function familyOf(id: string, chain: ReadonlyMap<string, ProjectedRecord>): Family {
+  const own = chain.get(id)
+  if (own === undefined) return { id, title: '' }
+  const seen = new Set<string>([id])
+  let below: ProjectedRecord | null = null
+  let current = own
+  for (let hops = 0; ; hops += 1) {
+    const parentId = current.parentId
+    const rootTitle = current.title !== '' ? current.title : spawnTitleOf(below)
+    if (parentId === null) return { id: current.sessionId, title: rootTitle }
+    const parent = chain.get(parentId)
+    if (parent === undefined) {
+      const named = spawnTitleOf(current)
+      if (named === '') return { id: current.sessionId, title: rootTitle }
+      // The root the spawn link names sits one hop above `current`, so at MAX_DEPTH hops it is past the cap.
+      return hops < MAX_DEPTH ? { id: parentId, title: named } : { id, title: own.title }
+    }
+    if (hops === MAX_DEPTH || seen.has(parentId)) return { id, title: own.title }
+    seen.add(parentId)
+    below = current
+    current = parent
+  }
+}
+
+// The group a session is drawn under: its own named Desktop Group, else its family root's (a Group with a blank name is
+// skipped), else its family, linked when the root id has the shape of a Desktop session link.
+function groupOf(id: string, family: Family, groups: DesktopGroups): SessionGroup {
+  for (const groupId of [groups.assignments.get(id), groups.assignments.get(family.id)]) {
+    const label = groupId === undefined ? '' : plain(groups.names.get(groupId) ?? '', LABEL_MAX)
+    if (groupId !== undefined && label !== '') return { key: groupId, label, href: null, isDesktopGroup: true }
+  }
+  return { key: family.id, label: family.title, href: isSessionLinkId(family.id) ? family.id : null, isDesktopGroup: false }
+}
+
+// The nearest kept ancestor of a session: the walk goes through the ancestors that are not kept, and gives null at a missing id
+// or a revisit.
+function nearestKeptAncestorOf(id: string, kept: ReadonlySet<string>, chain: ReadonlyMap<string, ProjectedRecord>): string | null {
+  const seen = new Set<string>([id])
+  let parentId = chain.get(id)?.parentId ?? null
+  while (parentId !== null && !seen.has(parentId)) {
+    if (kept.has(parentId)) return parentId
+    seen.add(parentId)
+    parentId = chain.get(parentId)?.parentId ?? null
+  }
+  return null
+}
+
+// The parent each listed session hangs under, its nearest listed ancestor; a session absent from the map is a top.
+function attachmentsOf(kept: ReadonlySet<string>, chain: ReadonlyMap<string, ProjectedRecord>): Map<string, string> {
   const parentOf = new Map<string, string>()
   for (const id of kept) {
-    const parentId = byId.get(id)?.parentId ?? null
-    if (parentId !== null && kept.has(parentId)) parentOf.set(id, parentId)
+    const parentId = nearestKeptAncestorOf(id, kept, chain)
+    if (parentId !== null) parentOf.set(id, parentId)
   }
   for (const id of kept) cutCycleAbove(id, parentOf)
   cutTooDeep(kept, parentOf)
   return parentOf
+}
+
+// A session in another group than its parent's is cut from it and becomes a top of its own group (Askaway's per-session Group
+// rule).
+function cutAcrossGroups(parentOf: Map<string, string>, groups: ReadonlyMap<string, SessionGroup>): void {
+  for (const [id, parentId] of [...parentOf]) {
+    if (groups.get(id)?.key !== groups.get(parentId)?.key) parentOf.delete(id)
+  }
 }
 
 // The root at the top of a session's chain (the chain is acyclic after attachmentsOf).
@@ -264,20 +354,40 @@ function rootIdOf(id: string, parentOf: ReadonlyMap<string, string>): string {
 type TreeContext = {
   now: number
   thisCliSessionId: string | null
-  byId: ReadonlyMap<string, SessionInput>
+  chain: ReadonlyMap<string, ProjectedRecord>
+  groups: ReadonlyMap<string, SessionGroup>
   childrenOf: ReadonlyMap<string, readonly SessionInput[]>
   thisRootId: string | null
   issueFacts: ReadonlyMap<number, IssueFacts>
 }
 
-// The root whose tree holds this window comes first, then the rest by last activity, newest first.
-function sortRoots(roots: readonly SessionInput[], context: TreeContext): SessionInput[] {
+// The tops of one group in order: a family's root first (when listed), then its other tops oldest first; a Desktop Group's
+// top that holds this window first, then the rest by last activity, newest first.
+function sortGroupTops(key: string, tops: readonly SessionInput[], context: TreeContext): SessionInput[] {
+  if (tops.some(top => context.groups.get(top.sessionId)?.isDesktopGroup === false)) {
+    return [...tops.filter(top => top.sessionId === key), ...sortChildren(tops.filter(top => top.sessionId !== key), context.now)]
+  }
   const rank = (record: SessionInput): number => (record.sessionId === context.thisRootId ? 1 : 0)
-  return [...roots].sort(
+  return [...tops].sort(
     (a, b) =>
       rank(b) - rank(a) ||
       clampTo(b.lastActivityAt, context.now) - clampTo(a.lastActivityAt, context.now),
   )
+}
+
+// The tops in drawing order, each group's tops together: the group holding this window first, then the group whose newest top
+// was active last, then by key.
+function sortTops(tops: readonly SessionInput[], context: TreeContext): SessionInput[] {
+  const byKey = new Map<string, SessionInput[]>()
+  for (const top of tops) {
+    const key = context.groups.get(top.sessionId)?.key ?? top.sessionId
+    byKey.set(key, [...(byKey.get(key) ?? []), top])
+  }
+  const holdsThis = (list: readonly SessionInput[]): number => (list.some(top => top.sessionId === context.thisRootId) ? 1 : 0)
+  const newest = (list: readonly SessionInput[]): number => Math.max(...list.map(top => clampTo(top.lastActivityAt, context.now)))
+  return [...byKey]
+    .sort(([keyA, a], [keyB, b]) => holdsThis(b) - holdsThis(a) || newest(b) - newest(a) || (keyA < keyB ? -1 : 1))
+    .flatMap(([key, list]) => sortGroupTops(key, list, context))
 }
 
 // The children of a session, oldest first.
@@ -285,18 +395,19 @@ function sortChildren(children: readonly SessionInput[], now: number): SessionIn
   return [...children].sort((a, b) => clampTo(a.createdAt, now) - clampTo(b.createdAt, now))
 }
 
-// One session as a node: its issue inherits from the parent node, its timeline reads the parent's title, its children
-// are attached below it.
+// One session as a node: its issue inherits from the drawn parent node, its timeline reads the title of its own parent (an
+// ended one included), a top carries its group, its children are attached below it.
 function attach(record: SessionInput, depth: number, parentNode: SessionNode | null, context: TreeContext): SessionNode {
   const createdAt = clampTo(record.createdAt, context.now)
   const lastActivityAt = clampTo(record.lastActivityAt, context.now)
   const kind = record.parentKind ?? 'root'
-  const parentRecord = record.parentId === null ? undefined : context.byId.get(record.parentId)
+  const parentRecord = record.parentId === null ? undefined : context.chain.get(record.parentId)
   const issue = issueOfSession({
     override: record.override,
     pr: record.pr,
     branch: record.branch,
     title: record.title,
+    titleIssue: record.titleIssue,
     parentIssue: parentNode?.issue ?? null,
     isDerived: record.parentKind !== null,
   })
@@ -308,13 +419,13 @@ function attach(record: SessionInput, depth: number, parentNode: SessionNode | n
     kind,
     depth,
     parentId: parentNode?.id ?? null,
+    group: parentNode === null ? (context.groups.get(record.sessionId) ?? null) : null,
     createdAt,
     branch: record.branch,
     issue,
     milestoneTitle: facts?.milestoneTitle ?? null,
     issueUrl: facts?.url ?? null,
-    // An archived session shown only as an ancestor is idle: its activity is not read.
-    state: record.isArchived ? 'idle' : stateOf(lastActivityAt, context.now, record.waiting),
+    state: stateOf(lastActivityAt, context.now, record.waiting),
     timeline: timelineOf({
       createdAt,
       kind,
@@ -330,31 +441,40 @@ function attach(record: SessionInput, depth: number, parentNode: SessionNode | n
   return node
 }
 
-// The session tree of the sessions shown (repo-work-pane-design-spec.md D2): this window's first, roots by last activity, derived sessions
-// under their parent. Future timestamps are clamped to now; a cycle is cut at one link; a session deeper than MAX_DEPTH
-// becomes a root. A parent that is not in the input promotes its child to a root (parentId null, kind kept).
+// The session tree of the sessions listed (repo-work-pane-design-spec.md D2), each top under its group: a Desktop sidebar Group,
+// else the session family. The group holding this window comes first, then the groups by their newest top; derived sessions
+// hang under their parent. Future timestamps are clamped to now; a cycle is cut at one link; a session deeper than MAX_DEPTH,
+// or filed in another group than its parent, becomes a top. A parent that is not listed (missing, archived and not this
+// window, or a context ancestor) is skipped: its child hangs under the nearest listed ancestor, else it is a top of its family
+// group (parentId null, kind kept). Context ancestors only link and group: they are never listed.
 export function buildTree(nodes: readonly SessionInput[], options: TreeOptions): SessionNode[] {
-  const byId = new Map<string, SessionInput>(nodes.map(record => [record.sessionId, record]))
-  const kept = keptIds(byId, options)
-  const parentOf = attachmentsOf(kept, byId)
+  const listable = nodes.filter(record => !record.isArchived || isThisWindow(record, options.thisCliSessionId))
+  const byId = new Map<string, SessionInput>(listable.map(record => [record.sessionId, record]))
+  const chain = new Map<string, ProjectedRecord>([...(options.ancestors ?? []), ...nodes].map(record => [record.sessionId, record]))
+  const kept = keptIds(byId, chain, options)
+  const parentOf = attachmentsOf(kept, chain)
+  const desktopGroups = options.desktopGroups ?? NO_DESKTOP_GROUPS
+  const groups = new Map([...kept].map(id => [id, groupOf(id, familyOf(id, chain), desktopGroups)] as const))
+  cutAcrossGroups(parentOf, groups)
   const keptRecords = [...byId.values()].filter(record => kept.has(record.sessionId))
   const childrenOf = new Map<string, SessionInput[]>()
-  const roots: SessionInput[] = []
+  const tops: SessionInput[] = []
   for (const record of keptRecords) {
     const parentId = parentOf.get(record.sessionId)
-    if (parentId === undefined) roots.push(record)
+    if (parentId === undefined) tops.push(record)
     else childrenOf.set(parentId, [...(childrenOf.get(parentId) ?? []), record])
   }
   const thisRecord = keptRecords.find(record => isThisWindow(record, options.thisCliSessionId))
   const context: TreeContext = {
     now: options.now,
     thisCliSessionId: options.thisCliSessionId,
-    byId,
+    chain,
+    groups,
     childrenOf,
     thisRootId: thisRecord === undefined ? null : rootIdOf(thisRecord.sessionId, parentOf),
     issueFacts: options.issueFacts ?? new Map<number, IssueFacts>(),
   }
-  return sortRoots(roots, context).map(root => attach(root, 0, null, context))
+  return sortTops(tops, context).map(top => attach(top, 0, null, context))
 }
 
 // Newest first by the parsed updatedAt; an unparsable date sorts as the oldest.
@@ -460,6 +580,8 @@ export function projectRecord(raw: unknown): ProjectedRecord | null {
     sessionId,
     cliSessionId,
     title: plain(title, TEXT_MAX),
+    // Read before the cut, from the title FIELD_MAX_LENGTH already bounds (DL15).
+    titleIssue: issueFromTitle(title),
     createdAt,
     lastActivityAt,
     isArchived,
@@ -469,4 +591,32 @@ export function projectRecord(raw: unknown): ProjectedRecord | null {
     commonDir: commonDirOf(raw.gitAnchors),
     cwd: absolutePathOf(raw.cwd),
   }
+}
+
+// The Desktop sidebar groups, read from the Desktop config (claude_desktop_config.json), as Askaway reads them: each group's name
+// by its id, and the group each Desktop session (local_<id>) is filed under. A config of any other shape names none.
+export type DesktopGroups = { names: ReadonlyMap<string, string>; assignments: ReadonlyMap<string, string> }
+export const NO_DESKTOP_GROUPS: DesktopGroups = { names: new Map(), assignments: new Map() }
+const DESKTOP_CODE_PREFIX = 'code:'
+
+// The groups and assignments of every scope of the config's dframe-group-scopes; only code: assignments name a session.
+export function parseDesktopGroups(config: unknown): DesktopGroups {
+  const scopes =
+    isObject(config) && isObject(config.preferences) && isObject(config.preferences.epitaxyPrefs)
+      ? config.preferences.epitaxyPrefs['dframe-group-scopes']
+      : undefined
+  if (!isObject(scopes)) return NO_DESKTOP_GROUPS
+  const names = new Map<string, string>()
+  const assignments = new Map<string, string>()
+  for (const scope of Object.values(scopes)) {
+    if (!isObject(scope)) continue
+    for (const group of Array.isArray(scope.groups) ? scope.groups : []) {
+      if (isObject(group) && typeof group.id === 'string' && typeof group.name === 'string') names.set(group.id, group.name)
+    }
+    if (!isObject(scope.assignments)) continue
+    for (const [key, groupId] of Object.entries(scope.assignments)) {
+      if (key.startsWith(DESKTOP_CODE_PREFIX) && typeof groupId === 'string') assignments.set(key.slice(DESKTOP_CODE_PREFIX.length), groupId)
+    }
+  }
+  return { names, assignments }
 }

@@ -9,7 +9,7 @@ import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 import { ACTION_ICON_SIZE, actionIconEmoji, actionIconSvg, type ActionIconKey } from './action-icons'
 import type { HeldButtons } from './held'
 import { t, type Lang } from './i18n'
-import { renderKeepGlide, renderRepoWorkMark } from './logo-element'
+import { renderKeepGlide, renderKeepTrackMark } from './logo-element'
 import type { BandTurn } from './turn'
 
 type Ui = Elements[RenderSurface]
@@ -219,7 +219,7 @@ export function renderBand(ui: Ui, view: BandView, onOpen: () => void, held: Hel
   const band = (
     <Box flexDirection="row" flexWrap="wrap" justifyContent="space-between" alignItems="center" gap={1}>
       <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
-        {renderRepoWorkMark(ui, desktop, runningOf(view))}
+        {renderKeepTrackMark(ui, desktop, runningOf(view))}
         <Box flexDirection="row" flexWrap="wrap" alignItems="center">
           {wordNodes(ui, desktop, bandStatusWords(view), 'status')}
         </Box>

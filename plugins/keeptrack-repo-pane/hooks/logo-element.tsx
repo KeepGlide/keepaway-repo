@@ -1,10 +1,10 @@
-// The repo work logo as one drawing element, shared by the pane heading and the band row: the SVG on the desktop, the text
+// The KeepTrack logo as one drawing element, shared by the pane heading and the band row: the SVG on the desktop, the text
 // glyph elsewhere. The desktop flag decides, not `'Svg' in ui` alone: the terminal's elements carry an Svg too, drawn empty.
 // The KeepGlide mark (a local copy of askaway's) sits at the pane header's right edge, on the desktop only.
 import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import { KEEPGLIDE_ALT, keepglideSvg } from './keepglide'
-import { LOGO_GLYPH, repoWorkLoadingSvg, repoWorkSvg } from './logo'
+import { LOGO_GLYPH, keepTrackLoadingSvg, keepTrackSvg } from './logo'
 
 type Ui = Elements[RenderSurface]
 
@@ -16,10 +16,10 @@ const RUNNING_GLYPH = '▶'
 const IDLE_GLYPH = '○'
 
 // `alt` is the picture's text for a screen reader; "" marks it decorative when a line beside it already names the pane.
-export function renderRepoWorkLogo(ui: Ui, desktop: boolean, alt: string): RenderElement {
+export function renderKeepTrackLogo(ui: Ui, desktop: boolean, alt: string): RenderElement {
   if (desktop && 'Svg' in ui) {
     const { Svg } = ui
-    return <Svg key="logo" source={repoWorkSvg({ size: LOGO_SIZE })} alt={alt} width={LOGO_SIZE} height={LOGO_SIZE} />
+    return <Svg key="logo" source={keepTrackSvg({ size: LOGO_SIZE })} alt={alt} width={LOGO_SIZE} height={LOGO_SIZE} />
   }
   const { Text } = ui
   return <Text key="logo" bold>{LOGO_GLYPH}</Text>
@@ -33,11 +33,11 @@ function prefersReducedMotion(): boolean {
 
 // The band's leading mark: on the desktop the product mark, turning while the main loop runs and still when idle or when the
 // person asks for reduced motion; on the terminal its text glyph, ▶ running and ○ idle.
-export function renderRepoWorkMark(ui: Ui, desktop: boolean, running: boolean): RenderElement {
+export function renderKeepTrackMark(ui: Ui, desktop: boolean, running: boolean): RenderElement {
   if (desktop && 'Svg' in ui) {
     const { Svg } = ui
     const turning = running && !prefersReducedMotion()
-    const source = turning ? repoWorkLoadingSvg({ size: LOGO_SIZE }) : repoWorkSvg({ size: LOGO_SIZE })
+    const source = turning ? keepTrackLoadingSvg({ size: LOGO_SIZE }) : keepTrackSvg({ size: LOGO_SIZE })
     return <Svg key="mark" source={source} alt="" width={LOGO_SIZE} height={LOGO_SIZE} />
   }
   const { Text } = ui

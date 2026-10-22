@@ -1,4 +1,4 @@
-// The hooks module of the repo work pane: the poll timer, the atoms the pane draws, the /keeptrack command and the close
+// The hooks module of the KeepTrack pane: the poll timer, the atoms the pane draws, the /keeptrack command and the close
 // of the pane. The only module that calls $ (repo-work-pane-design-spec.md 3.3). The pure rules are in model.ts, the text in i18n.ts, and
 // pane.tsx draws from the snapshot alone. Nothing here logs or stores a record's content, a remote URL or a title.
 import { atom, read, update } from 'claude-code'
@@ -11,6 +11,7 @@ import { heldButtons, type HeldButtons } from './held'
 import { IDLE_TURN, bandRedrawDue, turnEnded, turnStarted, turnToolNamed } from './turn'
 import {
   LABEL_MAX,
+  NO_DESKTOP_GROUPS,
   RECORD_MAX_BYTES,
   TEXT_MAX,
   buildTree,
@@ -20,9 +21,11 @@ import {
   issueFactsOf,
   mapLimited,
   newestCommentOf,
+  parseDesktopGroups,
   parseRemote,
   plain,
   projectRecord,
+  type DesktopGroups,
   type Remote,
 } from './model'
 import type {
@@ -59,9 +62,13 @@ const COMMIT_LIMIT = 5
 // The limits of the three gh calls (repo-work-pane-design-spec.md D4); a result at the limit sets `truncated`.
 const ISSUE_LIMIT = 500
 const PR_LIMIT = 100
+// The closing references read per PR; a PR that closes more links no issue, since its lowest is then not known (DL9).
+const CLOSING_LIMIT = 50
+// The largest gh answer parsed, in UTF-8 bytes: the engine's own stdout cut. An answer past it, or cut, is unreadable (SE3).
+const GH_OUTPUT_MAX_BYTES = 4 * 1024 * 1024
 const ISSUE_NUMBER_MAX = 999_999
 // The longest running tool name the band keeps (the main loop's tool, F11).
-const TOOL_NAME_MAX = 64
+export const TOOL_NAME_MAX = 64
 // The most Desktop files read per poll (askaway's DESKTOP_SCAN_MAX), the most candidate sessions git is asked about, and
 // the most git calls in flight at once.
 const DESKTOP_SCAN_MAX = 2000
@@ -90,7 +97,7 @@ const PR_QUERY = `query($owner: String!, $name: String!) {
       totalCount
       nodes {
         number title state headRefName url createdAt reviewDecision
-        closingIssuesReferences(first: 10) { nodes { number } }
+        closingIssuesReferences(first: ${CLOSING_LIMIT}) { totalCount nodes { number } }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       }
     }
@@ -129,7 +136,7 @@ type QuestionRef = { id: string; session: string; title: string }
 type Timer = ReturnType<EngineInterface['clock']['every']>
 type Commit = { at: number; subject: string }
 type IssueComment = { author: string; at: number; body: string }
-type GhOutcome = { ok: true; stdout: string } | { ok: false; error: PaneError }
+type GhOutcome = { ok: true; stdout: string; oversized: boolean } | { ok: false; error: PaneError }
 type GithubMemory = {
   key: string
   milestones: Milestone[]
@@ -255,6 +262,55 @@ async function askawayFolderOf($: EngineInterface): Promise<string | undefined> 
   return home ? `${home}/.claude/state/askaway` : undefined
 }
 
+// The Desktop config (claude_desktop_config.json) and its sidebar Groups, read as Askaway reads them: only when its mtime
+// changes (the folder listing gives it). A file that is not there names no Group, and the tree groups by family. A file over
+// DESKTOP_CONFIG_MAX_BYTES, one that cannot be read or parsed, or a folder whose listing fails keeps the last Groups read.
+// No outcome is logged or toasted: a missing or odd config is normal, and the file also holds MCP settings. The cache is
+// written only on a successful read.
+const DESKTOP_CONFIG_MAX_BYTES = 4 * 1024 * 1024
+let desktopConfigCache: { path: string; mtimeMs: number; groups: DesktopGroups } | undefined
+
+// Forgets the cached config, so the next poll reads it again. The tests call it before each host starts.
+export function resetDesktopConfigCache(): void {
+  desktopConfigCache = undefined
+}
+
+async function desktopConfigPathOf($: EngineInterface): Promise<string | undefined> {
+  const home = await $.env.get('HOME')
+  return home ? `${home}/.config/Claude/claude_desktop_config.json` : undefined
+}
+
+// The listing entry of a file in its folder, undefined when the file is not there. A failed listing rejects: that is an error,
+// not an absent file.
+async function desktopConfigEntryOf($: EngineInterface, path: string): Promise<{ mtimeMs: number; size: number } | undefined> {
+  const slash = path.lastIndexOf('/')
+  const entries = await $.fs.list(path.slice(0, slash))
+  const entry = entries.find(one => one.kind === 'file' && one.name === path.slice(slash + 1))
+  return entry === undefined ? undefined : { mtimeMs: entry.mtimeMs, size: entry.size }
+}
+
+const lastDesktopGroups = (): DesktopGroups => desktopConfigCache?.groups ?? NO_DESKTOP_GROUPS
+
+async function readDesktopGroups($: EngineInterface): Promise<DesktopGroups> {
+  try {
+    const path = await desktopConfigPathOf($)
+    const entry = path === undefined ? undefined : await desktopConfigEntryOf($, path)
+    if (path === undefined || entry === undefined) {
+      desktopConfigCache = undefined
+      return NO_DESKTOP_GROUPS
+    }
+    if (desktopConfigCache?.path === path && desktopConfigCache.mtimeMs === entry.mtimeMs) return desktopConfigCache.groups
+    if (entry.size > DESKTOP_CONFIG_MAX_BYTES) return lastDesktopGroups()
+    const config = parseJsonText(await $.fs.read(path))
+    if (config === undefined) return lastDesktopGroups()
+    const groups = parseDesktopGroups(config)
+    desktopConfigCache = { path, mtimeMs: entry.mtimeMs, groups }
+    return groups
+  } catch {
+    return lastDesktopGroups()
+  }
+}
+
 // The entries of a folder: [] when it does not exist, undefined when it exists and cannot be listed (the caller keeps
 // what it knew). A folder the engine cannot check reads as present.
 async function entriesOf($: EngineInterface, dir: string): Promise<FsEntry[] | undefined> {
@@ -273,21 +329,29 @@ async function listingOf($: EngineInterface, dir: string): Promise<Listing> {
 const subfoldersOf = (entries: readonly FsEntry[]): FsEntry[] =>
   entries.filter(entry => entry.kind === 'dir' && !entry.isLink)
 
-const jsonFilesOf = (entries: readonly FsEntry[], dir: string): Entry[] =>
+const isJsonName = (name: string): boolean => name.endsWith('.json')
+
+// A session record is named local_<id>.json, with the id in the session link shape. Other files in the folder (scheduled-tasks.json,
+// deleted_<id> tombstones) are not records: they are not read, counted or reported.
+const isRecordName = (name: string): boolean => isJsonName(name) && isSessionLinkId(name.slice(0, -'.json'.length))
+
+const filesOf = (entries: readonly FsEntry[], dir: string, keep: (name: string) => boolean): Entry[] =>
   entries
-    .filter(entry => entry.kind === 'file' && !entry.isLink && entry.name.endsWith('.json'))
+    .filter(entry => entry.kind === 'file' && !entry.isLink && keep(entry.name))
     .map(entry => ({ path: `${dir}/${entry.name}`, size: entry.size, mtimeMs: entry.mtimeMs }))
 
-// The .json files `depth` folders below dir (0: dir itself). A folder that cannot be listed marks the result failed.
+// The regular, non-link files whose name passes `keep`, `depth` folders below dir (0: dir itself). A folder that cannot be listed
+// marks the result failed.
 async function filesUnder(
   $: EngineInterface,
   dir: string,
   depth: number,
+  keep: (name: string) => boolean,
 ): Promise<{ files: Entry[]; failed: boolean }> {
   const listing = await listingOf($, dir)
-  if (depth === 0) return { files: jsonFilesOf(listing.entries, dir), failed: listing.failed }
+  if (depth === 0) return { files: filesOf(listing.entries, dir, keep), failed: listing.failed }
   const parts = await Promise.all(
-    subfoldersOf(listing.entries).map(child => filesUnder($, `${dir}/${child.name}`, depth - 1)),
+    subfoldersOf(listing.entries).map(child => filesUnder($, `${dir}/${child.name}`, depth - 1, keep)),
   )
   return {
     files: parts.flatMap(part => part.files),
@@ -327,7 +391,7 @@ type RecordScan = { records: ProjectedRecord[]; unreadable: number; complete: bo
 // The projected Desktop records under the root. A file over RECORD_MAX_BYTES is skipped before it is read.
 async function scanRecords($: EngineInterface, root: string | undefined): Promise<RecordScan> {
   if (root === undefined) return { records: [], unreadable: 0, complete: false }
-  const listing = await filesUnder($, root, RECORD_FOLDER_DEPTH)
+  const listing = await filesUnder($, root, RECORD_FOLDER_DEPTH, isRecordName)
   const sized = listing.files.filter(file => file.size <= RECORD_MAX_BYTES).slice(0, DESKTOP_SCAN_MAX)
   const { values, kept } = await cachedValues($, sized, recordCache, projectRecord)
   recordCache = kept
@@ -344,7 +408,7 @@ async function blockersOf($: EngineInterface): Promise<Map<string, string>> {
   const blockers = new Map<string, string>()
   const folder = await askawayFolderOf($)
   if (folder === undefined) return blockers
-  const listing = await filesUnder($, `${folder}/q`, 0)
+  const listing = await filesUnder($, `${folder}/q`, 0, isJsonName)
   const sized = listing.files.filter(file => file.size <= RECORD_MAX_BYTES).slice(0, DESKTOP_SCAN_MAX)
   const { values, kept } = await cachedValues($, sized, questionCache, questionRefOf)
   questionCache = kept
@@ -364,8 +428,9 @@ function questionRefOf(value: unknown): QuestionRef | null {
   return { id, session, title }
 }
 
-// An override's time is live when it is a time from 0 up to now (SPEC 13); any other value is expired.
-const overrideTimeLive = (ts: number | null, now: number): ts is number => ts !== null && ts >= 0 && ts <= now
+// An override's time is live when it is a time from 0 up to now and no older than OVERRIDE_TTL_MS (SPEC 13); any other value is expired.
+const overrideTimeLive = (ts: number | null, now: number): ts is number =>
+  ts !== null && ts >= 0 && ts <= now && now - ts <= OVERRIDE_TTL_MS
 
 // Drops the overrides with no time or a negative one, those set over OVERRIDE_TTL_MS ago (S6), and those whose session no listed
 // record names. The clock is read here, not at the poll's start, so an override stamped during the poll is kept (F21). Called only
@@ -473,21 +538,25 @@ async function remoteOf($: EngineInterface, commonDir: string): Promise<Repo | n
 }
 
 // The checked-out branch: null for a detached HEAD and for a folder that is not a repository. `failed` when git could not answer for
-// the working copy.
+// the working copy. The full ref is read, not a short name: a tag named like the branch would shorten it to heads/<name>.
 async function branchOf($: EngineInterface, cwd: string): Promise<{ branch: string | null; failed: boolean }> {
-  const run = await gitRun($, ['-C', cwd, 'rev-parse', '--abbrev-ref', 'HEAD'])
+  const run = await gitRun($, ['-C', cwd, 'symbolic-ref', '--quiet', 'HEAD'])
   if (run !== null && notARepository(run)) return { branch: null, failed: false }
-  const head = run !== null && run.exitCode === 0 ? run.stdout.trim() : null
-  if (head === null) return { branch: null, failed: true }
-  return { branch: head === '' || head === 'HEAD' ? null : head, failed: false }
+  // Exit 1 with no stderr is a detached HEAD: no branch, and not a failure.
+  if (run !== null && run.exitCode === 1 && run.stderr.trim() === '') return { branch: null, failed: false }
+  const ref = run !== null && run.exitCode === 0 ? run.stdout.trim() : null
+  if (ref === null) return { branch: null, failed: true }
+  const branch = ref.replace(/^refs\/heads\//, '')
+  return { branch: branch === '' ? null : branch, failed: false }
 }
 
 // The newest commits of a branch, none when it is the default branch or git cannot tell which that is (repo-work-pane-design-spec.md D6).
 async function commitsOf($: EngineInterface, cwd: string, branch: string): Promise<Commit[]> {
   const origin = await gitOut($, ['-C', cwd, 'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
   if (origin === null || origin.replace(/^origin\//, '') === branch) return []
-  const log = await gitOut($, ['-C', cwd, 'log', `-${COMMIT_LIMIT}`, '--format=%ct%x09%s'])
-  return log === null ? [] : parseCommits(log)
+  // Not trimmed: a commit with an empty subject ends in its tab, and trimming would drop it (parseCommits needs the tab).
+  const run = await gitRun($, ['-C', cwd, 'log', `-${COMMIT_LIMIT}`, '--format=%ct%x09%s'])
+  return run !== null && run.exitCode === 0 ? parseCommits(run.stdout) : []
 }
 
 // Lines of `%ct<TAB>%s`: epoch seconds, then the subject (which may hold tabs of its own).
@@ -547,25 +616,6 @@ async function membershipOf($: EngineInterface, record: ProjectedRecord, context
 
 type Candidate = { record: ProjectedRecord; branch: string | null; gitFailed: boolean }
 
-// The archived records the live candidates descend from, up their parentId chains (SPEC 3 step 4, SPEC 16). They enter the tree
-// only as ancestors: they are not matched, not counted and not asked of git.
-function archivedAncestorsOf(live: readonly ProjectedRecord[], records: readonly ProjectedRecord[]): ProjectedRecord[] {
-  const archived = new Map(records.filter(record => record.isArchived).map(record => [record.sessionId, record]))
-  const found: ProjectedRecord[] = []
-  const seen = new Set<string>()
-  const pending = live.flatMap(record => (record.parentId === null ? [] : [record.parentId]))
-  for (let id = pending.pop(); id !== undefined; id = pending.pop()) {
-    const parent = archived.get(id)
-    if (parent === undefined || seen.has(id)) continue
-    seen.add(id)
-    found.push(parent)
-    if (parent.parentId !== null) pending.push(parent.parentId)
-  }
-  return found
-}
-
-// This window's record always; then the other live records of this repo, newest activity first, at most CANDIDATE_MAX in all
-// (repo-work-pane-design-spec.md D2, D2b). Archived records are neither matched nor counted (F05).
 // This window's record always, then the other live records of this repo by newest activity: the membership of the newest
 // MEMBERSHIP_SCAN_FACTOR * CANDIDATE_MAX of them is checked, a bounded number of git calls (repo-work-pane-design-spec.md D2, D2b).
 // Archived records are neither matched nor counted (F05).
@@ -598,15 +648,29 @@ function admittedOf(entries: readonly Candidate[], openBranches: ReadonlySet<str
   return [...own, ...kept]
 }
 
-// The branch of each candidate. An archived record that is not this window's is not asked of git: it is an ancestor only.
-async function withBranches(
-  $: EngineInterface,
-  records: readonly ProjectedRecord[],
-  thisId: string | null,
-): Promise<Candidate[]> {
+// The context ancestors of the admitted sessions: every scanned record up their parent chains, in any state, that is not
+// admitted itself (an admitted one is walked through). They only link and group the tree: no git call and no read for them.
+function ancestorsOf(admitted: readonly ProjectedRecord[], records: readonly ProjectedRecord[]): ProjectedRecord[] {
+  const byId = new Map(records.map(record => [record.sessionId, record]))
+  const admittedIds = new Set(admitted.map(record => record.sessionId))
+  const parentOf = (record: ProjectedRecord): ProjectedRecord | undefined =>
+    record.parentId === null ? undefined : byId.get(record.parentId)
+  const seen = new Set<string>()
+  const ancestors: ProjectedRecord[] = []
+  for (const record of admitted) {
+    for (let parent = parentOf(record); parent !== undefined && !seen.has(parent.sessionId); parent = parentOf(parent)) {
+      seen.add(parent.sessionId)
+      if (!admittedIds.has(parent.sessionId)) ancestors.push(parent)
+    }
+  }
+  return ancestors
+}
+
+// The branch of each candidate.
+async function withBranches($: EngineInterface, records: readonly ProjectedRecord[]): Promise<Candidate[]> {
   return mapLimited(records, GIT_CONCURRENCY, async (record): Promise<Candidate> => {
     const { cwd } = record
-    if (cwd === null || (record.isArchived && record.cliSessionId !== thisId)) return { record, branch: null, gitFailed: false }
+    if (cwd === null) return { record, branch: null, gitFailed: false }
     const head = await branchOf($, cwd)
     return { record, branch: head.branch, gitFailed: head.failed }
   })
@@ -619,6 +683,9 @@ type TreeInputs = {
   overrides: ReadonlyMap<string, number>
   blockers: ReadonlyMap<string, string>
   issueFacts: ReadonlyMap<number, IssueFacts>
+  // The records up the candidates' parent chains that are not listed, and the Desktop sidebar Groups.
+  ancestors: readonly ProjectedRecord[]
+  desktopGroups: DesktopGroups
 }
 
 function inputOf(entry: Candidate, inputs: TreeInputs, commits: ReadonlyMap<string, Commit[]>): SessionInput {
@@ -638,10 +705,14 @@ function treeOf(
   inputs: TreeInputs,
   commits: ReadonlyMap<string, Commit[]>,
 ): SessionNode[] {
-  return buildTree(
-    entries.map(entry => inputOf(entry, inputs, commits)),
-    { now: inputs.now, cutoffMs: SESSION_CUTOFF_MS, thisCliSessionId: inputs.thisId, issueFacts: inputs.issueFacts },
-  )
+  return buildTree(entries.map(entry => inputOf(entry, inputs, commits)), {
+    now: inputs.now,
+    cutoffMs: SESSION_CUTOFF_MS,
+    thisCliSessionId: inputs.thisId,
+    issueFacts: inputs.issueFacts,
+    ancestors: inputs.ancestors,
+    desktopGroups: inputs.desktopGroups,
+  })
 }
 
 function flattenNodes(nodes: readonly SessionNode[]): SessionNode[] {
@@ -688,12 +759,7 @@ async function sessionsOf(
   const scan = await scanRecords($, await recordsRootOf($))
   if (scan.complete && isNewest(seq)) await pruneOverrides($, new Set(scan.records.map(record => record.sessionId)))
   const members = await memberRecordsOf($, scan.records, context, thisId)
-  const live = admittedOf(await withBranches($, members.records, thisId), new Set(github.prs.map(pr => pr.headRefName)), thisId)
-  const ancestors = archivedAncestorsOf(
-    live.map(entry => entry.record),
-    scan.records,
-  ).map((record): Candidate => ({ record, branch: null, gitFailed: false }))
-  const candidates = [...live, ...ancestors]
+  const candidates = admittedOf(await withBranches($, members.records), new Set(github.prs.map(pr => pr.headRefName)), thisId)
   const blockers = await blockersOf($)
   const inputs: TreeInputs = {
     now,
@@ -702,6 +768,8 @@ async function sessionsOf(
     overrides: await overridesOf($, now),
     blockers,
     issueFacts: issueFactsOf(github.milestones, github.issues),
+    ancestors: ancestorsOf(candidates.map(entry => entry.record), scan.records),
+    desktopGroups: await readDesktopGroups($),
   }
   const keptIds = new Set(flattenNodes(treeOf(candidates, inputs, new Map())).map(node => node.id))
   const commits = await commitsOfKept($, candidates, keptIds)
@@ -743,13 +811,16 @@ function ghExitError(stderr: string): PaneError {
 async function runGh($: EngineInterface, argv: readonly string[], cwd: string): Promise<GhOutcome> {
   try {
     const run = await $.process.run(['gh', ...argv], { cwd, timeoutMs: GH_TIMEOUT_MS })
-    return run.exitCode === 0 ? { ok: true, stdout: run.stdout } : { ok: false, error: ghExitError(run.stderr) }
+    if (run.exitCode !== 0) return { ok: false, error: ghExitError(run.stderr) }
+    const oversized = run.isStdoutTruncated || new TextEncoder().encode(run.stdout).byteLength > GH_OUTPUT_MAX_BYTES
+    return { ok: true, stdout: run.stdout, oversized }
   } catch (error) {
     return { ok: false, error: ghStartError(error) }
   }
 }
 
-// One gh call: its parsed value, or undefined when it failed or answered with something unreadable.
+// One gh call: its parsed value, or undefined when it failed or answered with something unreadable: an oversized answer is
+// never parsed (SE3).
 async function fetchPart<T>(
   $: EngineInterface,
   argv: readonly string[],
@@ -763,7 +834,7 @@ async function fetchPart<T>(
     logLine($, `gh ${argv[0] ?? ''} call failed`)
     return undefined
   }
-  const parsed = parse(outcome.stdout)
+  const parsed = outcome.oversized ? null : parse(outcome.stdout)
   if (parsed === null) {
     errors.add('gh-failed')
     logLine($, `gh ${argv[0] ?? ''} answer not readable`)
@@ -810,9 +881,16 @@ function issueOf(raw: unknown): Issue | null {
   }
 }
 
-function parseIssues(text: string): Issue[] | null {
+// The issues of the list answer and the count of items that did not read (RB1-5). null when it is no list, or when no item of a
+// non-empty list reads: that answer is as unreadable as text that does not parse.
+type IssuePage = { issues: Issue[]; dropped: number }
+
+function parseIssues(text: string): IssuePage | null {
   const value = parseJsonText(text)
-  return Array.isArray(value) ? value.map(issueOf).filter(isPresent) : null
+  if (!Array.isArray(value)) return null
+  const issues = value.map(issueOf).filter(isPresent)
+  if (value.length > 0 && issues.length === 0) return null
+  return { issues, dropped: value.length - issues.length }
 }
 
 // The issue numbers a list of nodes names: `closingIssuesReferences` and the like.
@@ -821,6 +899,13 @@ function nodeNumbersOf(value: unknown): number[] {
     const number = numberOf(childOf(node, 'number'))
     return number === null ? [] : [number]
   })
+}
+
+// The issues a PR closes; none when GitHub holds more than the page read, since the lowest of a partial page may not be the
+// lowest (DL9): the session then maps by its next signal (repo-work-pane-design-spec.md D1).
+function closingIssuesOf(references: unknown): number[] {
+  const total = numberOf(childOf(references, 'totalCount'))
+  return total !== null && total > CLOSING_LIMIT ? [] : nodeNumbersOf(references)
 }
 
 function checksOf(commits: unknown): PullRequest['checks'] {
@@ -846,7 +931,7 @@ function pullRequestOf(raw: unknown): PullRequest | null {
     url,
     createdAt,
     reviewDecision: oneOf(childOf(raw, 'reviewDecision'), REVIEW_DECISIONS),
-    closes: nodeNumbersOf(childOf(raw, 'closingIssuesReferences')),
+    closes: closingIssuesOf(childOf(raw, 'closingIssuesReferences')),
     checks: checksOf(childOf(raw, 'commits')),
   }
 }
@@ -873,7 +958,8 @@ type IssueView = {
   url: string
   state: IssueDetails['state']
   milestoneTitle: string | null
-  comments: IssueComment[]
+  // Only the newest comment is kept, the one the pane draws (SE3).
+  lastComment: IssueDetails['lastComment']
 }
 
 // One comment of `gh issue view --json comments`: its login, its time and its body; null when the time does not parse.
@@ -897,7 +983,7 @@ function issueViewOf(text: string): IssueView | null {
     url,
     state: state.toUpperCase() === 'OPEN' ? 'open' : 'closed',
     milestoneTitle: plain(textOf(childOf(childOf(raw, 'milestone'), 'title')) ?? '', LABEL_MAX) || null,
-    comments: asArray(childOf(raw, 'comments')).map(commentOf).filter(isPresent),
+    lastComment: newestCommentOf(asArray(childOf(raw, 'comments')).map(commentOf).filter(isPresent)),
   }
 }
 
@@ -924,7 +1010,7 @@ function detailsOf(view: IssueView, facts: WindowFacts): IssueDetails {
         : { number: pr.number, title: pr.title, state: pr.state, reviewDecision: pr.reviewDecision, url: pr.url },
     lastCommit: facts.lastCommit,
     checks: null,
-    lastComment: newestCommentOf(view.comments),
+    lastComment: view.lastComment,
     blockedBy: facts.blockedBy,
     startedAt: facts.node.createdAt,
   }
@@ -966,12 +1052,12 @@ type GithubPart = {
   milestones: Milestone[]
   issues: Issue[]
   prs: PullRequest[]
-  truncatedLimit: number | null
+  truncatedLimits: number[]
   stale: boolean
   errors: PaneError[]
 }
 
-const emptyGithub = (): GithubPart => ({ milestones: [], issues: [], prs: [], truncatedLimit: null, stale: false, errors: [] })
+const emptyGithub = (): GithubPart => ({ milestones: [], issues: [], prs: [], truncatedLimits: [], stale: false, errors: [] })
 
 // The memory of the last good gh data for this repo; a new repo starts empty.
 function memoryFor(key: string): GithubMemory {
@@ -987,18 +1073,27 @@ function memoryFor(key: string): GithubMemory {
 function rememberGithub(
   memory: GithubMemory,
   milestones: Milestone[] | undefined,
-  issues: Issue[] | undefined,
+  issues: IssuePage | undefined,
   page: PullRequestPage | undefined,
 ): void {
   if (milestones !== undefined) memory.milestones = milestones
   if (issues !== undefined) {
-    memory.issues = issues
-    memory.issuesTruncated = issues.length >= ISSUE_LIMIT
+    // gh is asked for one more than ISSUE_LIMIT: only that extra item marks the list partial, a dropped one included (RB1-5).
+    memory.issues = issues.issues.slice(0, ISSUE_LIMIT)
+    memory.issuesTruncated = issues.issues.length + issues.dropped > ISSUE_LIMIT
   }
   if (page !== undefined) {
     memory.prs = page.prs
     memory.prsTruncated = page.total > PR_LIMIT
   }
+}
+
+// The limit of each list that was cut, the issues first: one partial-list line each (SP3-1).
+function truncatedLimitsOf(memory: GithubMemory): number[] {
+  const limits: number[] = []
+  if (memory.issuesTruncated) limits.push(ISSUE_LIMIT)
+  if (memory.prsTruncated) limits.push(PR_LIMIT)
+  return limits
 }
 
 async function githubOf($: EngineInterface, context: RepoContext, seq: number): Promise<GithubPart> {
@@ -1008,10 +1103,11 @@ async function githubOf($: EngineInterface, context: RepoContext, seq: number): 
   const memory = memoryFor(slug)
   const errors = new Set<PaneError>()
   const [milestones, issues, page] = await Promise.all([
-    fetchPart($, ['api', `repos/${slug}/milestones?state=open&per_page=100`], root, parseMilestones, errors),
+    // Every page of open milestones, which gh merges into one list (RB1-4); GH_OUTPUT_MAX_BYTES and the timeout bound it.
+    fetchPart($, ['api', '--paginate', `repos/${slug}/milestones?state=open&per_page=100`], root, parseMilestones, errors),
     fetchPart(
       $,
-      ['issue', 'list', '--repo', slug, '--state', 'open', '--limit', String(ISSUE_LIMIT), '--json', ISSUE_FIELDS],
+      ['issue', 'list', '--repo', slug, '--state', 'open', '--limit', String(ISSUE_LIMIT + 1), '--json', ISSUE_FIELDS],
       root,
       parseIssues,
       errors,
@@ -1024,12 +1120,14 @@ async function githubOf($: EngineInterface, context: RepoContext, seq: number): 
       errors,
     ),
   ])
+  // The count only: an item's text never reaches the log.
+  if (issues !== undefined && issues.dropped > 0) logLine($, `gh issue items not readable (${issues.dropped})`)
   if (isNewest(seq)) rememberGithub(memory, milestones, issues, page)
   return {
     milestones: memory.milestones,
     issues: memory.issues,
     prs: memory.prs,
-    truncatedLimit: memory.issuesTruncated ? ISSUE_LIMIT : memory.prsTruncated ? PR_LIMIT : null,
+    truncatedLimits: truncatedLimitsOf(memory),
     stale: milestones === undefined || issues === undefined || page === undefined,
     errors: [...errors],
   }
@@ -1072,8 +1170,8 @@ async function buildSnapshot($: EngineInterface, seq: number): Promise<Snapshot 
     unreadableCount: sessions.unreadable,
     errors: [...new Set(errors)],
     stale: github.stale || windowIssue.stale,
-    truncated: github.truncatedLimit !== null,
-    truncatedLimit: github.truncatedLimit,
+    truncated: github.truncatedLimits.length > 0,
+    truncatedLimits: github.truncatedLimits,
   }
 }
 
@@ -1130,7 +1228,7 @@ function emptySnapshotOf(context: RepoContext, now: number): Snapshot {
     errors: [],
     stale: false,
     truncated: false,
-    truncatedLimit: null,
+    truncatedLimits: [],
   }
 }
 
@@ -1142,7 +1240,8 @@ async function failedPoll($: EngineInterface, seq: number, error: unknown): Prom
   const base = previous ?? (lastRepoContext === null ? null : emptySnapshotOf(lastRepoContext, await $.clock.now()))
   // A newer poll has written: its snapshot stands, so this failure marks nothing (R2-04).
   if (base === null || !isNewest(seq)) return
-  await update($, snapshotAtom, () => ({ ...base, stale: true }))
+  // The mark is set on the value stored at write time, and only while no newer poll has written (R2-04).
+  await update($, snapshotAtom, current => (isNewest(seq) ? { ...(current ?? base), stale: true } : current))
   $.ui.invalidate('ui.render')
 }
 
@@ -1272,7 +1371,7 @@ async function setIssue($: EngineInterface, value: string): Promise<void> {
   const issue = issueArgOf(value)
   if (issue === null) return toastUsage($)
   const sessionId = await thisSessionLinkOf($)
-  if (sessionId === null) return $.ui.toast(t(await read($, langAtom), 'toast.noSession'))
+  if (sessionId === null || !isSessionLinkId(sessionId)) return $.ui.toast(t(await read($, langAtom), 'toast.noSession'))
   const key = `${OVERRIDE_PREFIX}${sessionId}`
   if (issue === 'none') await $.store.delete(key)
   else await $.store.set(key, { issue, ts: await $.clock.now() })
@@ -1386,8 +1485,8 @@ async function refreshAgents($: EngineInterface): Promise<void> {
 async function runCommand($: EngineInterface, args: string): Promise<void> {
   const words = args.trim() === '' ? [] : args.trim().split(/\s+/)
   const [verb = 'open', value = ''] = words
-  if (verb === 'open') return openPane($)
-  if (verb === 'issue') return setIssue($, value)
+  if (verb === 'open') return words.length > 1 ? toastUsage($) : openPane($)
+  if (verb === 'issue') return words.length > 2 ? toastUsage($) : setIssue($, value)
   if (verb === 'lang') return setLanguage($, value)
   return toastUsage($)
 }
@@ -1448,7 +1547,8 @@ export const register: Register = on => {
   })
 
   // The band's session state. The main loop's turn starts, calls its tools and ends (completed or aborted); the agents are
-  // re-read on each turn and agent event. Every hook passes the event on unchanged (SPEC section 18).
+  // re-read on turn.start, turn.complete and agent.spawn, and on the band's tick after an abort. Every hook passes the event on
+  // unchanged (SPEC section 18).
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) await beginTurn($)
     report($, refreshAgents($))

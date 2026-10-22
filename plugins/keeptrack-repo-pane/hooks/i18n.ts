@@ -27,9 +27,14 @@ const EN = {
   'command.describe': 'KeepTrack: open issues, sessions and their timeline for this repo',
   'toast.usage': 'Usage: /keeptrack open | issue <n> | issue none | lang en|pt-BR|auto',
   'toast.noSession': 'This window is not a Desktop session: nothing to set',
-  'counter.line': '{count} open issues · {sessionCount} sessions',
+  'counter.line': '{issues} · {sessions}',
+  'counter.issues': '{count} open issues',
+  'counter.issues.one': '{count} open issue',
+  'counter.sessions': '{count} sessions',
+  'counter.sessions.one': '{count} session',
   'counter.none': 'nothing in progress',
   'group.sessions': 'Sessions on this machine',
+  'group.session': 'the session',
   'group.issues': 'Issues without session',
   'group.noMilestone': 'No milestone / issue',
   'milestone.allClosed': '{label} · all closed · ready to close',
@@ -83,6 +88,7 @@ const EN = {
   'error.timeout': 'GitHub did not answer in time',
   'error.ghFailed': 'GitHub did not answer as expected: showing the last data',
   'error.records': '{count} session records could not be read',
+  'error.records.one': '{count} session record could not be read',
   'error.truncated': 'list is partial (first {count})',
   'error.git-failed': 'git failed in this folder · sessions shown without branch',
   'issues.none': 'No open issues',
@@ -109,9 +115,14 @@ const PT: Record<MessageKey, string> = {
   'command.describe': 'KeepTrack: issues abertas, sessões e a linha do tempo deste repo',
   'toast.usage': 'Uso: /keeptrack open | issue <n> | issue none | lang en|pt-BR|auto',
   'toast.noSession': 'Esta janela não é uma sessão do Desktop: nada a definir',
-  'counter.line': '{count} issues abertas · {sessionCount} sessões',
+  'counter.line': '{issues} · {sessions}',
+  'counter.issues': '{count} issues abertas',
+  'counter.issues.one': '{count} issue aberta',
+  'counter.sessions': '{count} sessões',
+  'counter.sessions.one': '{count} sessão',
   'counter.none': 'nada em andamento',
   'group.sessions': 'Sessões nesta máquina',
+  'group.session': 'a sessão',
   'group.issues': 'Issues sem sessão',
   'group.noMilestone': 'Sem milestone / issue',
   'milestone.allClosed': '{label} · todas fechadas · pronta para fechar',
@@ -165,6 +176,7 @@ const PT: Record<MessageKey, string> = {
   'error.timeout': 'o GitHub não respondeu a tempo',
   'error.ghFailed': 'O GitHub não respondeu como esperado: mostrando os últimos dados',
   'error.records': '{count} registros de sessão não puderam ser lidos',
+  'error.records.one': '{count} registro de sessão não pôde ser lido',
   'error.truncated': 'lista parcial (primeiros {count})',
   'error.git-failed': 'git falhou nesta pasta · sessões sem branch',
   'issues.none': 'Nenhuma issue aberta',
@@ -186,9 +198,14 @@ export function resolveLang(stored: unknown, env: LangEnv): Lang {
   return isLang(stored) ? stored : detectLang(env)
 }
 
-// The text of a key with its {name} placeholders filled from vars; a placeholder with no value stays as written.
+const isMessageKey = (value: string): value is MessageKey => Object.hasOwn(EN, value)
+
+// The text of a key with its {name} placeholders filled from vars; a placeholder with no value stays as written. A count of 1
+// takes the key's '.one' form when the dictionary has one (RP1, RP2); any other count takes the key itself.
 export function t(lang: Lang, key: MessageKey, vars: Readonly<Record<string, string | number>> = {}): string {
-  return MESSAGES[lang][key].replace(/\{(\w+)\}/g, (placeholder: string, name: string) =>
+  const singular = `${key}.one`
+  const form = vars.count === 1 && isMessageKey(singular) ? singular : key
+  return MESSAGES[lang][form].replace(/\{(\w+)\}/g, (placeholder: string, name: string) =>
     Object.hasOwn(vars, name) ? String(vars[name]) : placeholder,
   )
 }

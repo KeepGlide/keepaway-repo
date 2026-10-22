@@ -1,4 +1,4 @@
-// The contracts of the repo work pane (repo-work-pane-design-spec.md section 2.6), read by hooks/model.ts, hooks/register.tsx and
+// The contracts of the KeepTrack pane (repo-work-pane-design-spec.md section 2.6), read by hooks/model.ts, hooks/register.tsx and
 // hooks/pane.tsx. The record fields are the ones repo-work-pane-design-spec.md section 2.7 reads and no others.
 
 export type Milestone = { number: number; title: string; openIssues: number; closedIssues: number; dueOn: string | null }
@@ -15,6 +15,9 @@ export type ProjectedRecord = {
   sessionId: string; cliSessionId: string; title: string; createdAt: number; lastActivityAt: number
   isArchived: boolean; parentId: string | null; parentKind: 'fork' | 'spawn' | null; parentTitle: string | null
   commonDir: string | null; cwd: string | null   // cwd and commonDir: used for git only, never stored or logged
+  // The issue the uncut title names (DL15): `title` is cut for display, so a reference past the cut is read here first. Absent on
+  // an input not projected from a record, which reads the drawn title instead.
+  titleIssue?: number | null
 }
 
 export type IssueRef = { number: number; source: 'override' | 'pr' | 'branch' | 'title' | 'parent' }
@@ -25,11 +28,21 @@ export type TimelineEvent = { at: number; kind: 'commit' | 'pr' | 'session'; tex
 // issues list (null when the issue is not open, or its milestone is not open).
 export type IssueFacts = { url: string; milestoneTitle: string | null }
 
+// The group a tree top is drawn under (Askaway's Group): a Desktop sidebar Group when the session or its family root is filed
+// under one, else the session family (the Desktop root session at the top of its fork and spawn links).
+export type SessionGroup = {
+  key: string            // Desktop Group id, else the family root's sessionId
+  label: string          // Group name (plain, LABEL_MAX), else the family root's title; '' when unknown (the pane falls back)
+  href: string | null    // family root id when isSessionLinkId(id) and the group is a family; null for a Desktop Group
+  isDesktopGroup: boolean
+}
+
 export type SessionNode = {
   id: string; title: string; isThisWindow: boolean; kind: 'root' | 'fork' | 'spawn'; depth: number
   parentId: string | null; createdAt: number; branch: string | null; issue: IssueRef | null
   milestoneTitle: string | null; issueUrl: string | null
   state: 'working' | 'idle' | 'waiting'; timeline: TimelineEvent[]; children: SessionNode[]
+  group: SessionGroup | null   // set on every top of snapshot.sessions, null on derived nodes
 }
 
 export type IssueGroup = { milestone: Milestone | null; issues: Issue[] }   // milestone null = "Sem milestone / issue"
@@ -55,8 +68,8 @@ export type Snapshot = {
   // thisIssueNumber: the window's issue number whenever the window maps to one, even when thisIssue is null (a failed view).
   thisIssue: IssueDetails | null; thisIssueNumber: number | null; unreadableCount: number
   errors: PaneError[]; stale: boolean; truncated: boolean
-  // The limit of the list that was cut: 500 for issues, else 100 for PRs, else null.
-  truncatedLimit: number | null
+  // The limit of each list that was cut, the issues first: 500 for issues, 100 for PRs; empty when none was (SP3-1).
+  truncatedLimits: number[]
 }
 
 // The input of buildTree: a projected record with what register.tsx resolves for it. `commits` are the branch's own

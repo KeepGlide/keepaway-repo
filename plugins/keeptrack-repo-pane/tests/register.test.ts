@@ -5,6 +5,8 @@
 // gh and git are never run. The drawn pane is read through a mounted drawing.
 import type { On } from 'claude-code'
 import { expect, mock, test, type Engine } from 'claude-code/testing'
+import { RECORD_MAX_BYTES } from '../hooks/model'
+import { TOOL_NAME_MAX, resetDesktopConfigCache } from '../hooks/register'
 
 const HOME = '/test-home'
 const RECORDS = '/test-records'
@@ -35,9 +37,14 @@ const ISSUE_VIEW_JSON = JSON.stringify({
   comments: [{ author: { login: 'dev-one' }, createdAt: '2026-10-20T16:00:00Z', body: 'a comment' }],
 })
 const SECRET_TITLE = 'Keep this secret title out of the log'
+// The Desktop config under HOME, read for its sidebar Groups.
+const DESKTOP_CONFIG_DIR = `${HOME}/.config/Claude`
+const DESKTOP_CONFIG_NAME = 'claude_desktop_config.json'
+const DESKTOP_CONFIG_PATH = `${DESKTOP_CONFIG_DIR}/${DESKTOP_CONFIG_NAME}`
 
 type RawRecord = Record<string, unknown>
-type GhMode = 'ok' | 'missing' | 'timeout' | 'unreadable' | { exitCode: number; stderr: string }
+// 'cut': gh answers as usual, but the engine says it cut the stdout at its cap (isStdoutTruncated).
+type GhMode = 'ok' | 'missing' | 'timeout' | 'unreadable' | 'cut' | { exitCode: number; stderr: string }
 type StubOptions = {
   gh?: GhMode
   records?: RawRecord[]
@@ -58,8 +65,14 @@ type StubOptions = {
   issues?: string
   prTotal?: number
   // The open PRs the GraphQL call lists, and the branch each folder's `rev-parse --abbrev-ref HEAD` answers (default feature/disk).
-  openPrs?: { number: number; title: string; headRefName: string }[]
+  // A PR's `closes` are the closing references on the page, `closesTotal` the count GitHub holds (default: the page's).
+  openPrs?: { number: number; title: string; headRefName: string; closes?: number[]; closesTotal?: number }[]
   branches?: Record<string, string>
+  // Git answers as git gives them: a tag named like a branch shortens it to heads/<name>; a detached or unborn HEAD by folder; log stdout.
+  tags?: string[]
+  detached?: string[]
+  unborn?: string[]
+  log?: string
   repoDenies?: boolean
   originTimesOut?: boolean
   // Folders that are not git repositories: every git call in them exits 128 with git's not-a-repository message.
@@ -67,12 +80,21 @@ type StubOptions = {
   // Git calls against these common dirs exit 128 with the given stderr: a not-a-repository message, or another failure.
   gitErrors?: Record<string, string>
   unlistable?: string[]
+  // Record files the folder lists but fs.read refuses, by path.
+  unreadable?: string[]
+  // The size and the mtime fs.list gives a file, by path (default 100 bytes, mtime 1), read at each call.
+  sizes?: Record<string, number>
+  mtimes?: Record<string, number>
+  // The text of the Desktop config, read at each call; absent: its folder lists no config.
+  desktopConfig?: string
   agentsDenied?: boolean
   // Each `$.agent.list()` call takes the next hold, if any, after it has read the agents, so the test sets its read order.
   agentHolds?: Promise<void>[]
   storeKeysDenies?: boolean
   // An open askaway question of this window's session, with no answer.
   question?: { id: string; desktop_session: string; title: string }
+  // Files in the records folder that are not session records (Desktop's scheduled tasks list, deleted_<id> tombstones).
+  strayFiles?: string[]
 }
 type Host = {
   argvs: string[][]
@@ -86,6 +108,9 @@ type Host = {
   redraws: number
   // The denies the stub answered, in order: a happy path asserts none (R2-07).
   denies: string[]
+  // The paths of every fs.list and fs.read call, in order.
+  listed: string[]
+  readPaths: string[]
 }
 type FsStub = { name: string; kind: 'file' | 'dir' }
 
@@ -101,9 +126,12 @@ const recordOf = (sessionId: string, overrides: RawRecord = {}): RawRecord => ({
   ...overrides,
 })
 const OWN_RECORD = recordOf(SESSION_ID, { cliSessionId: SELF })
+const recordPath = (sessionId: string): string => `${RECORDS}/org/user/${sessionId}.json`
 
 // Answers the module's calls from memory: the Desktop records given, a GitHub remote, and empty gh lists.
 function stubHost(on: On, options: StubOptions = {}): Host {
+  // The Desktop config cache belongs to one host: a test starts with none, so no test reads another test's config.
+  resetDesktopConfigCache()
   const records = options.records ?? [OWN_RECORD]
   const host: Host = {
     argvs: [],
@@ -115,6 +143,8 @@ function stubHost(on: On, options: StubOptions = {}): Host {
     placed: options.placed ?? true,
     redraws: 0,
     denies: [],
+    listed: [],
+    readPaths: [],
   }
   // Every deny the stub answers goes through here, so host.denies keeps it (R2-07).
   const refuse = (text: string) => {
@@ -124,9 +154,10 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   // A call no test expects is refused, so the module sees a rejection, not an empty success.
   const valueOr = (argv: readonly string[], answer: ProcessOutput | undefined) =>
     answer === undefined ? refuse(`unexpected call: ${argv.join(' ')}`) : { value: answer }
-  const files = new Map(
-    records.map(record => [`${RECORDS}/org/user/${String(record.sessionId)}.json`, JSON.stringify(record)] as const),
-  )
+  const files = new Map([
+    ...records.map(record => [recordPath(String(record.sessionId)), JSON.stringify(record)] as const),
+    ...(options.strayFiles ?? []).map(name => [`${RECORDS}/org/user/${name}`, '[{"id":"task-1"}]'] as const),
+  ])
   const questionFolder = `${HOME}/.claude/state/askaway/q`
   const questions: FsStub[] = options.question === undefined ? [] : [{ name: `${options.question.id}.json`, kind: 'file' }]
   if (options.question !== undefined) files.set(`${questionFolder}/${options.question.id}.json`, JSON.stringify(options.question))
@@ -191,18 +222,25 @@ function stubHost(on: On, options: StubOptions = {}): Host {
     host.logs.push(event.text)
     return { value: undefined }
   })
+  // The Desktop config folder exists; it holds the config only while the test gives one.
+  const configEntries = (): FsStub[] =>
+    options.desktopConfig === undefined ? [] : [{ name: DESKTOP_CONFIG_NAME, kind: 'file' }]
   // A folder no test names is a deny, not an empty listing: the module sees a rejection, and the output shows whether it mattered.
   on('fs.list', (_$, event) => {
-    const entries = folders.get(event.path)
+    host.listed.push(event.path)
+    const entries = event.path === DESKTOP_CONFIG_DIR ? configEntries() : folders.get(event.path)
     if (entries === undefined || options.unlistable?.includes(event.path) === true) {
       return refuse(`fs.list refused: ${event.path}`)
     }
-    return { value: entries.map(entry => ({ ...entry, size: 100, mtimeMs: 1, isLink: false })) }
+    const sizeOf = (name: string): number => options.sizes?.[`${event.path}/${name}`] ?? 100
+    const mtimeOf = (name: string): number => options.mtimes?.[`${event.path}/${name}`] ?? 1
+    return { value: entries.map(entry => ({ ...entry, size: sizeOf(entry.name), mtimeMs: mtimeOf(entry.name), isLink: false })) }
   })
   on('fs.read', (_$, event) => {
     host.reads += 1
-    const content = files.get(event.path)
-    if (content === undefined) return refuse(`fs.read refused: ${event.path}`)
+    host.readPaths.push(event.path)
+    const content = event.path === DESKTOP_CONFIG_PATH ? options.desktopConfig : files.get(event.path)
+    if (content === undefined || options.unreadable?.includes(event.path) === true) return refuse(`fs.read refused: ${event.path}`)
     return { value: content }
   })
   on('fs.exists', (_$, event) => ({ value: files.has(event.path) || folders.has(event.path) }))
@@ -211,7 +249,10 @@ function stubHost(on: On, options: StubOptions = {}): Host {
     const argv = [...event.argv]
     host.argvs.push(argv)
     if (argv[0] === 'gh' && (options.gh === 'missing' || options.gh === 'timeout')) return refuse(REJECTION_OF[options.gh])
-    if (argv[0] === 'gh') return valueOr(argv, await ghAnswerOf(argv, options))
+    if (argv[0] === 'gh') {
+      const answer = await ghAnswerOf(argv, options)
+      return valueOr(argv, options.gh === 'cut' && answer !== undefined ? { ...answer, isStdoutTruncated: true } : answer)
+    }
     const gitDir = argv[argv.indexOf('--git-dir') + 1]
     if (gitDir === options.failFirstRemoteOf && argv.includes('get-url') && !failedOnce.has(gitDir)) {
       failedOnce.add(gitDir)
@@ -249,13 +290,13 @@ async function ghAnswerOf(argv: readonly string[], options: StubOptions): Promis
   if (options.gh === 'unreadable') return processOutput('<html>not JSON</html>')
   if (argv.includes('view')) return processOutput(ISSUE_VIEW_JSON)
   if (argv.includes('graphql')) {
-    const nodes = (options.openPrs ?? []).map(pr => ({
+    const nodes = (options.openPrs ?? []).map(({ closes = [], closesTotal, ...pr }) => ({
       ...pr,
       state: 'OPEN',
       url: `https://github.com/acme/app/pull/${pr.number}`,
       createdAt: '2026-10-20T10:00:00Z',
       reviewDecision: null,
-      closingIssuesReferences: { nodes: [] },
+      closingIssuesReferences: { totalCount: closesTotal ?? closes.length, nodes: closes.map(number => ({ number })) },
       commits: { nodes: [] },
     }))
     return processOutput(JSON.stringify({ data: { repository: { pullRequests: { totalCount: options.prTotal ?? nodes.length, nodes } } } }))
@@ -281,11 +322,22 @@ function answerOf(argv: readonly string[], options: StubOptions) {
   if (named !== undefined && argv.at(-1) === 'remote') return processOutput(named.name)
   if (named !== undefined && argv.includes('get-url') && argv.at(-1) === named.name) return processOutput(named.url)
   if (argv.includes('--git-common-dir')) return processOutput(`${REPO_ROOT}/.git`)
-  if (argv.includes('--abbrev-ref')) return processOutput(options.branches?.[argv[cwdAt] ?? ''] ?? 'feature/disk')
+  const cwd = argv[cwdAt] ?? ''
+  const branch = options.branches?.[cwd] ?? 'feature/disk'
+  // As git answers: a tag named like the branch makes its short name heads/<name>; an unborn HEAD fails rev-parse only.
+  const shortName = options.tags?.includes(branch) === true ? `heads/${branch}` : branch
+  if (argv.includes('--abbrev-ref')) {
+    if (options.unborn?.includes(cwd) === true) return processOutput('', 128, "fatal: ambiguous argument 'HEAD': unknown revision")
+    return processOutput(options.detached?.includes(cwd) === true ? 'HEAD' : shortName)
+  }
+  if (argv.at(-1) === 'HEAD' && argv.includes('symbolic-ref')) {
+    if (options.detached?.includes(cwd) === true) return processOutput('', 1)
+    return processOutput(argv.includes('--short') ? shortName : `refs/heads/${branch}`)
+  }
   if (argv.includes('get-url')) return processOutput(remotes[argv[argv.indexOf('--git-dir') + 1] ?? ''] ?? REMOTE)
-  // The default branch of the origin, and the log of a branch: no commits beyond it.
+  // The default branch of the origin, and the log of a branch: no commits beyond it unless the test gives some.
   if (argv.includes('symbolic-ref')) return processOutput('origin/main')
-  if (argv.includes('log')) return processOutput('')
+  if (argv.includes('log')) return processOutput(options.log ?? '')
   return undefined
 }
 
@@ -293,12 +345,12 @@ const ghCalls = (host: Host): number => host.argvs.filter(argv => argv[0] === 'g
 const remoteAsks = (host: Host, commonDir: string): number =>
   host.argvs.filter(argv => argv.includes('get-url') && argv[argv.indexOf('--git-dir') + 1] === commonDir).length
 
-// The pane as the engine draws it now, as JSON text (the terminal surface). The drawing is unmounted after the read, so a
-// test may take the pane again later.
-async function drawnPane($: Engine): Promise<string> {
+// The pane as the engine draws it now, as JSON text (the terminal surface unless the test names another). The drawing is
+// unmounted after the read, so a test may take the pane again later.
+async function drawnPane($: Engine, surface: 'desktop' | 'terminal' = 'terminal'): Promise<string> {
   const mounted = await $.ui.mount({
     plugin: 'keeptrack-repo-pane',
-    surface: 'terminal',
+    surface,
     component: 'Pane',
     requestId: PANE_ID,
     props: {} as never,
@@ -306,6 +358,39 @@ async function drawnPane($: Engine): Promise<string> {
   const drawn = JSON.stringify(await mounted.drawn())
   await mounted.unmount()
   return drawn
+}
+
+// The drawn pane as nodes ({ type, props, children }): a Box or a Markdown keeps its key in props, a Text keeps none.
+type DrawnNode = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
+const drawnTree = async ($: Engine, surface: 'desktop' | 'terminal' = 'terminal'): Promise<DrawnNode> =>
+  JSON.parse(await drawnPane($, surface))
+
+// Every node of a drawn tree, depth first, the root first.
+const nodesOf = (node: unknown): DrawnNode[] => {
+  if (typeof node !== 'object' || node === null) return []
+  const drawn = node as DrawnNode
+  return [drawn, ...(drawn.children ?? []).flatMap(nodesOf)]
+}
+const keyedIn = (tree: unknown, key: string): DrawnNode | undefined => nodesOf(tree).find(node => node.props?.key === key)
+// The strings a node holds, nested, joined.
+const textIn = (node: unknown): string => {
+  if (typeof node === 'string') return node
+  return typeof node === 'object' && node !== null ? ((node as DrawnNode).children ?? []).map(textIn).join('') : ''
+}
+
+// A group's label line: the first node of its Box (a Desktop Group's id, else the family root's id, is the group's key).
+const groupLabelIn = (tree: unknown, groupKey: string): DrawnNode | undefined =>
+  keyedIn(tree, `group-${groupKey}`)?.children?.[0] as DrawnNode | undefined
+// Whether a session's title line is drawn in the group with this key.
+const isInGroup = (tree: unknown, groupKey: string, sessionId: string): boolean =>
+  keyedIn(keyedIn(tree, `group-${groupKey}`), `head-${sessionId}`) !== undefined
+// The branch glyph that starts a session's title line: "├" or "└" on a derived row, null on a family root's rows (the line
+// starts with its state glyph); undefined when the session has no row.
+function branchOf(tree: unknown, sessionId: string): string | null | undefined {
+  const head = keyedIn(tree, `head-${sessionId}`)
+  if (head === undefined) return undefined
+  const first = textIn(head.children?.[0])
+  return first === '├' || first === '└' ? first : null
 }
 
 // The start of each failure line the pane can draw, in English (hooks/i18n.ts).
@@ -379,12 +464,15 @@ test('/keeptrack issue <n> sets this window override, issue none clears it', asy
   expect(host.toasts).toEqual([])
 })
 
+// The usage toast, in English (hooks/i18n.ts toast.usage).
+const USAGE_TOAST = 'Usage: /keeptrack open | issue <n> | issue none | lang en|pt-BR|auto'
+
 test('a bad /keeptrack argument toasts and changes nothing', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'issue abc', ...COMMAND_CONTEXT })
   await $.command.run({ command: 'keeptrack', args: 'frobnicate', ...COMMAND_CONTEXT })
-  expect(host.toasts.length).toBe(2)
+  expect(host.toasts).toEqual([USAGE_TOAST, USAGE_TOAST])
   expect([...host.store.keys()]).toEqual([])
 })
 
@@ -625,10 +713,26 @@ test('S4: a remote on another host with the same owner and name is not this repo
     cwd: '/work/other',
     gitAnchors: [{ commonDir: OTHER_COMMON_DIR }],
   })
-  stubHost(on, { records: [OWN_RECORD, other], remotes: { [OTHER_COMMON_DIR]: OTHER_REMOTE } })
+  // The positive control: the same owner and name on github.com, in another clone, is this repo.
+  const sibling = recordOf('local_7f3a0004', {
+    title: 'GitHub sibling session',
+    cwd: '/work/sibling',
+    gitAnchors: [{ commonDir: SIBLING_COMMON_DIR }],
+  })
+  const host = stubHost(on, {
+    records: [OWN_RECORD, other, sibling],
+    remotes: { [OTHER_COMMON_DIR]: OTHER_REMOTE, [SIBLING_COMMON_DIR]: 'https://github.com/acme/app.git' },
+  })
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
-  expect(await drawnPane($)).not.toContain('Other host session')
+  await host.clock.settle()
+  // The poll ran: the GitHub root asked gh for its three lists, and git was asked once for each other record's origin.
+  expect(ghCalls(host)).toBe(3)
+  expect(remoteAsks(host, OTHER_COMMON_DIR)).toBe(1)
+  expect(remoteAsks(host, SIBLING_COMMON_DIR)).toBe(1)
+  const drawn = await drawnPane($)
+  expect(drawn).toContain('GitHub sibling session')
+  expect(drawn).not.toContain('Other host session')
 })
 
 test('S4: a root origin that is not on GitHub is no-github mode: no gh call and the no-remote line', async ($: Engine, on) => {
@@ -647,28 +751,322 @@ test('S1: at most 2000 Desktop files are read per poll', async ($: Engine, on) =
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(host.reads).toBeLessThan(2001)
+  // One poll ran, and it read exactly the cap (DESKTOP_SCAN_MAX): no fewer files than the cap allows.
+  expect(ghCalls(host)).toBe(3)
+  expect(host.reads).toBe(2000)
 })
 
 // The newest 64 candidates, plus the other members of the scan window (4 x 64 others), keep their branch read; this window adds one.
 test('S1: at most 4 x 64 others plus this window are read for their branch per poll', async ($: Engine, on) => {
   const many = Array.from({ length: 300 }, (_, index) =>
-    recordOf(`local_${String(index).padStart(8, '0')}`, { lastActivityAt: index }),
+    recordOf(`local_${String(index).padStart(8, '0')}`, { lastActivityAt: index, cwd: `/work/app-${index}` }),
   )
   const host = stubHost(on, { records: [OWN_RECORD, ...many] })
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(host.argvs.filter(argv => argv.includes('--abbrev-ref')).length).toBeLessThanOrEqual(4 * 64 + 1)
+  const branchReads = host.argvs.filter(argv => argv.includes('symbolic-ref') && argv.at(-1) === 'HEAD')
+  expect(branchReads.length).toBeLessThanOrEqual(4 * 64 + 1)
+  // Exactly the scan window (CANDIDATE_MAX 64 x MEMBERSHIP_SCAN_FACTOR 4): the 256 newest others, each once, and this window.
+  const newest = many.slice(-4 * 64).map(record => String(record.cwd))
+  expect(branchReads.map(argv => argv[argv.indexOf('-C') + 1]).sort()).toEqual([REPO_ROOT, ...newest].sort())
 })
 
-test('W6: an archived parent of a live fork is drawn as its ancestor, with its title', async ($: Engine, on) => {
-  const parent = recordOf('local_7f3a0009', { title: 'Archived parent', isArchived: true })
-  stubHost(on, { records: [parent, { ...OWN_RECORD, forkedFromSessionId: 'local_7f3a0009' }] })
+test('S1: a record file over RECORD_MAX_BYTES is skipped unread and not counted unreadable, and the partial scan keeps its override', async ($: Engine, on) => {
+  const atCap = recordOf('local_7f3a0010', { title: 'Record at the size cap' })
+  const overCap = recordOf('local_7f3a0011', { title: 'Record over the size cap' })
+  const host = stubHost(on, {
+    records: [OWN_RECORD, atCap, overCap],
+    sizes: { [recordPath('local_7f3a0010')]: RECORD_MAX_BYTES, [recordPath('local_7f3a0011')]: RECORD_MAX_BYTES + 1 },
+  })
+  host.store.set('override:local_7f3a0011', { issue: 7, ts: 0 })
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  // This window's record and the one at the cap are read; the one over it is not.
+  expect(host.reads).toBe(2)
   const drawn = await drawnPane($)
-  expect(drawn).toContain('Archived parent')
-  expect(drawn).toContain('forked from Archived parent')
+  expect(drawn).toContain('Record at the size cap')
+  expect(drawn).not.toContain('Record over the size cap')
+  expect(drawn).not.toContain('could not be read')
+  expect(await bandDrawn($)).not.toContain('data error')
+  // A skipped file leaves the scan partial, so no override is pruned (R2-01).
+  expect(host.store.has('override:local_7f3a0011')).toBe(true)
+})
+
+test('an archived session of this repo within 72 h is not drawn, even with an open PR, and git is not asked about it', async ($: Engine, on) => {
+  const archivedCommonDir = '/work/archived/.git'
+  const archived = recordOf('local_7f3a0300', {
+    title: 'Archived one',
+    isArchived: true,
+    lastActivityAt: 0,
+    cwd: '/work/archived',
+    gitAnchors: [{ commonDir: archivedCommonDir }],
+  })
+  const host = stubHost(on, {
+    records: [OWN_RECORD, archived],
+    branches: { '/work/archived': 'feature/archived' },
+    openPrs: [{ number: 78, title: 'Archived PR', headRefName: 'feature/archived' }],
+  })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain('Fix disk full')
+  expect(drawn).not.toContain('Archived one')
+  // Neither its membership nor its branch is asked of git.
+  expect(remoteAsks(host, archivedCommonDir)).toBe(0)
+  expect(host.argvs.some(argv => argv.includes('symbolic-ref') && argv.at(-1) === 'HEAD' && argv.includes('/work/archived'))).toBe(false)
+})
+
+test('W6: an archived parent is not drawn as a row: its title labels the group, and its live spawn is a └ row whose timeline names it', async ($: Engine, on) => {
+  const parentCommonDir = '/work/parent/.git'
+  const parent = recordOf('local_7f3a0009', {
+    title: 'Archived parent',
+    isArchived: true,
+    cwd: '/work/parent',
+    gitAnchors: [{ commonDir: parentCommonDir }],
+  })
+  const child = { ...OWN_RECORD, spawnedFrom: { sessionId: 'local_7f3a0009', title: 'Archived parent' } }
+  const host = stubHost(on, { records: [parent, child] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  // No membership check asked git for the parent's origin.
+  expect(remoteAsks(host, parentCommonDir)).toBe(0)
+  const tree = await drawnTree($, 'desktop')
+  // The label line is the parent's title, a bold link to its session.
+  const label = groupLabelIn(tree, 'local_7f3a0009')
+  expect(label?.type).toBe('Markdown')
+  expect(label?.props?.text).toBe('**[Archived parent ↗](#local_7f3a0009)**')
+  // The spawn is the group's last derived row, and its timeline names the parent again.
+  expect(isInGroup(tree, 'local_7f3a0009', SESSION_ID)).toBe(true)
+  expect(branchOf(tree, SESSION_ID)).toBe('└')
+  const drawn = JSON.stringify(tree)
+  expect(drawn).toContain('spawned from Archived parent')
+  // The parent has no row of its own (no title line, no state glyph): its title is drawn twice, in the label and the timeline.
+  expect(branchOf(tree, 'local_7f3a0009')).toBeUndefined()
+  expect(drawn.split('Archived parent').length - 1).toBe(2)
+})
+
+test('P4: an archived parent\'s live fork is drawn under the parent\'s title as the group label', async ($: Engine, on) => {
+  const parentId = 'local_7f3a0430'
+  const parentCwd = '/work/ended-fork-parent'
+  const parent = recordOf(parentId, {
+    title: 'Ended fork parent',
+    isArchived: true,
+    cwd: parentCwd,
+    gitAnchors: [{ commonDir: `${parentCwd}/.git` }],
+  })
+  // The fork link carries no title: the parent's own record names the group.
+  const fork = { ...OWN_RECORD, forkedFromSessionId: parentId }
+  const host = stubHost(on, { records: [parent, fork] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const tree = await drawnTree($, 'desktop')
+  // A bold link to the parent's session, with no this-window marker: the parent is not this window.
+  const label = groupLabelIn(tree, parentId)
+  expect(label?.type).toBe('Markdown')
+  expect(label?.props?.text).toBe(`**[Ended fork parent ↗](#${parentId})**`)
+  expect(isInGroup(tree, parentId, SESSION_ID)).toBe(true)
+  expect(branchOf(tree, SESSION_ID)).toBe('└')
+  expect(JSON.stringify(tree)).toContain('forked from Ended fork parent')
+  // The archived parent has no state row.
+  expect(branchOf(tree, parentId)).toBeUndefined()
+  // Neither its origin (get-url) nor its branch (symbolic-ref) is asked of git.
+  const asksParent = (argv: string[]): boolean =>
+    (argv.includes('get-url') || argv.includes('symbolic-ref')) && argv.some(arg => arg.startsWith(parentCwd))
+  expect(host.argvs.some(asksParent)).toBe(false)
+  await expectClean(host, $)
+})
+
+test('P2: an archived parent is a context ancestor: its title labels the group, its live spawn is a └ row whose timeline names it, and git is not asked about it', async ($: Engine, on) => {
+  const parent = recordOf('local_7f3a0401', {
+    title: 'Ended parent',
+    isArchived: true,
+    cwd: '/work/ended',
+    gitAnchors: [{ commonDir: '/work/ended/.git' }],
+  })
+  // The spawn link carries no title: only the parent's own record can name it.
+  const child = { ...OWN_RECORD, spawnedFrom: { sessionId: 'local_7f3a0401' } }
+  const host = stubHost(on, { records: [parent, child] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const tree = await drawnTree($)
+  expect(JSON.stringify(tree)).toContain('spawned from Ended parent')
+  // The parent's own record names the group; the spawn is a └ row in its body, and the parent has no row.
+  expect(textIn(groupLabelIn(tree, 'local_7f3a0401'))).toBe('Ended parent')
+  expect(isInGroup(tree, 'local_7f3a0401', SESSION_ID)).toBe(true)
+  expect(branchOf(tree, SESSION_ID)).toBe('└')
+  expect(branchOf(tree, 'local_7f3a0401')).toBeUndefined()
+  // Neither its origin (get-url) nor its branch (symbolic-ref) is asked of git.
+  expect(host.argvs.some(argv => argv.includes('/work/ended') || argv.includes('/work/ended/.git'))).toBe(false)
+  await expectClean(host, $)
+})
+
+test('P2: a fork of an archived session hangs under the nearest listed ancestor, and its timeline names the archived one', async ($: Engine, on) => {
+  const grandparent = recordOf('local_7f3a0410', { title: 'Listed grandparent' })
+  const middle = recordOf('local_7f3a0411', { title: 'Ended middle', isArchived: true, forkedFromSessionId: 'local_7f3a0410' })
+  const child = { ...OWN_RECORD, forkedFromSessionId: 'local_7f3a0411' }
+  const host = stubHost(on, { records: [grandparent, middle, child] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain('Listed grandparent')
+  expect(drawn).toContain('forked from Ended middle')
+  expect(drawn).toContain('└')
+  await expectClean(host, $)
+})
+
+test('P2: a live parent of another repo is a context ancestor too: its title labels the group, and the spawn is a └ row whose timeline names it', async ($: Engine, on) => {
+  const parent = recordOf('local_7f3a0412', { title: 'Other repo parent', cwd: '/work/other', gitAnchors: [{ commonDir: OTHER_COMMON_DIR }] })
+  const child = { ...OWN_RECORD, spawnedFrom: { sessionId: 'local_7f3a0412' } }
+  const host = stubHost(on, { records: [parent, child], remotes: { [OTHER_COMMON_DIR]: OTHER_REMOTE } })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const tree = await drawnTree($)
+  expect(JSON.stringify(tree)).toContain('spawned from Other repo parent')
+  expect(textIn(groupLabelIn(tree, 'local_7f3a0412'))).toBe('Other repo parent')
+  expect(isInGroup(tree, 'local_7f3a0412', SESSION_ID)).toBe(true)
+  expect(branchOf(tree, SESSION_ID)).toBe('└')
+  expect(branchOf(tree, 'local_7f3a0412')).toBeUndefined()
+  await expectClean(host, $)
+})
+
+// The Desktop sidebar Groups, as claude_desktop_config.json files them (preferences.epitaxyPrefs, Askaway's shape).
+const DESKTOP_GROUPS = [
+  { id: 'g-1', name: 'Alpha group' },
+  { id: 'g-2', name: 'Beta group' },
+]
+const desktopConfigOf = (assignments: Record<string, string>): string =>
+  JSON.stringify({ preferences: { epitaxyPrefs: { 'dframe-group-scopes': { 'acc/org': { groups: DESKTOP_GROUPS, assignments } } } } })
+const FORK_ID = 'local_7f3a0420'
+const FORK = recordOf(FORK_ID, { title: 'Forked child', forkedFromSessionId: SESSION_ID })
+// The fork filed in another Group than its parent (this window's session).
+const CUT_CONFIG = desktopConfigOf({ [`code:${SESSION_ID}`]: 'g-1', [`code:${FORK_ID}`]: 'g-2' })
+const configReads = (host: Host): number => host.readPaths.filter(path => path === DESKTOP_CONFIG_PATH).length
+
+test('P2: a fork filed in another Desktop Group than its parent is cut to a titled row under that Group\'s label; with no config it hangs under its parent in the family\'s body', async ($: Engine, on) => {
+  const options: StubOptions = { records: [OWN_RECORD, FORK] }
+  const host = stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const uncut = await drawnTree($)
+  expect(isInGroup(uncut, SESSION_ID, FORK_ID)).toBe(true)
+  expect(branchOf(uncut, FORK_ID)).toBe('└')
+  options.desktopConfig = CUT_CONFIG
+  await host.clock.advance(POLL_MS)
+  const tree = await drawnTree($, 'desktop')
+  // The Group's name labels the fork's group in plain bold Text, never Markdown, and the fork's row there carries its title.
+  const label = groupLabelIn(tree, 'g-2')
+  expect(label?.type).toBe('Text')
+  expect(label?.props?.bold).toBe(true)
+  expect(textIn(label)).toBe('Beta group')
+  expect(isInGroup(tree, 'g-2', FORK_ID)).toBe(true)
+  expect(isInGroup(tree, 'g-1', FORK_ID)).toBe(false)
+  expect(branchOf(tree, FORK_ID)).toBe('└')
+  expect(JSON.stringify(keyedIn(tree, `head-${FORK_ID}`))).toContain('Forked child')
+  await expectClean(host, $)
+})
+
+test('P2: the Desktop config is read once while its mtime holds, and again when it changes', async ($: Engine, on) => {
+  const options: StubOptions = { records: [OWN_RECORD, FORK], desktopConfig: CUT_CONFIG }
+  const host = stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(configReads(host)).toBe(1)
+  const cut = await drawnTree($)
+  expect(textIn(groupLabelIn(cut, 'g-2'))).toBe('Beta group')
+  expect(isInGroup(cut, 'g-2', FORK_ID)).toBe(true)
+  await host.clock.advance(POLL_MS)
+  // The second poll ran, and the unchanged config was not read again.
+  expect(ghCalls(host)).toBe(6)
+  expect(configReads(host)).toBe(1)
+  // The fork is filed back with its parent's Group, under a new mtime.
+  options.desktopConfig = desktopConfigOf({ [`code:${SESSION_ID}`]: 'g-1', [`code:${FORK_ID}`]: 'g-1' })
+  options.mtimes = { [DESKTOP_CONFIG_PATH]: 2 }
+  await host.clock.advance(POLL_MS)
+  expect(configReads(host)).toBe(2)
+  // The fork is drawn with its parent in the Alpha group, and the Beta group is gone.
+  const refiled = await drawnTree($)
+  expect(isInGroup(refiled, 'g-1', FORK_ID)).toBe(true)
+  expect(keyedIn(refiled, 'group-g-2')).toBeUndefined()
+  await expectClean(host, $)
+})
+
+// Each config that names no Group, and how many times the poll reads it: a missing file and one over the cap are never read.
+const DESKTOP_CONFIG_MAX_BYTES = 4 * 1024 * 1024
+const NO_GROUP_CONFIGS: [string, StubOptions, number][] = [
+  ['a missing config', {}, 0],
+  ['a config over 4 MiB in its listing', { desktopConfig: CUT_CONFIG, sizes: { [DESKTOP_CONFIG_PATH]: DESKTOP_CONFIG_MAX_BYTES + 1 } }, 0],
+  ['an unparsable config', { desktopConfig: '{"preferences": ' }, 1],
+]
+// A row under a parent, or any row in a Desktop Group, draws a branch glyph; a family root's rows draw none.
+const isNested = (drawn: string): boolean => drawn.includes('├') || drawn.includes('└')
+
+for (const [name, config, reads] of NO_GROUP_CONFIGS) {
+  test(`P2: ${name} gives no Groups, with no error line, log line or toast`, async ($: Engine, on) => {
+    const host = stubHost(on, { records: [OWN_RECORD, FORK], ...config })
+    await $.session.start(SESSION)
+    await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+    await host.clock.settle()
+    // The poll looked for the config in its folder.
+    expect(host.listed).toContain(DESKTOP_CONFIG_DIR)
+    expect(configReads(host)).toBe(reads)
+    expect(isNested(await drawnPane($))).toBe(true)
+    expect(host.toasts).toEqual([])
+    await expectClean(host, $)
+  })
+}
+
+test('P2: a config folder whose listing fails keeps the last Groups read, with no error line, log line or toast', async ($: Engine, on) => {
+  const options: StubOptions = { records: [OWN_RECORD, FORK], desktopConfig: CUT_CONFIG }
+  const host = stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(isInGroup(await drawnTree($), 'g-2', FORK_ID)).toBe(true)
+  options.unlistable = [DESKTOP_CONFIG_DIR]
+  await host.clock.advance(POLL_MS)
+  // The next poll was refused the folder, and the cut of the first poll stays: the Group's name still labels the fork's group.
+  expect([...new Set(host.denies)]).toEqual([`fs.list refused: ${DESKTOP_CONFIG_DIR}`])
+  const tree = await drawnTree($)
+  expect(textIn(groupLabelIn(tree, 'g-2'))).toBe('Beta group')
+  expect(isInGroup(tree, 'g-2', FORK_ID)).toBe(true)
+  const drawn = JSON.stringify(tree)
+  for (const start of FAILURE_LINE_STARTS) expect(drawn).not.toContain(start)
+  expect(host.logs).toEqual([])
+  expect(host.toasts).toEqual([])
+})
+
+test('P2: no content of the Desktop config reaches the log', async ($: Engine, on) => {
+  const secretGroup = 'Keep this group name out of the log'
+  const secretSetting = 'keep-this-mcp-setting-out'
+  // The file also holds the MCP settings.
+  const desktopConfig = JSON.stringify({
+    mcpServers: { vault: { env: { SETTING: secretSetting } } },
+    preferences: {
+      epitaxyPrefs: {
+        'dframe-group-scopes': { 'acc/org': { groups: [{ id: 'g-9', name: secretGroup }], assignments: { [`code:${FORK_ID}`]: 'g-9' } } },
+      },
+    },
+  })
+  // gh times out, so the poll logs its failure lines.
+  const host = stubHost(on, { gh: 'timeout', records: [OWN_RECORD, FORK], desktopConfig })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  // The config was read and used: the pane still draws, with the Group's name as a label, and only the pane holds it.
+  expect(await drawnPane($)).toContain(secretGroup)
+  expectNoRecordContent(host)
+  for (const line of host.logs) expect(line.includes(secretGroup) || line.includes(secretSetting)).toBe(false)
+  expect(host.toasts).toEqual([])
 })
 
 test('S2: control characters in a record title never reach the drawn pane', async ($: Engine, on) => {
@@ -681,17 +1079,41 @@ test('S2: control characters in a record title never reach the drawn pane', asyn
   expect(drawn.includes('\\u0007')).toBe(false)
 })
 
-test('no record content reaches the log: each line names only a failure', async ($: Engine, on) => {
-  const host = stubHost(on, { gh: 'timeout', records: [recordOf(SESSION_ID, { cliSessionId: SELF, title: SECRET_TITLE })] })
-  await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
-  await host.clock.settle()
+// Each log line names a failure only: no record title, remote or records path.
+function expectNoRecordContent(host: Host): void {
   expect(host.logs.length).toBeGreaterThan(0)
   for (const line of host.logs) {
     expect(line).toMatch(/^keeptrack: [\w ()-]+$/)
     expect(line.includes(SECRET_TITLE) || line.includes(REMOTE) || line.includes(RECORDS)).toBe(false)
   }
+}
+
+test('no record content reaches the log: each line names only a failure', async ($: Engine, on) => {
+  const host = stubHost(on, { gh: 'timeout', records: [recordOf(SESSION_ID, { cliSessionId: SELF, title: SECRET_TITLE })] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expectNoRecordContent(host)
 })
+
+// More failure paths for the same rule. A second record carries the secret title too; its file cannot be read where the case says so.
+const SECRET_RECORD = recordOf('local_7f3a0013', { title: SECRET_TITLE })
+const LOG_FAILURES: [string, StubOptions][] = [
+  ['a gh failure whose stderr echoes a record', { gh: { exitCode: 1, stderr: `${SECRET_TITLE} at ${recordPath(SESSION_ID)}` } }],
+  ['an unreadable record beside a gh answer that cannot be read', { gh: 'unreadable', unreadable: [recordPath('local_7f3a0013')] }],
+  ['a poll that throws', { storeKeysDenies: true }],
+]
+
+for (const [name, failure] of LOG_FAILURES) {
+  test(`no record content reaches the log on ${name}`, async ($: Engine, on) => {
+    const records = [recordOf(SESSION_ID, { cliSessionId: SELF, title: SECRET_TITLE }), SECRET_RECORD]
+    const host = stubHost(on, { ...failure, records })
+    await $.session.start(SESSION)
+    await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+    await host.clock.settle()
+    expectNoRecordContent(host)
+  })
+}
 
 // The band as the engine draws it now, as JSON text (the terminal surface).
 async function bandDrawn($: Engine): Promise<string> {
@@ -742,9 +1164,17 @@ test('the band redraws each minute while idle, so the time since the last turn m
   const host = stubHost(on)
   await $.session.start(SESSION)
   await host.clock.settle()
+  const drawnBefore = await bandDrawn($)
   const before = host.redraws
   await host.clock.advance(60_000)
   expect(host.redraws).toBeGreaterThan(before)
+  // No turn ends here (these tests raise no turn end: tests/turn.test.ts), so the idle band has no last turn yet: it reads Idle
+  // alone before and after the minute. The time since a last turn moving at the minute is pinned in tests/band.test.ts.
+  for (const drawn of [drawnBefore, await bandDrawn($)]) {
+    expect(drawn).toContain('"Idle"')
+    expect(drawn).not.toContain('just now')
+    expect(drawn).not.toContain(' ago')
+  }
 })
 
 // ---- The gauntlet round 1 findings (F01 to F21): each test pins the behaviour the source has now ----
@@ -756,7 +1186,6 @@ const POLL_DEADLINE_MS = 30_000
 const SLOW_ISSUE = { number: 9, title: 'Slow issue', updatedAt: '2026-10-20T16:00:00Z', url: 'https://github.com/acme/app/issues/9', milestone: null, labels: [] }
 const GIT_FAILED_LINE = 'git failed in this folder · sessions shown without branch'
 const NO_REMOTE_LINE = 'no GitHub remote for this repo'
-const TOOL_NAME_MAX = 64
 const ISSUE_LIST_JSON = JSON.stringify([
   { number: 7, title: 'Open issue', updatedAt: '2026-10-20T16:00:00Z', url: 'https://github.com/acme/app/issues/7', milestone: null, labels: [] },
 ])
@@ -791,8 +1220,15 @@ test('F02: a git timeout reading the origin keeps the last repo context: no no-r
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(await drawnPane($)).not.toContain(NO_REMOTE_LINE)
+  const rootAsks = (last: string): number =>
+    host.argvs.filter(argv => argv.includes('-C') && argv[argv.indexOf('-C') + 1] === REPO_ROOT && argv.at(-1) === last).length
+  expect(rootAsks('origin')).toBe(1)
+  expect(rootAsks('remote')).toBe(1)
   options.originTimesOut = true
   await host.clock.advance(POLL_MS)
+  // The poll after the change asked git for the origin once, and its timeout is not read as no origin: no remote listing follows.
+  expect(rootAsks('origin')).toBe(2)
+  expect(rootAsks('remote')).toBe(1)
   const drawn = await drawnPane($)
   expect(drawn).not.toContain(NO_REMOTE_LINE)
   expect(drawn).toContain('Fix disk full')
@@ -806,7 +1242,9 @@ test('F05: archived records take no candidate slot, so a live session behind 100
   stubHost(on, { records: [OWN_RECORD, live, ...archived] })
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
-  expect(await drawnPane($)).toContain('Old live session')
+  const drawn = await drawnPane($)
+  expect(drawn).toContain('Old live session')
+  expect(drawn).not.toContain('Archived one')
 })
 
 test('F07: a poll whose call never settles fails at its deadline, keeps the last sessions and logs the failure name', async ($: Engine, on) => {
@@ -895,6 +1333,32 @@ test('F14: a poll that failed at its deadline clears the polling flag, so the ne
   expect(ghCalls(host)).toBe(9)
 })
 
+// A render polls when a full cadence has passed since the last poll began (resumePolling), so after a deadline it retries too.
+test('F14: after a poll failed at its deadline, a render a full cadence after that poll began polls again, before the next tick', async ($: Engine, on) => {
+  const options: StubOptions = {}
+  const host = stubHost(on, options)
+  await $.session.start(SESSION)
+  await host.clock.settle()
+  // The pane opens 10 s after the first poll: its ticks fall at 70 s and 130 s, and the open starts no poll.
+  await host.clock.advance(10_000)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(ghCalls(host)).toBe(3)
+  options.gate = NEVER()
+  // At 60 s a render starts the poll that hangs; the tick at 70 s starts nothing beside it, and its deadline falls at 90 s.
+  await host.clock.advance(50_000)
+  await drawnPane($)
+  await host.clock.advance(POLL_DEADLINE_MS)
+  expect(ghCalls(host)).toBe(6)
+  expect(host.logs).toContain('keeptrack: poll failed (PollDeadline)')
+  await host.clock.advance(30_000)
+  expect(ghCalls(host)).toBe(6)
+  // At 120 s, before the tick at 130 s, a render finds a full cadence since the failed poll began and polls again.
+  await drawnPane($)
+  await host.clock.advance(0)
+  expect(ghCalls(host)).toBe(9)
+})
+
 test('F11: a running tool name is drawn without control characters and within its length cap', async ($: Engine, on) => {
   stubHost(on)
   await $.session.start(SESSION)
@@ -904,6 +1368,12 @@ test('F11: a running tool name is drawn without control characters and within it
   expect(band).toContain('MCP vendor')
   expect(band.includes('\\u001b')).toBe(false)
   expect(band.includes('z'.repeat(TOOL_NAME_MAX))).toBe(false)
+  // A tool that is not MCP is drawn by its name: control characters made spaces, then cut to exactly TOOL_NAME_MAX characters,
+  // the last one plain's ellipsis.
+  await $.tool.call({ tool: `Bash\u001b]0;evil\u0007${'y'.repeat(200)}` })
+  const cut = `${`Bash ]0;evil ${'y'.repeat(200)}`.slice(0, TOOL_NAME_MAX - 1)}…`
+  expect(Array.from(cut).length).toBe(TOOL_NAME_MAX)
+  expect(await bandDrawn($)).toContain(JSON.stringify(cut))
 })
 
 test('F13: a gh timeout after a good poll keeps the last good issues and draws its line', async ($: Engine, on) => {
@@ -912,11 +1382,11 @@ test('F13: a gh timeout after a good poll keeps the last good issues and draws i
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(await drawnPane($)).toContain('1 open issues')
+  expect(await drawnPane($)).toContain('1 open issue')
   options.gh = 'timeout'
   await host.clock.advance(POLL_MS)
   const drawn = await drawnPane($)
-  expect(drawn).toContain('1 open issues')
+  expect(drawn).toContain('1 open issue')
   expect(drawn).toContain('GitHub did not answer in time')
   expect(host.logs).toContain('keeptrack: gh issue call failed')
 })
@@ -934,11 +1404,36 @@ test('F17: an agent list that rejects still lets the band redraw on its tick, an
   expect(host.logs.some(line => line.startsWith('keeptrack: agent list failed ('))).toBe(true)
 })
 
-test('F18: a records folder that cannot be listed draws no records line', async ($: Engine, on) => {
-  stubHost(on, { unlistable: [`${RECORDS}/org/user`] })
+test('a file in the records folder that is not a session record is ignored: no data error beside valid records', async ($: Engine, on) => {
+  stubHost(on, { records: [OWN_RECORD], strayFiles: ['scheduled-tasks.json', 'deleted_0a1b2c3d'] })
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
-  expect(await drawnPane($)).not.toContain('session records could not be read')
+  expect(await bandDrawn($)).not.toContain('data error')
+  expect(await drawnPane($)).not.toContain('could not be read')
+})
+
+test('F18: a records folder that cannot be listed draws no records line', async ($: Engine, on) => {
+  const host = stubHost(on, { unlistable: [`${RECORDS}/org/user`] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  // The scan reached the folder and was refused: no line because nothing could be read, not because no scan ran.
+  expect(host.denies).toContain(`fs.list refused: ${RECORDS}/org/user`)
+  const drawn = await drawnPane($)
+  expect(drawn).not.toContain('session records could not be read')
+  expect(drawn).not.toContain('session record could not be read')
+})
+
+// The other half of F18: a record in a folder that was listed, whose file cannot be read, is counted and draws the records line.
+test('F18: a listed record file that cannot be read draws the records line, and the band flags it', async ($: Engine, on) => {
+  const host = stubHost(on, { records: [OWN_RECORD, recordOf('local_7f3a0012')], unreadable: [recordPath('local_7f3a0012')] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain('1 session record could not be read')
+  expect(drawn).toContain('Fix disk full')
+  expect(await bandDrawn($)).toContain('data error')
 })
 
 test('F21: an override stamped after the poll started survives its prune, and a negative time expires', async ($: Engine, on) => {
@@ -968,6 +1463,8 @@ test('F08: a window that maps to an issue whose view fails reads #106 in the ban
   const band = await bandDrawn($)
   expect(band).toContain('#106')
   expect(band).not.toContain('no issue')
+  // The line the user sees in the pane for that failure (CR4).
+  expect(await drawnPane($)).toContain('GitHub did not answer as expected: showing the last data')
 })
 
 test('R2-01: an override is kept while a record cannot be read, since the scan is partial', async ($: Engine, on) => {
@@ -1138,4 +1635,245 @@ test('DL7: a session with an open PR is drawn even when it is older than the 64 
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(await drawnPane($)).toContain('Old PR session')
+})
+
+const issueList = (count: number): string =>
+  JSON.stringify(
+    Array.from({ length: count }, (_, index) => ({
+      number: index + 1,
+      title: `Issue ${index + 1}`,
+      updatedAt: '2026-10-20T10:00:00Z',
+      url: `https://github.com/acme/app/issues/${index + 1}`,
+      milestone: null,
+      labels: [],
+    })),
+  )
+
+test('DL8: an override past its 30-day TTL is not used when the scan failed', async ($: Engine, on) => {
+  const unreadable = recordOf('local_7f3a0009', { title: 'x'.repeat(5000) })
+  const host = stubHost(on, { records: [OWN_RECORD, unreadable] })
+  // The clock moves on before any timer runs, so the override set at time 0 is 31 days old when the poll reads it.
+  await host.clock.advance(31 * DAY_MS)
+  host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(host.argvs.some(argv => argv.includes('view') && argv.includes(String(ISSUE)))).toBe(false)
+})
+
+test('DL10: exactly 500 open issues draw no partial-list line, since gh is asked for one more', async ($: Engine, on) => {
+  const host = stubHost(on, { issues: issueList(500) })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(host.argvs.some(argv => argv.includes('list') && argv.includes('501'))).toBe(true)
+  expect(await drawnPane($)).not.toContain('list is partial')
+})
+
+test('DL10: 501 open issues draw the partial-list line with the first 500 kept', async ($: Engine, on) => {
+  const host = stubHost(on, { issues: issueList(501) })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain('list is partial (first 500)')
+})
+
+test('DL11: a tag named like the checked-out branch does not make it heads/<name>, so the default branch reads no commits', async ($: Engine, on) => {
+  const host = stubHost(on, { branches: { [REPO_ROOT]: 'main' }, tags: ['main'] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(host.argvs.some(argv => argv.includes('log'))).toBe(false)
+})
+
+test('DL11: an unborn branch is not a git failure', async ($: Engine, on) => {
+  const host = stubHost(on, { branches: { [REPO_ROOT]: 'main' }, unborn: [REPO_ROOT] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(await drawnPane($)).not.toContain('git failed')
+})
+
+test('DL11: a detached HEAD is no branch and no git failure', async ($: Engine, on) => {
+  const host = stubHost(on, { detached: [REPO_ROOT] })
+  // An issue for this window draws its details, whose Branch line shows the branch the poll read.
+  host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const branchReads = host.argvs.filter(argv => argv.includes('symbolic-ref') && argv.at(-1) === 'HEAD')
+  expect(branchReads.map(argv => argv[argv.indexOf('-C') + 1])).toContain(REPO_ROOT)
+  expect(textIn(keyedIn(await drawnTree($), 'detail-branch'))).toBe('Branch:no branch')
+  expect(await drawnPane($)).not.toContain('git failed')
+})
+
+test('DL13: a last commit with an empty subject is still a commit', async ($: Engine, on) => {
+  const host = stubHost(on, { log: '1700000000\t' })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  // Each timeline row is keyed by its session and index: the session's start, plus the commit.
+  const rows = (await drawnPane($)).split(`event-${SESSION_ID}-`).length - 1
+  expect(rows).toBe(2)
+})
+
+test('SP5-1: /keeptrack open or issue with extra words toasts usage and changes nothing', async ($: Engine, on) => {
+  const host = stubHost(on)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open extra', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keeptrack', args: 'issue 106 extra', ...COMMAND_CONTEXT })
+  expect(host.toasts).toEqual([USAGE_TOAST, USAGE_TOAST])
+  expect([...host.store.keys()]).toEqual([])
+})
+
+// Poll 2 fails at its deadline before poll 3 starts, so its failure never races a newer write: this proves only that the
+// newer poll draws its data after that failure. The race itself (`failedPoll` against a newer write) needs the snapshot atom
+// held between its read and its write, which the test kit cannot do (SPEC section 9, ST3).
+test('ST3 guard: a newer poll after a deadline failure draws its data', async ($: Engine, on) => {
+  const options: StubOptions = {}
+  const host = stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  options.gate = NEVER()
+  await host.clock.advance(POLL_MS)
+  await host.clock.advance(POLL_DEADLINE_MS)
+  options.gate = undefined
+  options.issues = JSON.stringify([NEWER_ISSUE])
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain('Newer issue')
+})
+
+// ---- Package A2: the gh data minors (DL9, RB1-4, RB1-5, SE3, SP3-1) ----
+
+// The engine's stdout cap of $.process.run, which register.tsx also takes as its gh answer cap (GH_OUTPUT_MAX_BYTES).
+const GH_OUTPUT_MAX_BYTES = 4 * 1024 * 1024
+const GH_FAILED_LINE = 'GitHub did not answer as expected: showing the last data'
+// An issue item with no url: issueOf cannot read it.
+const MALFORMED_ISSUE = { number: 8, title: 'Issue with no url', updatedAt: '2026-10-20T16:00:00Z', milestone: null, labels: [] }
+// The query text of the GraphQL call the poll made.
+const prQueryOf = (host: Host): string =>
+  host.argvs.find(argv => argv.includes('graphql'))?.find(arg => arg.startsWith('query=')) ?? ''
+// The issue numbers the poll asked gh to view, in order.
+const viewedIssues = (host: Host): string[] => host.argvs.filter(argv => argv.includes('view')).map(argv => argv[3] ?? '')
+
+test('DL9: a PR closing more issues than the page holds links no issue, since its lowest is not known', async ($: Engine, on) => {
+  // The page holds 50 references, 17 the lowest of them; GitHub holds 60, so a lower one may sit past the page.
+  const closes = Array.from({ length: 50 }, (_, index) => index + 17)
+  const host = stubHost(on, { openPrs: [{ number: 5, title: 'Wide PR', headRefName: 'feature/disk', closes, closesTotal: 60 }] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(prQueryOf(host)).toContain('closingIssuesReferences(first: 50) { totalCount nodes { number } }')
+  expect(viewedIssues(host)).toEqual([])
+})
+
+test('DL9: a PR with 11 closing issues links the lowest, the 11th, since the page holds 50', async ($: Engine, on) => {
+  const closes = [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 12]
+  const host = stubHost(on, { openPrs: [{ number: 5, title: 'Wide PR', headRefName: 'feature/disk', closes }] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(prQueryOf(host)).toContain('closingIssuesReferences(first: 50)')
+  expect(viewedIssues(host)).toEqual(['12'])
+})
+
+test('RB1-4: the open milestones are read with --paginate, so a repo past 100 open milestones is not cut silently', async ($: Engine, on) => {
+  const host = stubHost(on)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const milestoneCalls = host.argvs.filter(argv => argv[0] === 'gh' && argv.some(arg => arg.includes('/milestones')))
+  expect(milestoneCalls).toEqual([['gh', 'api', '--paginate', 'repos/acme/app/milestones?state=open&per_page=100']])
+})
+
+test('RB1-5: a malformed issue item is dropped and counted in the log, and the rest is drawn with no failure line', async ($: Engine, on) => {
+  const issues = JSON.stringify([...(JSON.parse(ISSUE_LIST_JSON) as unknown[]), MALFORMED_ISSUE])
+  const host = stubHost(on, { issues })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(host.logs).toEqual(['keeptrack: gh issue items not readable (1)'])
+  const drawn = await drawnPane($)
+  expect(drawn).toContain('1 open issue')
+  expect(drawn).not.toContain(GH_FAILED_LINE)
+  expect(host.logs.some(line => line.includes(MALFORMED_ISSUE.title))).toBe(false)
+})
+
+test('RB1-5: an issue list whose every item is malformed is an unreadable answer: the gh-failed line', async ($: Engine, on) => {
+  const host = stubHost(on, { issues: JSON.stringify([MALFORMED_ISSUE, MALFORMED_ISSUE]) })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain(GH_FAILED_LINE)
+  expect(host.logs).toContain('keeptrack: gh issue answer not readable')
+})
+
+test('RB1-5: a dropped item does not hide the 501st item, so the partial-list line still shows', async ($: Engine, on) => {
+  const issues = JSON.stringify([...(JSON.parse(issueList(500)) as unknown[]), MALFORMED_ISSUE])
+  const host = stubHost(on, { issues })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain('list is partial (first 500)')
+})
+
+test('SE3: a gh answer the engine cut at its stdout cap is unreadable: the gh-failed line, nothing parsed', async ($: Engine, on) => {
+  const host = stubHost(on, { gh: 'cut', issues: ISSUE_LIST_JSON })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain(GH_FAILED_LINE)
+  expect(drawn).not.toContain('1 open issue')
+  expect(host.logs).toContain('keeptrack: gh issue answer not readable')
+})
+
+test('SE3: a gh answer over the byte cap, counted in UTF-8 bytes, is unreadable before it is parsed', async ($: Engine, on) => {
+  // Two bytes per character: under the cap in UTF-16 units, over it in bytes.
+  const [issue] = JSON.parse(ISSUE_LIST_JSON) as Record<string, unknown>[]
+  const issues = JSON.stringify([{ ...issue, body: 'é'.repeat(GH_OUTPUT_MAX_BYTES / 2 + 1) }])
+  const host = stubHost(on, { issues })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain(GH_FAILED_LINE)
+  expect(drawn).not.toContain('1 open issue')
+})
+
+test('SP3-1: both the issue list and the PR list cut draw one partial-list line each, with its own limit', async ($: Engine, on) => {
+  const host = stubHost(on, { issues: issueList(501), prTotal: 101 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain('list is partial (first 500)')
+  expect(drawn).toContain('list is partial (first 100)')
+})
+
+test('F: a pane with two family groups, two open issues and two issue breadcrumbs is drawn on the desktop, each Markdown with a key of its own', async ($: Engine, on) => {
+  const otherId = 'local_7f3a0440'
+  // Each family root names an issue in its title, so its breadcrumb links to that issue's page; issues 3 and 4 sit on no
+  // session, so the issue list draws them.
+  const records = [{ ...OWN_RECORD, title: 'Fix disk full #1' }, recordOf(otherId, { title: 'Other family #2' })]
+  const host = stubHost(on, { records, issues: issueList(4) })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  // The engine refuses the whole draw when two Markdown elements share a key, so the tree is the proof it was drawn.
+  const tree = await drawnTree($, 'desktop')
+  expect(groupLabelIn(tree, SESSION_ID)?.props?.text).toContain(`](#${SESSION_ID})`)
+  expect(groupLabelIn(tree, otherId)?.props?.text).toContain(`](#${otherId})`)
+  const markdowns = nodesOf(tree).filter(node => node.type === 'Markdown')
+  const texts = markdowns.map(node => String(node.props?.text))
+  for (const number of [1, 2]) {
+    expect(texts.filter(text => text.startsWith(`[#${number}](https://github.com/acme/app/issues/${number})`))).toHaveLength(1)
+  }
+  for (const number of [3, 4]) {
+    expect(texts.filter(text => text.endsWith(`[#${number} Issue ${number}](https://github.com/acme/app/issues/${number})`))).toHaveLength(1)
+  }
+  const keys = markdowns.map(node => node.props?.key)
+  expect(new Set(keys).size).toBe(keys.length)
 })

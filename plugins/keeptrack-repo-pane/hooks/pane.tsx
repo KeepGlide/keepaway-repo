@@ -1,8 +1,9 @@
-// The repo work pane: the header, the sessions on this machine (this window first, highlighted with its issue details, its
-// timeline and its GitHub link; derived sessions nested under their parents), the issues without a session by milestone,
-// and the footer. It draws one Snapshot the register hands in and reads or writes no state. Nothing folds: every row, every
-// detail and every timeline is always drawn. A title goes into a link only after escaping; commit subjects, comments and
-// labels stay plain Text.
+// The KeepTrack pane: the header, the sessions on this machine by group (Askaway's tree: a bold label, the family root's
+// rows under it, then the derived sessions; this window's group first, the window highlighted with its issue details, its
+// timeline and its GitHub link), the issues without a session by milestone, and the footer. It draws one Snapshot the
+// register hands in and reads or writes no state. Nothing folds: every row, every detail and every timeline is always drawn.
+// A title or a group label goes into a link only after escaping; a Desktop Group name, commit subjects, comments and labels
+// stay plain Text.
 import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import type {
@@ -12,6 +13,7 @@ import type {
   IssueRef,
   PaneError,
   PullRequest,
+  SessionGroup,
   SessionNode,
   Snapshot,
   TimelineEvent,
@@ -19,7 +21,7 @@ import type {
 import { t, type Lang, type MessageKey } from './i18n'
 import { TEXT_MAX, TIMELINE_LIMIT, isSessionLinkId, plain } from './model'
 import { BRANCH_GLYPH, DETAILS_FILL, LINK_MARK, STATE_GLYPH } from './look'
-import { KEEPGLIDE_HEADER_SIZE, renderKeepGlide, renderRepoWorkLogo } from './logo-element'
+import { KEEPGLIDE_HEADER_SIZE, renderKeepGlide, renderKeepTrackLogo } from './logo-element'
 
 type Ui = Elements[RenderSurface]
 
@@ -39,8 +41,12 @@ type View = {
   thisIssue: IssueDetails | null
 }
 
-// Where a session row sits: its branch glyph under a parent ("├" or "└", null at the top), the parent's issue (breadcrumb).
-type RowPlace = { branch: string | null; parentIssue: IssueRef | null }
+// Where a session row sits: its branch glyph under a parent ("├" or "└", null at the top), the parent's issue (breadcrumb),
+// and the level it is drawn at below its group's rows (0 in the group body, whatever its depth in the tree; W1).
+type RowPlace = { branch: string | null; parentIssue: IssueRef | null; level: number }
+
+// The tops drawn under one label: a Desktop Group's, or a session family's (buildTree keeps a group's tops together).
+type GroupRun = { group: SessionGroup; tops: SessionNode[] }
 
 type DetailLine = { key: string; label: string; value: string }
 
@@ -50,6 +56,9 @@ const MAX_INDENT_LEVELS = 2
 // The indent of a row's body under its state glyph: the title starts after the glyph, and after the branch glyph too.
 const BODY_INDENT_ROOT = 2
 const BODY_INDENT_CHILD = 4
+// The indent of a group's rows under its label (Askaway's ROOT_PLACE), and the place of a family root's rows there.
+const GROUP_INDENT = 1
+const ROOT_PLACE: RowPlace = { branch: null, parentIssue: null, level: 0 }
 const TITLE_SEPARATOR = ' · '
 const MINUTE_MS = 60_000
 const MINUTES_PER_HOUR = 60
@@ -58,7 +67,7 @@ const HOURS_PER_DAY = 24
 const NO_VALUE = '—'
 // A clickable issue or PR links only to a GitHub page over https: nothing a title or a URL carries can break out of the link,
 // and a remote on another host never becomes a link to github.com (S4).
-const GITHUB_PAGE_URL = /^https:\/\/github\.com\/[^\s()<>]+$/
+const GITHUB_PAGE_URL = /^https:\/\/github\.com\/[^\s()<>[\]"']+$/
 // Markdown punctuation that a title could carry; escaped before it goes into a link label.
 const MARKDOWN_PUNCTUATION = /[\\`*_[\]()<>!|~&:.@]/g
 const TIMELINE_GLYPH: Readonly<Record<TimelineEvent['kind'], string>> = { commit: '●', pr: '↗', session: '▪' }
@@ -123,7 +132,7 @@ function renderHeader(view: View, snapshot: Snapshot | null): RenderElement {
   return (
     <Box key="header" flexDirection="row" flexWrap="wrap" justifyContent="space-between" alignItems="center" gap={1}>
       <Box key="brand" flexDirection="row" alignItems="center" gap={1}>
-        {renderRepoWorkLogo(view.ui, view.desktop, t(view.lang, 'pane.heading'))}
+        {renderKeepTrackLogo(view.ui, view.desktop, t(view.lang, 'pane.heading'))}
         <Text key="heading" bold>{t(view.lang, 'pane.heading')}</Text>
       </Box>
       <Box key="header-end" flexDirection="row" alignItems="center" gap={1}>
@@ -138,7 +147,10 @@ function counterText(view: View, snapshot: Snapshot): string {
   const sessions = countSessions(snapshot.sessions)
   return sessions === 0
     ? t(view.lang, 'counter.none')
-    : t(view.lang, 'counter.line', { count: snapshot.openIssueCount, sessionCount: sessions })
+    : t(view.lang, 'counter.line', {
+        issues: t(view.lang, 'counter.issues', { count: snapshot.openIssueCount }),
+        sessions: t(view.lang, 'counter.sessions', { count: sessions }),
+      })
 }
 
 function countSessions(nodes: readonly SessionNode[]): number {
@@ -162,7 +174,7 @@ function renderErrors(view: View, snapshot: Snapshot): RenderElement[] {
   const lines = snapshot.errors
     .filter(error => error !== 'records-unreadable' || snapshot.unreadableCount > 0)
     .map(error => t(view.lang, ERROR_KEY[error], error === 'records-unreadable' ? { count: snapshot.unreadableCount } : {}))
-  if (snapshot.truncatedLimit !== null) lines.push(t(view.lang, 'error.truncated', { count: snapshot.truncatedLimit }))
+  for (const count of snapshot.truncatedLimits) lines.push(t(view.lang, 'error.truncated', { count }))
   const { Text } = view.ui
   return lines.map((line, index) => <Text key={`error-${index}`}>{line}</Text>)
 }
@@ -178,8 +190,87 @@ function renderSection(view: View, key: string, heading: string, rows: RenderEle
 }
 
 function renderSessionsSection(view: View, snapshot: Snapshot): RenderElement {
-  const rows = snapshot.sessions.map(node => renderSessionRow(view, node, { branch: null, parentIssue: null }))
+  const rows = groupsOf(snapshot.sessions).map(run => renderGroup(view, snapshot, run))
   return renderSection(view, 'sessions', t(view.lang, 'group.sessions'), rows)
+}
+
+// The tops in consecutive runs of one group key each. A top without a group is a family of its own.
+function groupsOf(tops: readonly SessionNode[]): GroupRun[] {
+  const runs: GroupRun[] = []
+  for (const top of tops) {
+    const group = top.group ?? { key: top.id, label: top.title, href: top.id, isDesktopGroup: false }
+    const last = runs.at(-1)
+    if (last?.group.key === group.key) last.tops.push(top)
+    else runs.push({ group, tops: [top] })
+  }
+  return runs
+}
+
+// Whether a top is the root of its family group: its rows sit right under the label, which is its title.
+const isFamilyRoot = (group: SessionGroup, node: SessionNode): boolean => !group.isDesktopGroup && node.id === group.key
+
+// One group, drawn as Askaway draws a branch: the label in bold, the family root's rows right under it (the label is the
+// root's title, so it is not drawn twice), then the derived rows, "├" and "└" on the last: the root's children, then the
+// group's other tops. A family whose root ended, and a Desktop Group, have no root rows: each top is a titled derived row
+// with its own children under it.
+function renderGroup(view: View, snapshot: Snapshot, run: GroupRun): RenderElement {
+  const { group, tops } = run
+  const root = tops.find(top => isFamilyRoot(group, top))
+  const derived = [
+    ...(root?.children ?? []).map(node => ({ node, parentIssue: root?.issue ?? null })),
+    ...tops.filter(top => top !== root).map(node => ({ node, parentIssue: null })),
+  ]
+  const lastIndex = derived.length - 1
+  const { Box } = view.ui
+  return (
+    <Box key={`group-${group.key}`} flexDirection="column">
+      {renderGroupLabel(view, groupLabelOf(view, snapshot, run), group, root?.isThisWindow === true)}
+      <Box key="group-rows" flexDirection="column" gap={1} paddingLeft={GROUP_INDENT}>
+        {root !== undefined && renderRootRows(view, root)}
+        {derived.map(({ node, parentIssue }, index) =>
+          renderSessionRow(view, node, {
+            branch: index === lastIndex ? BRANCH_GLYPH.last : BRANCH_GLYPH.middle,
+            parentIssue,
+            level: 0,
+          }),
+        )}
+      </Box>
+    </Box>
+  )
+}
+
+// The label of a group: its own, else the first of its tops' labels that is not blank, else the repo name, else
+// "the session".
+function groupLabelOf(view: View, snapshot: Snapshot, run: GroupRun): string {
+  const labels = [run.group.label, ...run.tops.map(top => top.group?.label ?? ''), snapshot.repo?.name ?? '']
+  return labels.find(label => label !== '') ?? t(view.lang, 'group.session')
+}
+
+// The label line of a group, bold. On the desktop a family's label links to its root session, escaped as a session title
+// is, with this window's marker when the root is this window. A Desktop Group's name (the user's own text) and the terminal
+// draw plain Text. The key carries the group's: the engine refuses a draw where two Markdown elements share one.
+function renderGroupLabel(view: View, label: string, group: SessionGroup, isThis: boolean): RenderElement {
+  const { ui, lang } = view
+  const marker = isThis ? ` ${t(lang, 'session.thisWindow')}` : ''
+  const key = `group-label-${group.key}`
+  const href = group.isDesktopGroup ? null : group.href
+  if (view.desktop && 'Markdown' in ui && href !== null && isSessionLinkId(href)) {
+    const { Markdown } = ui
+    return <Markdown key={key} text={`**[${escapeMarkdown(`${label} ↗`)}](#${href})**${escapeMarkdown(marker)}`} />
+  }
+  const { Text } = ui
+  return <Text key={key} bold>{`${label}${marker}`}</Text>
+}
+
+// The rows of a family's root right under its group's label: untitled (the label is its title), and without its children,
+// which the group draws as its derived rows.
+function renderRootRows(view: View, node: SessionNode): RenderElement {
+  const { Box } = view.ui
+  return (
+    <Box key={`session-${node.id}`} flexDirection="column">
+      {node.isThisWindow ? renderThisWindow(view, node, ROOT_PLACE, false) : renderOtherSession(view, node, ROOT_PLACE, false)}
+    </Box>
+  )
 }
 
 function renderIssuesSection(view: View, snapshot: Snapshot): RenderElement {
@@ -194,15 +285,16 @@ function renderSessionRow(view: View, node: SessionNode, place: RowPlace): Rende
   const { Box } = view.ui
   return (
     <Box key={`session-${node.id}`} flexDirection="column" gap={1}>
-      {node.isThisWindow ? renderThisWindow(view, node, place) : renderOtherSession(view, node, place)}
-      {renderChildren(view, node)}
+      {node.isThisWindow ? renderThisWindow(view, node, place, true) : renderOtherSession(view, node, place, true)}
+      {renderChildren(view, node, place.level)}
     </Box>
   )
 }
 
-// This window's row: one highlighted block with its title and breadcrumb, its details (Estado ... Iniciada) when its issue
-// is fetched, its timeline, and the GitHub link as the last line. A window with no issue has no details and no link.
-function renderThisWindow(view: View, node: SessionNode, place: RowPlace): RenderElement {
+// This window's row: one highlighted block with its title (when titled) and breadcrumb, its details (Estado ... Iniciada)
+// when its issue is fetched, its timeline, and the GitHub link as the last line. A window with no issue has no details and
+// no link.
+function renderThisWindow(view: View, node: SessionNode, place: RowPlace, titled: boolean): RenderElement {
   const { Box } = view.ui
   const indent = bodyIndentOf(place)
   const { thisIssue } = view
@@ -215,7 +307,7 @@ function renderThisWindow(view: View, node: SessionNode, place: RowPlace): Rende
       paddingX={1}
       paddingY={1}
     >
-      {renderSessionHead(view, node, place, true)}
+      {renderSessionHead(view, node, place, titled)}
       {node.issue !== null && thisIssue !== null && renderDetails(view, node, thisIssue, indent)}
       {renderTimeline(view, node, indent)}
       {node.issue !== null && renderGithubLink(view, node.issue.number, thisIssue?.url ?? node.issueUrl, indent)}
@@ -223,12 +315,12 @@ function renderThisWindow(view: View, node: SessionNode, place: RowPlace): Rende
   )
 }
 
-// Another session's row: its title, its breadcrumb and its timeline.
-function renderOtherSession(view: View, node: SessionNode, place: RowPlace): RenderElement {
+// Another session's row: its title (when titled), its breadcrumb and its timeline.
+function renderOtherSession(view: View, node: SessionNode, place: RowPlace, titled: boolean): RenderElement {
   const { Box } = view.ui
   return (
     <Box key={`row-${node.id}`} flexDirection="column" gap={1}>
-      {renderSessionHead(view, node, place, false)}
+      {renderSessionHead(view, node, place, titled)}
       {renderTimeline(view, node, bodyIndentOf(place))}
     </Box>
   )
@@ -238,15 +330,16 @@ function bodyIndentOf(place: RowPlace): number {
   return place.branch === null ? BODY_INDENT_ROOT : BODY_INDENT_CHILD
 }
 
-// The title line (state glyph, branch glyph under a parent, title) and the breadcrumb under it.
-function renderSessionHead(view: View, node: SessionNode, place: RowPlace, isThis: boolean): RenderElement {
+// The title line (branch glyph under a parent, state glyph, title) and the breadcrumb under it. An untitled row (a family
+// root, whose group's label is its title) starts with the state glyph and the breadcrumb.
+function renderSessionHead(view: View, node: SessionNode, place: RowPlace, titled: boolean): RenderElement {
   const { Box, Text } = view.ui
   return (
     <Box key={`head-${node.id}`} flexDirection="row" gap={1}>
       {place.branch !== null && <Text key="branch">{place.branch}</Text>}
       <Text key="state">{STATE_GLYPH[node.state]}</Text>
       <Box key="title-block" flexDirection="column" flexGrow={1}>
-        {renderSessionTitle(view, node, isThis)}
+        {titled && renderSessionTitle(view, node, node.isThisWindow)}
         {renderCrumb(view, node, place)}
       </Box>
     </Box>
@@ -287,26 +380,28 @@ function renderCrumb(view: View, node: SessionNode, place: RowPlace): RenderElem
   if (view.desktop && 'Markdown' in ui && node.issueUrl !== null && GITHUB_PAGE_URL.test(node.issueUrl)) {
     const { Markdown } = ui
     const linkedIssue = `[${escapeMarkdown(issue)}](${node.issueUrl})`
-    return <Markdown key="crumb" text={[linkedIssue, ...rest.map(escapeMarkdown)].join(TITLE_SEPARATOR)} />
+    return <Markdown key={`crumb-${node.id}`} text={[linkedIssue, ...rest.map(escapeMarkdown)].join(TITLE_SEPARATOR)} />
   }
   const { Text } = ui
-  return <Text key="crumb">{[issue, ...rest].join(TITLE_SEPARATOR)}</Text>
+  return <Text key={`crumb-${node.id}`}>{[issue, ...rest].join(TITLE_SEPARATOR)}</Text>
 }
 
-// The indent each level of derived rows adds under its parent, while the child is within MAX_INDENT_LEVELS (W1): the
-// indents of the boxes above a row add up to the cap, never more.
-const childIndentOf = (node: SessionNode): number => (node.depth < MAX_INDENT_LEVELS ? INDENT_CELLS : 0)
+// The indent the children of a row drawn at `level` add under it, while they are within MAX_INDENT_LEVELS (W1): the indents
+// of the boxes between a row and its group's rows add up to the cap, never more. The level is the drawn one, so a listed
+// root's children (depth 1, in the group body) and a group's other tops (depth 0) indent alike: 1/3/5 in every group.
+const childIndentOf = (level: number): number => (level < MAX_INDENT_LEVELS ? INDENT_CELLS : 0)
 
-function renderChildren(view: View, node: SessionNode): RenderElement | false {
+function renderChildren(view: View, node: SessionNode, level: number): RenderElement | false {
   if (node.children.length === 0) return false
   const { Box } = view.ui
   const lastIndex = node.children.length - 1
   return (
-    <Box key={`children-${node.id}`} flexDirection="column" gap={1} paddingLeft={childIndentOf(node)}>
+    <Box key={`children-${node.id}`} flexDirection="column" gap={1} paddingLeft={childIndentOf(level)}>
       {node.children.map((child, index) =>
         renderSessionRow(view, child, {
           branch: index === lastIndex ? BRANCH_GLYPH.last : BRANCH_GLYPH.middle,
           parentIssue: node.issue,
+          level: level + 1,
         }),
       )}
     </Box>
@@ -460,10 +555,10 @@ function renderIssueLine(view: View, issue: Issue): RenderElement {
   const label = `#${issue.number} ${issue.title}`
   if (view.desktop && 'Markdown' in ui && GITHUB_PAGE_URL.test(issue.url)) {
     const { Markdown } = ui
-    return <Markdown key="line" text={`${LINK_MARK} [${escapeMarkdown(label)}](${issue.url})`} />
+    return <Markdown key={`line-${issue.number}`} text={`${LINK_MARK} [${escapeMarkdown(label)}](${issue.url})`} />
   }
   const { Text } = ui
-  return <Text key="line">{label}</Text>
+  return <Text key={`line-${issue.number}`}>{label}</Text>
 }
 
 function renderFooter(view: View, snapshot: Snapshot): RenderElement {

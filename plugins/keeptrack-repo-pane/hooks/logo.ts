@@ -1,4 +1,4 @@
-// The repo work product mark: concept C, the checkpoint (a Sky milestone ring crossed by the Teal kite, one Coral dot for the
+// The KeepTrack product mark: concept C, the checkpoint (a Sky milestone ring crossed by the Teal kite, one Coral dot for the
 // progress mark). Copied from keepglide-company's brand drafts of 2026-10-21: repo-work-c-checkpoint-mark-only.svg (still) and
 // repo-work-c-checkpoint-loading.svg (the same drawing with a spinning ring, SMIL). The concept is provisional: Sophia has not
 // picked between A, B and C, so a swap is a change to this file only. The mark keeps its brand colours in both themes, so this
@@ -35,11 +35,11 @@ function svgDocument(size: number, body: string): string {
 }
 
 // The still mark as an SVG document for the `Svg` element, `size` CSS pixels square.
-export function repoWorkSvg({ size = 16 }: { size?: number } = {}): string {
+export function keepTrackSvg({ size = 16 }: { size?: number } = {}): string {
   return svgDocument(size, `<g>${RING}</g>${KITE}`)
 }
 
 // The loading mark: the still mark with its ring turning. Shown while the main loop runs, on the desktop only.
-export function repoWorkLoadingSvg({ size = 16 }: { size?: number } = {}): string {
+export function keepTrackLoadingSvg({ size = 16 }: { size?: number } = {}): string {
   return svgDocument(size, `<g>${RING}${SPIN}</g>${KITE}`)
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The look gate of KeepTrack (keeptrack-repo-pane): the drawn code (hooks/*.ts and *.tsx, except logo.ts and keepglide.ts, which hold the
-# colours of the two marks: the repo work product mark and the KeepGlide mark) takes its colours from the engine's theme keys and
+# colours of the two marks: the KeepTrack product mark and the KeepGlide mark) takes its colours from the engine's theme keys and
 # draws no emoji. action-icons.ts is exempt from the emoji scan only: it holds the band's terminal emoji, which Sophia asked for.
 # Exit 0 when clean, 1 on a hex colour, a colour function or an emoji, 2 when the gate cannot run (no module found, or grep fails).
 set -euo pipefail

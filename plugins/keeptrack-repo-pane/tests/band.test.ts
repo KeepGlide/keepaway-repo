@@ -154,6 +154,17 @@ test('the idle status shows the time since the last turn ended, or the bare word
   )
 })
 
+// The register redraws the idle band each minute with the clock's now (tests/register.test.ts); this is the text that redraw draws.
+test('the idle band drawn a minute after the turn ended reads 1 min ago, where a second earlier it read just now', () => {
+  const ended: BandTurn = { startedAt: null, endedAt: NOW - MINUTE, tool: null }
+  const before = textsOf(renderBand(TERMINAL, view({ turn: ended, now: NOW - SECOND }), () => {}, heldButtons()))
+  const after = textsOf(renderBand(TERMINAL, view({ turn: ended, now: NOW }), () => {}, heldButtons()))
+  expect(before).toContain('just now')
+  expect(before).not.toContain('1 min ago')
+  expect(after).toContain('1 min ago')
+  expect(after).not.toContain('just now')
+})
+
 test('the repo context names the milestone with its progress and the issue', () => {
   expect(lineOf(bandContextWords(view()))).toBe('W16-hotfix 10/16 · #106')
   expect(lineOf(bandContextWords(view({ issue: { number: 106, milestoneTitle: 'W16-hotfix', progress: null } })))).toBe('W16-hotfix · #106')
