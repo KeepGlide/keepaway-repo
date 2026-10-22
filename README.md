@@ -2,13 +2,15 @@
 
 <img src="assets/keeptrack-cover-1600x400.png" alt="KeepTrack: Your repo's work, beside the chat." width="100%" />
 
+<img src="assets/keeptrack-icon.svg" alt="KeepTrack mark: a milestone ring crossed by a kite, with one progress dot" width="96" />
+
 # 🧭 KeepTrack
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
 **A Claude Code Desktop mod for people who run several sessions on one GitHub repository. It shows which issue each session works on, and what the repository is doing right now.**
 
-[![Version](https://img.shields.io/badge/version-0.2.0--beta.5-2BB8AE.svg)](CHANGELOG.md) [![License: MIT](https://img.shields.io/badge/license-MIT-1E2A47.svg)](LICENSE) ![Platform](https://img.shields.io/badge/Claude%20Code%20Desktop-mod-1E2A47.svg)
+[![Version](https://img.shields.io/badge/version-0.2.0--beta.7-2BB8AE.svg)](CHANGELOG.md) [![License: MIT](https://img.shields.io/badge/license-MIT-1E2A47.svg)](LICENSE) ![Platform](https://img.shields.io/badge/Claude%20Code%20Desktop-mod-1E2A47.svg)
 
 [Installation](#-installation) · [Usage](#-usage) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/KeepGlide/keeptrack/issues/new) · [Security](SECURITY.md)
 
@@ -45,7 +47,7 @@
 
 ## 📌 Status
 
-Beta (`0.2.0-beta.5`). The project follows [SemVer](https://semver.org/): while the version is `0.y.z`, any release may change behavior without notice.
+Beta (`0.2.0-beta.7`). The project follows [SemVer](https://semver.org/): while the version is `0.y.z`, any release may change behavior without notice.
 
 ## 💡 Why it exists
 
@@ -59,7 +61,8 @@ It does **not** change anything on GitHub or in your repository. It does not tra
 
 - **`/keeptrack`** opens the pane (`/keeptrack open` does the same). `/keeptrack issue <n>` sets the issue of this window, `/keeptrack issue none` clears it, and `/keeptrack lang en|pt-BR|auto` sets the language.
 - **This window first**: the session of the window with its issue's details and timeline.
-- **Nested sessions**: the other Desktop sessions of the same repository, under their parent when they are derived (fork or spawn). Each session title links to its Desktop session.
+- **Sessions grouped as in Askaway**: the group on top, then the session and its derived sessions. The group is the Desktop sidebar Group the session (or its root) is filed under, drawn with the Group's name; otherwise it is the session family, labelled with the root session's title and linked to it. The root's state, branch and issue sit right under the label, and the derived sessions (fork or spawn) follow as `├`/`└` rows. Each session title links to its Desktop session.
+- **Ended sessions are not listed**: an archived Desktop session leaves the tree at once, unless it is this window's own session. When the archived session is the root of a family, its title stays as the group's label and its live derived sessions are listed under it, with the parent's title in their timeline.
 - **Open issues by milestone**: the open issues that no session works on, grouped by open milestone, with the milestone progress.
 - **A band above the prompt** with the state of this window: running or idle, the current tool or MCP server with its icon, the number of agents, the elapsed time, a waiting-for-you state, a data-error state, the milestone progress and the issue number.
 - **An Open button** on the band, with the KeepGlide mark before it (the mark shows on Desktop only).
@@ -68,11 +71,20 @@ It does **not** change anything on GitHub or in your repository. It does not tra
 ## 📸 Screenshots
 
 > [!NOTE]
-> **Design mocks, not captures.** The two images below are the approved design mock of the session-first layout (light and dark), not screenshots of the running Desktop app. Real captures of the band and the pane come with the next release.
+> **Design mocks, not captures.** The two images below are the approved design mock of the session-first layout (light and dark), not screenshots of the running Desktop app.
 
 | Light | Dark |
 |---|---|
 | ![KeepTrack pane and band, light design mock](docs/screenshots/keeptrack-session-first-light.jpg) | ![KeepTrack pane and band, dark design mock](docs/screenshots/keeptrack-session-first-dark.jpg) |
+
+> [!IMPORTANT]
+> **Real captures are pending.** They wait for Sophia's check of the running mod in Claude Code Desktop ([SPEC §17](plugins/keeptrack-repo-pane/SPEC.md#17-desktop-check-for-sophia)). Until then, the slots below hold no image.
+
+| Screen | Capture |
+|---|---|
+| Pane, light theme | Pending Sophia's Desktop check (SPEC §17) |
+| Pane, dark theme | Pending Sophia's Desktop check (SPEC §17) |
+| Band above the prompt | Pending Sophia's Desktop check (SPEC §17) |
 
 ## ⚙️ How it works
 
@@ -100,7 +112,7 @@ sequenceDiagram
     G-->>K: JSON from GitHub
     K->>D: list records, read the changed ones
     D-->>K: session records
-    K->>G: git rev-parse, git log of kept sessions (local)
+    K->>G: git rev-parse, git symbolic-ref and git log of kept sessions (local)
     G-->>K: branches and commits
     K-->>T: one snapshot written to the atom, then a redraw
 ```
@@ -123,30 +135,47 @@ The session-to-issue mapping takes the first match and never merges two sessions
 
 ## 🚀 Installation
 
-> [!IMPORTANT]
-> **Pending:** the KeepGlide catalog ([KeepGlide/claude-plugins](https://github.com/KeepGlide/claude-plugins)) has no `keeptrack` entry yet, so there is no one-command install. The commands below follow the Askaway pattern and are not run yet for this plugin. The entry and the verified commands come with the next release.
+KeepTrack is installed from `sophia-mods`, the local marketplace of Sophia's Claude Code mods: the folder `~/.claude/mods`, whose `.claude-plugin/marketplace.json` lists `keeptrack-repo-pane`.
 
-When the entry is published, the install is:
+### 1️⃣ Add the marketplace (once per machine)
 
-### 1️⃣ Add the marketplace
+Skip this step when `claude plugin marketplace list` already shows `sophia-mods`.
 
 ```bash
-claude plugin marketplace add KeepGlide/claude-plugins
+claude plugin marketplace add ~/.claude/mods
 ```
 
 ### 2️⃣ Install the plugin
 
 ```bash
-claude plugin install keeptrack-repo-pane@keepglide
+claude plugin install keeptrack-repo-pane@sophia-mods
 ```
 
 ### 3️⃣ Load it
 
 Restart Claude Code, or run `/reload-plugins` if your version has it. Then run `/keeptrack` in a session of a repository with a GitHub remote.
 
+<details>
+<summary><strong>Manual path: load the mod from a clone, without a marketplace</strong></summary>
+
+Clone this repository (it is private: you need read access), then start Claude Code with the mod's folder. The `--plugin-dir` flag loads the plugin for that session only, so repeat it on every start. Not checked in Claude Code Desktop.
+
+```bash
+git clone https://github.com/KeepGlide/keeptrack.git
+```
+
+```bash
+claude --plugin-dir keeptrack/plugins/keeptrack-repo-pane
+```
+
+</details>
+
+> [!NOTE]
+> **KeepGlide catalog: pending.** The KeepGlide catalog ([KeepGlide/claude-plugins](https://github.com/KeepGlide/claude-plugins)) has no `keeptrack` entry yet. When the entry is published, the install from it will be `claude plugin marketplace add KeepGlide/claude-plugins` and then `claude plugin install keeptrack-repo-pane@keepglide`, and the update and uninstall commands below take `@keepglide` in place of `@sophia-mods`. These commands are not run yet for this plugin.
+
 ## 🤖 Install with an AI agent (spec)
 
-> **For the agent:** follow this spec step by step and compare each result with **Expect**. Stop and report to the human on any mismatch. The instructions of your user come first. This spec is **pending**: do not run it until the catalog entry exists, as [Installation](#-installation) says.
+> **For the agent:** follow this spec step by step and compare each result with **Expect**. Stop and report to the human on any mismatch. The instructions of your user come first. The spec installs from the `sophia-mods` marketplace, as [Installation](#-installation) does.
 
 Ground rules:
 
@@ -159,8 +188,8 @@ Ground rules:
 |---|---|---|---|
 | 1 | Check that gh is signed in | `gh auth status` | Exit 0 and a line `Logged in to github.com`. If not, the human runs `gh auth login`. |
 | 2 | Check that the repository has a GitHub remote | `git remote get-url origin` | Exit 0 and a URL whose host is `github.com`, or an SSH alias with `github` in its name (for example `git@github-<label>:<owner>/<repo>.git`). Otherwise the pane shows `no GitHub remote for this repo`. |
-| 3 🧑 | Add the marketplace | `claude plugin marketplace add KeepGlide/claude-plugins` | Exit 0. Not checked yet: the catalog entry is pending. |
-| 4 🧑 | Install the plugin | `claude plugin install keeptrack-repo-pane@keepglide` | Exit 0. Not checked yet: the catalog entry is pending. |
+| 3 🧑 | Add the marketplace, unless `claude plugin marketplace list` already shows `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Exit 0, and `claude plugin marketplace list` shows `sophia-mods` with `Source: Folder (<path>)`. |
+| 4 🧑 | Install the plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Exit 0, and `claude plugin list` shows `keeptrack-repo-pane@sophia-mods` with `Version: 0.2.0-beta.7` and `Status: ✔ enabled`. |
 | 5 | Check that the command is registered | In a Desktop session, `/keeptrack bogus` | A toast with the usage line `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` (`hooks/i18n.ts:28`). Nothing changes. |
 | 6 | Open the pane | `/keeptrack` | A pane titled `KeepTrack` opens. It shows `Loading the repo...`, then the open issues by milestone, or an error line from [Troubleshooting](#-troubleshooting). |
 | 7 | Switch the language to Portuguese | `/keeptrack lang pt-BR` | The pane and the band switch to Portuguese. While loading, the pane shows `Carregando o repo...` (`hooks/i18n.ts:96`). |
@@ -168,23 +197,26 @@ Ground rules:
 | 9 | Check that gh reads the repository | `gh issue list -R <owner>/<repo> --state open --limit 1 --json number` | Exit 0 and a JSON array: `[]` or `[{"number":<n>}]`. |
 | 10 | Hand back | none | Report to the human the result of each step, the output of step 9 and any skipped step. No token is printed. |
 
-✅ **Done when:** steps 1, 2 and 9 match; steps 5 to 8 match in a Desktop session; steps 3 and 4 match once the catalog entry exists.
+✅ **Done when:** steps 1, 2 and 9 match; steps 3 and 4 match; steps 5 to 8 match in a Desktop session.
 
 **Report:** the result of each step, the output of step 9, and every skipped step with its reason.
 
 **Undo** (🧑 the human decides):
 
 1. Run `/keeptrack lang auto` and `/keeptrack issue none` in each window where they were used.
-2. Run `claude plugin uninstall keeptrack-repo-pane@keepglide`.
-3. Run `claude plugin marketplace remove keepglide` only if no other plugin uses that marketplace.
+2. Run `claude plugin uninstall keeptrack-repo-pane@sophia-mods`.
+3. Run `claude plugin marketplace remove sophia-mods` only if step 3 added it and no other plugin uses that marketplace.
 
 ## 🔄 Updating
 
-> [!NOTE]
-> Pending like the install: the update command below exists in the Claude Code CLI, but it has not been run against the catalog entry yet.
+Refresh the marketplace, then update the plugin. The update prints `updated from <old> to <new>` and `Restart to apply changes`.
 
 ```bash
-claude plugin update keeptrack-repo-pane@keepglide
+claude plugin marketplace update sophia-mods
+```
+
+```bash
+claude plugin update keeptrack-repo-pane@sophia-mods
 ```
 
 Restart Claude Code, or run `/reload-plugins`, after an update, as after an install.
@@ -192,7 +224,7 @@ Restart Claude Code, or run `/reload-plugins`, after an update, as after an inst
 ## 🧹 Uninstall
 
 ```bash
-claude plugin uninstall keeptrack-repo-pane@keepglide
+claude plugin uninstall keeptrack-repo-pane@sophia-mods
 ```
 
 Restart Claude Code, or run `/reload-plugins`, afterwards. What the mod leaves behind:
@@ -201,7 +233,7 @@ Restart Claude Code, or run `/reload-plugins`, afterwards. What the mod leaves b
 |---|---|---|
 | Plugin code and hooks | Claude Code's plugin installation | Removed by `claude plugin uninstall`. |
 | Stored language (`lang`) and window issues (`override:<session id>`) | The mod's store in Claude Code | Stay. The mod has no step that deletes them. Overrides expire after 30 days, or earlier when no session record lists their session. To clear the language first, run `/keeptrack lang auto`. |
-| Session records and the Askaway folder | `~/.config/Claude/claude-code-sessions` and `~/.claude/state/askaway` | Not touched. The mod only reads them. |
+| Session records, the Desktop config and the Askaway folder | `~/.config/Claude/claude-code-sessions`, `~/.config/Claude/claude_desktop_config.json` (only the sidebar Groups and their session assignments are read) and `~/.claude/state/askaway` | Not touched. The mod only reads them. |
 | GitHub and the repository | GitHub and your working tree | Not touched. The mod writes nothing there. |
 
 ## 🧭 Usage
@@ -212,7 +244,7 @@ Restart Claude Code, or run `/reload-plugins`, afterwards. What the mod leaves b
 | `/keeptrack issue <n>` | Sets the issue of this window, from 1 to 999999. Stored per session as `override:<session id>` for 30 days. Only a Desktop session can set it; any other window gets a toast. |
 | `/keeptrack issue none` | Clears the issue of this window. |
 | `/keeptrack lang en\|pt-BR\|auto` | Stores the language (case does not matter) and switches it at once. `auto` removes the stored choice and follows the environment. |
-| Any other argument | A toast with the usage line. Nothing changes. |
+| Any other argument | A toast with the usage line. Nothing changes. Extra words after `open` or `issue <n>` (for example `/keeptrack open now`) count as another argument. |
 
 ## 🎛️ Configuration
 
@@ -258,27 +290,27 @@ Fixed in the code, not configurable:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `claude plugin install keeptrack-repo-pane@keepglide` finds no plugin | The catalog entry is not published yet (see [Installation](#-installation)). | Wait for the entry. |
+| `claude plugin install keeptrack-repo-pane@keepglide` finds no plugin | The catalog entry is not published yet (see [Installation](#-installation)). | Install from `sophia-mods`, or wait for the entry. |
 | `gh not found: showing sessions only` | `gh` cannot start (not installed, or not on the path Claude Code sees). | Install [`gh`](https://cli.github.com/) and check it with `gh --version`. |
 | `gh is not signed in` | `gh` exits with a login message. | Run `gh auth login`. The next poll uses it (60 s with the pane open, 5 min closed). |
 | `GitHub rate limit: showing the last data` | GitHub's API rate limit was reached. | Wait. The last data stays on screen until a poll succeeds. |
 | `GitHub did not answer in time` | A `gh` call ran longer than 15 s. | Check the network, and run the failing call by hand. The next poll retries. |
 | `GitHub did not answer as expected: showing the last data` | A `gh` call failed without a known cause, or its output could not be read. | Run `gh issue list -R <owner>/<repo> --state open` by hand to see the error. |
 | `no GitHub remote for this repo` | The repository has no remote on GitHub. | Check `git remote -v`. The remote must point to `github.com`, or to an SSH alias with `github` in its name. |
-| `list is partial (first 500)` (or `first 100`) | The repository has more open issues (or pull requests) than one poll reads. | None in the mod. The list is partial by design. |
-| `{count} session records could not be read` | A records file did not parse, or a text field is over 4096 characters. | The bad record is skipped and the other sessions are shown. |
+| `list is partial (first 500)` (or `first 100`) | The repository has more open issues (or pull requests) than one poll reads. Exactly 500 open issues does not show the line. | None in the mod. The list is partial by design. |
+| `{count} session records could not be read` | A records file did not parse, or a text field is over 4096 characters. For one record the line reads `1 session record could not be read`. Only `local_<id>.json` files are read as records; other files in the folder, such as `scheduled-tasks.json` and `deleted_<id>` tombstones, are ignored. | The bad record is skipped and the other sessions are shown. |
 | `git failed in this folder · sessions shown without branch` | `git` failed in a session's folder. | Check that the folder exists and that `git status` works there. |
 | `This window is not a Desktop session: nothing to set` | `/keeptrack issue` ran in a window with no Desktop record. | Run it in a Desktop session window. |
 | The pane stays on `Loading the repo...` | The first poll has not settled, or was abandoned after 30 s. | Wait one poll. The mod logs `poll skipped` when two abandoned polls are still running, and then starts nothing until one ends. |
 
 ## 🐞 Known issues
 
-No known open issues as of 2026-10-21. Found one? [Open an issue](https://github.com/KeepGlide/keeptrack/issues/new).
+No known open issues as of 2026-10-22. Found one? [Open an issue](https://github.com/KeepGlide/keeptrack/issues/new).
 
 Known limitations, as the code does them today:
 
 - **A merged pull request does not link its issue.** Only open pull requests are queried, so an issue whose PR was merged does not show that PR. Workaround: `/keeptrack issue <n>` in the window sets the issue by hand.
-- **Archived sessions are not shown as live.** An archived session is not shown as a live session, even when its branch has an open PR; an archived parent of a shown session is drawn as an idle ancestor. The window's own session is the exception. Workaround: none.
+- **Archived sessions are never listed.** An archived session leaves the tree at once, even when its branch has an open PR, unless it is this window's session. Its title stays only as the label of its family's group while live derived sessions remain. Workaround: none; reopen the session from the Desktop sidebar to see it again.
 - **Checks always read `no CI`.** The mod reads the check rollup of open pull requests, but the Checks line always reads `no CI` because the issue details do not pass it through (register.tsx:926). The KeepGlide repositories run no GitHub Actions. Workaround: none.
 - **The working state is a heuristic.** A session counts as working for 5 minutes after its last activity, so the band can lag the real state. Workaround: none.
 - **Only GitHub remotes count.** A remote on another host shows as `no GitHub remote`. Workaround: none.
@@ -288,15 +320,15 @@ Known limitations, as the code does them today:
 
 | Category | Tests |
 |---|---|
-| Rules: remote parsing, session tree, issue groups, timelines, record projection (`tests/model.test.ts`) | 60 |
-| Hooks module: poll, pane command, timers and close (`tests/register.test.ts`) | 61 |
-| Band: status line, states and Open button (`tests/band.test.ts`) | 36 |
-| Pane: snapshot drawing (`tests/pane.test.ts`) | 23 |
-| Language: English and pt-BR dictionaries (`tests/i18n.test.ts`) | 8 |
+| Rules: remote parsing, session tree, issue groups, timelines, record projection (`tests/model.test.ts`) | 80 |
+| Hooks module: poll, pane command, timers and close (`tests/register.test.ts`) | 99 |
+| Band: status line, states and Open button (`tests/band.test.ts`) | 37 |
+| Pane: snapshot drawing (`tests/pane.test.ts`) | 39 |
+| Language: English and pt-BR dictionaries (`tests/i18n.test.ts`) | 10 |
 | Turn transitions of the band (`tests/turn.test.ts`) | 6 |
-| **Total** | **194** |
+| **Total** | **271** |
 
-Counts from `claude plugin test plugins/keeptrack-repo-pane` (194 pass, 0 fail), run again on 2026-10-21 at commit `1787401`.
+Counts from `claude plugin test plugins/keeptrack-repo-pane` on the 0.2.0-beta.7 release: 271 pass, 0 fail, 6 files.
 
 ## 🔧 Development
 
