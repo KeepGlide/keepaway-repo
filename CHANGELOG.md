@@ -3,10 +3,31 @@
 All notable changes to KeepTrack are recorded here, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The project follows
 [SemVer](https://semver.org/); while the version is `0.y.z`, any release may change behavior.
-The version in `plugins/keeptrack-repo-pane/.claude-plugin/plugin.json` is 0.2.0-beta.7.
+The version in `plugins/keeptrack-repo-pane/.claude-plugin/plugin.json` is 0.2.0-beta.8.
 Commit hashes name the change in `git log`.
 
 ## [Unreleased]
+
+## [0.2.0-beta.8] - 2026-10-22
+
+### Added
+- Every session without a Desktop sidebar Group is listed under one single group labelled `Recents`, exactly as the Claude Code Desktop sidebar names them. Owner request, 2026-10-22 (Askaway q-mvjtulza-91d6af, option A).
+- The label is `Recents` in both languages, because the Desktop app (44.9.0) has no translated label.
+- A Desktop Group literally named "Recents" keeps its own label next to the `Recents` group (two labels, different keys).
+
+### Changed
+- The "family as a group" rule of beta.7 is withdrawn: a session without a Group no longer forms a group of its own labelled with its root's title.
+- Group labels are plain bold text, with no link and no this-window marker.
+- Every top session is a titled `├`/`└` row with its derived sessions nested at 1, 3 and 5 cells, in Desktop Groups and in `Recents` alike.
+- Groups are drawn in this order: this window's group first (even when it is `Recents`), then the named Desktop Groups by newest activity, then `Recents` last.
+- Inside a group, this window's session comes first, then the newest activity, then the session id.
+- An ended (archived) root is not drawn: its live derived sessions are rows of their group (`Recents` when unfiled), with the parent's title in their timeline; the beta.7 rule "oldest first under the root's title" is withdrawn.
+- Sessions with no Group share the `Recents` key, so a cycle with no Group keeps one link and a chain past the 8-hop family cap stays nested while its listed depth is 8 or less.
+- Internal: `SessionGroup` is `{ key, label, kind: 'desktop' | 'recents' }`, `familyOf` returns only the root id, and dead helpers are removed.
+- Tests: two new, 273 in total (model 81, pane 40); one model run proves the missing-parent-before-hop-cap rule under a filed root (mutation-checked), and one pane test pins a Desktop Group named "Recents".
+
+### Migration needed
+- No. Update the plugin and run `/reload-plugins` in open windows.
 
 ## [0.2.0-beta.7] - 2026-10-22
 
