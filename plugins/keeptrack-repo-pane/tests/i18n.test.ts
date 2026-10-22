@@ -60,9 +60,9 @@ test('t reads a numeric value as its text', () => {
   expect(counterLine('pt', 3, 2)).toBe('3 issues abertas · 2 sessões')
 })
 
-test('the fallback label of a session group names the session in both languages', () => {
-  expect(t('en', 'group.session')).toBe('the session')
-  expect(t('pt', 'group.session')).toBe('a sessão')
+test('the group of sessions without a Desktop Group reads Recents in both languages, as the Desktop sidebar names it', () => {
+  expect(t('en', 'group.recents')).toBe('Recents')
+  expect(t('pt', 'group.recents')).toBe('Recents')
 })
 
 test('a count of 1 takes the singular form in both languages, and a plural count keeps the plural (RP1, RP2)', () => {

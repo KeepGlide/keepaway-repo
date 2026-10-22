@@ -1,9 +1,9 @@
-// The KeepTrack pane: the header, the sessions on this machine by group (Askaway's tree: a bold label, the family root's
-// rows under it, then the derived sessions; this window's group first, the window highlighted with its issue details, its
-// timeline and its GitHub link), the issues without a session by milestone, and the footer. It draws one Snapshot the
-// register hands in and reads or writes no state. Nothing folds: every row, every detail and every timeline is always drawn.
-// A title or a group label goes into a link only after escaping; a Desktop Group name, commit subjects, comments and labels
-// stay plain Text.
+// The KeepTrack pane: the header, the sessions on this machine by group (Askaway's tree: a bold label, a Desktop Group's name,
+// else Recents, then its tops as titled rows with their derived sessions under them; this window's group first, the window
+// highlighted with its issue details, its timeline and its GitHub link), the issues without a session by milestone, and the
+// footer. It draws one Snapshot the register hands in and reads or writes no state. Nothing folds: every row, every detail and
+// every timeline is always drawn. A title goes into a link only after escaping; group labels, commit subjects, comments and
+// labels stay plain Text.
 import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import type {
@@ -19,7 +19,7 @@ import type {
   TimelineEvent,
 } from '../types'
 import { t, type Lang, type MessageKey } from './i18n'
-import { TEXT_MAX, TIMELINE_LIMIT, isSessionLinkId, plain } from './model'
+import { RECENTS_GROUP, TEXT_MAX, TIMELINE_LIMIT, isSessionLinkId, plain } from './model'
 import { BRANCH_GLYPH, DETAILS_FILL, LINK_MARK, STATE_GLYPH } from './look'
 import { KEEPGLIDE_HEADER_SIZE, renderKeepGlide, renderKeepTrackLogo } from './logo-element'
 
@@ -41,11 +41,11 @@ type View = {
   thisIssue: IssueDetails | null
 }
 
-// Where a session row sits: its branch glyph under a parent ("├" or "└", null at the top), the parent's issue (breadcrumb),
-// and the level it is drawn at below its group's rows (0 in the group body, whatever its depth in the tree; W1).
-type RowPlace = { branch: string | null; parentIssue: IssueRef | null; level: number }
+// Where a session row sits: its branch glyph ("├" or "└"), the parent's issue (breadcrumb), and the level it is drawn at
+// below its group's label (0 for a top, whatever its depth in the tree; W1).
+type RowPlace = { branch: string; parentIssue: IssueRef | null; level: number }
 
-// The tops drawn under one label: a Desktop Group's, or a session family's (buildTree keeps a group's tops together).
+// The tops drawn under one label: a Desktop Group's, or Recents' (buildTree keeps a group's tops together).
 type GroupRun = { group: SessionGroup; tops: SessionNode[] }
 
 type DetailLine = { key: string; label: string; value: string }
@@ -53,12 +53,10 @@ type DetailLine = { key: string; label: string; value: string }
 // Derived rows indent two cells per level, at most two levels, so a 360 px pane holds them (repo-work-pane-design-spec.md section 2.4).
 const INDENT_CELLS = 2
 const MAX_INDENT_LEVELS = 2
-// The indent of a row's body under its state glyph: the title starts after the glyph, and after the branch glyph too.
-const BODY_INDENT_ROOT = 2
-const BODY_INDENT_CHILD = 4
-// The indent of a group's rows under its label (Askaway's ROOT_PLACE), and the place of a family root's rows there.
+// The indent of a row's body under its state glyph: the title starts after the branch glyph and the state glyph.
+const BODY_INDENT = 4
+// The indent of a group's rows under its label.
 const GROUP_INDENT = 1
-const ROOT_PLACE: RowPlace = { branch: null, parentIssue: null, level: 0 }
 const TITLE_SEPARATOR = ' · '
 const MINUTE_MS = 60_000
 const MINUTES_PER_HOUR = 60
@@ -190,15 +188,15 @@ function renderSection(view: View, key: string, heading: string, rows: RenderEle
 }
 
 function renderSessionsSection(view: View, snapshot: Snapshot): RenderElement {
-  const rows = groupsOf(snapshot.sessions).map(run => renderGroup(view, snapshot, run))
+  const rows = groupsOf(snapshot.sessions).map(run => renderGroup(view, run))
   return renderSection(view, 'sessions', t(view.lang, 'group.sessions'), rows)
 }
 
-// The tops in consecutive runs of one group key each. A top without a group is a family of its own.
+// The tops in consecutive runs of one group key each. A top without a group is drawn under Recents.
 function groupsOf(tops: readonly SessionNode[]): GroupRun[] {
   const runs: GroupRun[] = []
   for (const top of tops) {
-    const group = top.group ?? { key: top.id, label: top.title, href: top.id, isDesktopGroup: false }
+    const group = top.group ?? RECENTS_GROUP
     const last = runs.at(-1)
     if (last?.group.key === group.key) last.tops.push(top)
     else runs.push({ group, tops: [top] })
@@ -206,31 +204,20 @@ function groupsOf(tops: readonly SessionNode[]): GroupRun[] {
   return runs
 }
 
-// Whether a top is the root of its family group: its rows sit right under the label, which is its title.
-const isFamilyRoot = (group: SessionGroup, node: SessionNode): boolean => !group.isDesktopGroup && node.id === group.key
-
-// One group, drawn as Askaway draws a branch: the label in bold, the family root's rows right under it (the label is the
-// root's title, so it is not drawn twice), then the derived rows, "├" and "└" on the last: the root's children, then the
-// group's other tops. A family whose root ended, and a Desktop Group, have no root rows: each top is a titled derived row
-// with its own children under it.
-function renderGroup(view: View, snapshot: Snapshot, run: GroupRun): RenderElement {
+// One group, drawn as Askaway draws a branch: the label in bold, then each top as a titled row with its children under it,
+// "├" and "└" on the last.
+function renderGroup(view: View, run: GroupRun): RenderElement {
   const { group, tops } = run
-  const root = tops.find(top => isFamilyRoot(group, top))
-  const derived = [
-    ...(root?.children ?? []).map(node => ({ node, parentIssue: root?.issue ?? null })),
-    ...tops.filter(top => top !== root).map(node => ({ node, parentIssue: null })),
-  ]
-  const lastIndex = derived.length - 1
+  const lastIndex = tops.length - 1
   const { Box } = view.ui
   return (
     <Box key={`group-${group.key}`} flexDirection="column">
-      {renderGroupLabel(view, groupLabelOf(view, snapshot, run), group, root?.isThisWindow === true)}
+      {renderGroupLabel(view, group)}
       <Box key="group-rows" flexDirection="column" gap={1} paddingLeft={GROUP_INDENT}>
-        {root !== undefined && renderRootRows(view, root)}
-        {derived.map(({ node, parentIssue }, index) =>
+        {tops.map((node, index) =>
           renderSessionRow(view, node, {
             branch: index === lastIndex ? BRANCH_GLYPH.last : BRANCH_GLYPH.middle,
-            parentIssue,
+            parentIssue: null,
             level: 0,
           }),
         )}
@@ -239,38 +226,12 @@ function renderGroup(view: View, snapshot: Snapshot, run: GroupRun): RenderEleme
   )
 }
 
-// The label of a group: its own, else the first of its tops' labels that is not blank, else the repo name, else
-// "the session".
-function groupLabelOf(view: View, snapshot: Snapshot, run: GroupRun): string {
-  const labels = [run.group.label, ...run.tops.map(top => top.group?.label ?? ''), snapshot.repo?.name ?? '']
-  return labels.find(label => label !== '') ?? t(view.lang, 'group.session')
-}
-
-// The label line of a group, bold. On the desktop a family's label links to its root session, escaped as a session title
-// is, with this window's marker when the root is this window. A Desktop Group's name (the user's own text) and the terminal
-// draw plain Text. The key carries the group's: the engine refuses a draw where two Markdown elements share one.
-function renderGroupLabel(view: View, label: string, group: SessionGroup, isThis: boolean): RenderElement {
-  const { ui, lang } = view
-  const marker = isThis ? ` ${t(lang, 'session.thisWindow')}` : ''
-  const key = `group-label-${group.key}`
-  const href = group.isDesktopGroup ? null : group.href
-  if (view.desktop && 'Markdown' in ui && href !== null && isSessionLinkId(href)) {
-    const { Markdown } = ui
-    return <Markdown key={key} text={`**[${escapeMarkdown(`${label} ↗`)}](#${href})**${escapeMarkdown(marker)}`} />
-  }
-  const { Text } = ui
-  return <Text key={key} bold>{`${label}${marker}`}</Text>
-}
-
-// The rows of a family's root right under its group's label: untitled (the label is its title), and without its children,
-// which the group draws as its derived rows.
-function renderRootRows(view: View, node: SessionNode): RenderElement {
-  const { Box } = view.ui
-  return (
-    <Box key={`session-${node.id}`} flexDirection="column">
-      {node.isThisWindow ? renderThisWindow(view, node, ROOT_PLACE, false) : renderOtherSession(view, node, ROOT_PLACE, false)}
-    </Box>
-  )
+// The label line of a group: plain bold Text, a Desktop Group's name (the user's own text), else Recents in the pane's
+// language. The key carries the group's, so every label of one draw has its own.
+function renderGroupLabel(view: View, group: SessionGroup): RenderElement {
+  const { Text } = view.ui
+  const label = group.kind === 'recents' ? t(view.lang, 'group.recents') : group.label
+  return <Text key={`group-label-${group.key}`} bold>{label}</Text>
 }
 
 function renderIssuesSection(view: View, snapshot: Snapshot): RenderElement {
@@ -285,18 +246,16 @@ function renderSessionRow(view: View, node: SessionNode, place: RowPlace): Rende
   const { Box } = view.ui
   return (
     <Box key={`session-${node.id}`} flexDirection="column" gap={1}>
-      {node.isThisWindow ? renderThisWindow(view, node, place, true) : renderOtherSession(view, node, place, true)}
+      {node.isThisWindow ? renderThisWindow(view, node, place) : renderOtherSession(view, node, place)}
       {renderChildren(view, node, place.level)}
     </Box>
   )
 }
 
-// This window's row: one highlighted block with its title (when titled) and breadcrumb, its details (Estado ... Iniciada)
-// when its issue is fetched, its timeline, and the GitHub link as the last line. A window with no issue has no details and
-// no link.
-function renderThisWindow(view: View, node: SessionNode, place: RowPlace, titled: boolean): RenderElement {
+// This window's row: one highlighted block with its title and breadcrumb, its details (Estado ... Iniciada) when its issue
+// is fetched, its timeline, and the GitHub link as the last line. A window with no issue has no details and no link.
+function renderThisWindow(view: View, node: SessionNode, place: RowPlace): RenderElement {
   const { Box } = view.ui
-  const indent = bodyIndentOf(place)
   const { thisIssue } = view
   return (
     <Box
@@ -307,39 +266,34 @@ function renderThisWindow(view: View, node: SessionNode, place: RowPlace, titled
       paddingX={1}
       paddingY={1}
     >
-      {renderSessionHead(view, node, place, titled)}
-      {node.issue !== null && thisIssue !== null && renderDetails(view, node, thisIssue, indent)}
-      {renderTimeline(view, node, indent)}
-      {node.issue !== null && renderGithubLink(view, node.issue.number, thisIssue?.url ?? node.issueUrl, indent)}
+      {renderSessionHead(view, node, place)}
+      {node.issue !== null && thisIssue !== null && renderDetails(view, node, thisIssue, BODY_INDENT)}
+      {renderTimeline(view, node, BODY_INDENT)}
+      {node.issue !== null && renderGithubLink(view, node.issue.number, thisIssue?.url ?? node.issueUrl, BODY_INDENT)}
     </Box>
   )
 }
 
-// Another session's row: its title (when titled), its breadcrumb and its timeline.
-function renderOtherSession(view: View, node: SessionNode, place: RowPlace, titled: boolean): RenderElement {
+// Another session's row: its title, its breadcrumb and its timeline.
+function renderOtherSession(view: View, node: SessionNode, place: RowPlace): RenderElement {
   const { Box } = view.ui
   return (
     <Box key={`row-${node.id}`} flexDirection="column" gap={1}>
-      {renderSessionHead(view, node, place, titled)}
-      {renderTimeline(view, node, bodyIndentOf(place))}
+      {renderSessionHead(view, node, place)}
+      {renderTimeline(view, node, BODY_INDENT)}
     </Box>
   )
 }
 
-function bodyIndentOf(place: RowPlace): number {
-  return place.branch === null ? BODY_INDENT_ROOT : BODY_INDENT_CHILD
-}
-
-// The title line (branch glyph under a parent, state glyph, title) and the breadcrumb under it. An untitled row (a family
-// root, whose group's label is its title) starts with the state glyph and the breadcrumb.
-function renderSessionHead(view: View, node: SessionNode, place: RowPlace, titled: boolean): RenderElement {
+// The title line (branch glyph, state glyph, title) and the breadcrumb under it.
+function renderSessionHead(view: View, node: SessionNode, place: RowPlace): RenderElement {
   const { Box, Text } = view.ui
   return (
     <Box key={`head-${node.id}`} flexDirection="row" gap={1}>
-      {place.branch !== null && <Text key="branch">{place.branch}</Text>}
+      <Text key="branch">{place.branch}</Text>
       <Text key="state">{STATE_GLYPH[node.state]}</Text>
       <Box key="title-block" flexDirection="column" flexGrow={1}>
-        {titled && renderSessionTitle(view, node, node.isThisWindow)}
+        {renderSessionTitle(view, node, node.isThisWindow)}
         {renderCrumb(view, node, place)}
       </Box>
     </Box>
@@ -387,8 +341,8 @@ function renderCrumb(view: View, node: SessionNode, place: RowPlace): RenderElem
 }
 
 // The indent the children of a row drawn at `level` add under it, while they are within MAX_INDENT_LEVELS (W1): the indents
-// of the boxes between a row and its group's rows add up to the cap, never more. The level is the drawn one, so a listed
-// root's children (depth 1, in the group body) and a group's other tops (depth 0) indent alike: 1/3/5 in every group.
+// of the boxes between a row and its group's rows add up to the cap, never more. A top sits at level 0, column 1 under its
+// group's label; its children at column 3; theirs at 5, and deeper rows stay at 5.
 const childIndentOf = (level: number): number => (level < MAX_INDENT_LEVELS ? INDENT_CELLS : 0)
 
 function renderChildren(view: View, node: SessionNode, level: number): RenderElement | false {

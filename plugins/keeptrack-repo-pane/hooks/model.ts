@@ -263,48 +263,46 @@ function cutTooDeep(kept: ReadonlySet<string>, parentOf: Map<string, string>): v
   for (const id of deep) parentOf.delete(id)
 }
 
-// The family root of a session: its id, and its title ('' when unknown).
-type Family = { id: string; title: string }
-
 // The title a spawn link gives the session it names; '' for a fork, a root or a spawn link without a title.
-const spawnTitleOf = (record: ProjectedRecord | null): string => (record?.parentKind === 'spawn' ? (record.parentTitle ?? '') : '')
+const spawnTitleOf = (record: ProjectedRecord): string => (record.parentKind === 'spawn' ? (record.parentTitle ?? '') : '')
 
-// The family root of a session (Askaway's family_of): the top of its fork and spawn links, at most MAX_DEPTH hops up. An
-// untitled root takes the title the spawn link just below it gives. A missing root is named by the spawn link that names it,
-// else the top present record is the root. The missing parent is read before the hop cap, so a top present record MAX_DEPTH
-// hops up is still the root. A cycle, or a root more than MAX_DEPTH hops up, makes the session its own family.
-function familyOf(id: string, chain: ReadonlyMap<string, ProjectedRecord>): Family {
+// The family root id of a session (Askaway's family_of): the top of its fork and spawn links, at most MAX_DEPTH hops up. A
+// missing root is named by the spawn link that names it, else the top present record is the root. The missing parent is read
+// before the hop cap, so a top present record MAX_DEPTH hops up is still the root. A cycle, or a root more than MAX_DEPTH hops
+// up, makes the session its own family.
+function familyOf(id: string, chain: ReadonlyMap<string, ProjectedRecord>): string {
   const own = chain.get(id)
-  if (own === undefined) return { id, title: '' }
+  if (own === undefined) return id
   const seen = new Set<string>([id])
-  let below: ProjectedRecord | null = null
   let current = own
   for (let hops = 0; ; hops += 1) {
     const parentId = current.parentId
-    const rootTitle = current.title !== '' ? current.title : spawnTitleOf(below)
-    if (parentId === null) return { id: current.sessionId, title: rootTitle }
+    if (parentId === null) return current.sessionId
     const parent = chain.get(parentId)
     if (parent === undefined) {
-      const named = spawnTitleOf(current)
-      if (named === '') return { id: current.sessionId, title: rootTitle }
+      if (spawnTitleOf(current) === '') return current.sessionId
       // The root the spawn link names sits one hop above `current`, so at MAX_DEPTH hops it is past the cap.
-      return hops < MAX_DEPTH ? { id: parentId, title: named } : { id, title: own.title }
+      return hops < MAX_DEPTH ? parentId : id
     }
-    if (hops === MAX_DEPTH || seen.has(parentId)) return { id, title: own.title }
+    if (hops === MAX_DEPTH || seen.has(parentId)) return id
     seen.add(parentId)
-    below = current
     current = parent
   }
 }
 
-// The group a session is drawn under: its own named Desktop Group, else its family root's (a Group with a blank name is
-// skipped), else its family, linked when the root id has the shape of a Desktop session link.
-function groupOf(id: string, family: Family, groups: DesktopGroups): SessionGroup {
-  for (const groupId of [groups.assignments.get(id), groups.assignments.get(family.id)]) {
+// The key of the Recents group. Desktop Group ids are `cg-<uuid>`, so this key is reserved: a Group with this id is skipped.
+export const RECENTS_KEY = 'recents'
+// The group of every session with no Desktop Group, as the Desktop sidebar lists it; the pane draws its label (i18n group.recents).
+export const RECENTS_GROUP: SessionGroup = { key: RECENTS_KEY, label: '', kind: 'recents' }
+
+// The group a session is drawn under: its own named Desktop Group, else its family root's (a Group with a blank name, or with
+// the reserved id RECENTS_KEY, is skipped), else Recents.
+function groupOf(id: string, familyRootId: string, groups: DesktopGroups): SessionGroup {
+  for (const groupId of [groups.assignments.get(id), groups.assignments.get(familyRootId)]) {
     const label = groupId === undefined ? '' : plain(groups.names.get(groupId) ?? '', LABEL_MAX)
-    if (groupId !== undefined && label !== '') return { key: groupId, label, href: null, isDesktopGroup: true }
+    if (groupId !== undefined && groupId !== RECENTS_KEY && label !== '') return { key: groupId, label, kind: 'desktop' }
   }
-  return { key: family.id, label: family.title, href: isSessionLinkId(family.id) ? family.id : null, isDesktopGroup: false }
+  return RECENTS_GROUP
 }
 
 // The nearest kept ancestor of a session: the walk goes through the ancestors that are not kept, and gives null at a missing id
@@ -332,8 +330,8 @@ function attachmentsOf(kept: ReadonlySet<string>, chain: ReadonlyMap<string, Pro
   return parentOf
 }
 
-// A session in another group than its parent's is cut from it and becomes a top of its own group (Askaway's per-session Group
-// rule).
+// A session in another group than its parent's (Recents counts as one group) is cut from it and becomes a top of its own group
+// (Askaway's per-session Group rule).
 function cutAcrossGroups(parentOf: Map<string, string>, groups: ReadonlyMap<string, SessionGroup>): void {
   for (const [id, parentId] of [...parentOf]) {
     if (groups.get(id)?.key !== groups.get(parentId)?.key) parentOf.delete(id)
@@ -361,33 +359,35 @@ type TreeContext = {
   issueFacts: ReadonlyMap<number, IssueFacts>
 }
 
-// The tops of one group in order: a family's root first (when listed), then its other tops oldest first; a Desktop Group's
-// top that holds this window first, then the rest by last activity, newest first.
-function sortGroupTops(key: string, tops: readonly SessionInput[], context: TreeContext): SessionInput[] {
-  if (tops.some(top => context.groups.get(top.sessionId)?.isDesktopGroup === false)) {
-    return [...tops.filter(top => top.sessionId === key), ...sortChildren(tops.filter(top => top.sessionId !== key), context.now)]
-  }
+// The tops of one group in order: the top that holds this window first, then the rest by last activity, newest first, then
+// by session id.
+function sortGroupTops(tops: readonly SessionInput[], context: TreeContext): SessionInput[] {
   const rank = (record: SessionInput): number => (record.sessionId === context.thisRootId ? 1 : 0)
   return [...tops].sort(
     (a, b) =>
       rank(b) - rank(a) ||
-      clampTo(b.lastActivityAt, context.now) - clampTo(a.lastActivityAt, context.now),
+      clampTo(b.lastActivityAt, context.now) - clampTo(a.lastActivityAt, context.now) ||
+      (a.sessionId < b.sessionId ? -1 : 1),
   )
 }
 
-// The tops in drawing order, each group's tops together: the group holding this window first, then the group whose newest top
-// was active last, then by key.
+// The tops in drawing order, each group's tops together: the group holding this window first (Recents included), then the
+// named Desktop Groups by their newest top, then by key, and Recents last.
 function sortTops(tops: readonly SessionInput[], context: TreeContext): SessionInput[] {
   const byKey = new Map<string, SessionInput[]>()
   for (const top of tops) {
-    const key = context.groups.get(top.sessionId)?.key ?? top.sessionId
+    const key = (context.groups.get(top.sessionId) ?? RECENTS_GROUP).key
     byKey.set(key, [...(byKey.get(key) ?? []), top])
   }
   const holdsThis = (list: readonly SessionInput[]): number => (list.some(top => top.sessionId === context.thisRootId) ? 1 : 0)
+  const isRecents = (key: string): number => (key === RECENTS_KEY ? 1 : 0)
   const newest = (list: readonly SessionInput[]): number => Math.max(...list.map(top => clampTo(top.lastActivityAt, context.now)))
   return [...byKey]
-    .sort(([keyA, a], [keyB, b]) => holdsThis(b) - holdsThis(a) || newest(b) - newest(a) || (keyA < keyB ? -1 : 1))
-    .flatMap(([key, list]) => sortGroupTops(key, list, context))
+    .sort(
+      ([keyA, a], [keyB, b]) =>
+        holdsThis(b) - holdsThis(a) || isRecents(keyA) - isRecents(keyB) || newest(b) - newest(a) || (keyA < keyB ? -1 : 1),
+    )
+    .flatMap(([, list]) => sortGroupTops(list, context))
 }
 
 // The children of a session, oldest first.
@@ -442,10 +442,10 @@ function attach(record: SessionInput, depth: number, parentNode: SessionNode | n
 }
 
 // The session tree of the sessions listed (repo-work-pane-design-spec.md D2), each top under its group: a Desktop sidebar Group,
-// else the session family. The group holding this window comes first, then the groups by their newest top; derived sessions
+// else Recents. The group holding this window comes first, then the named groups by newest top, Recents last; derived sessions
 // hang under their parent. Future timestamps are clamped to now; a cycle is cut at one link; a session deeper than MAX_DEPTH,
 // or filed in another group than its parent, becomes a top. A parent that is not listed (missing, archived and not this
-// window, or a context ancestor) is skipped: its child hangs under the nearest listed ancestor, else it is a top of its family
+// window, or a context ancestor) is skipped: its child hangs under the nearest listed ancestor, else it is a top of its
 // group (parentId null, kind kept). Context ancestors only link and group: they are never listed.
 export function buildTree(nodes: readonly SessionInput[], options: TreeOptions): SessionNode[] {
   const listable = nodes.filter(record => !record.isArchived || isThisWindow(record, options.thisCliSessionId))

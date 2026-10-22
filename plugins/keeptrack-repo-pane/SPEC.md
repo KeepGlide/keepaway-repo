@@ -1,4 +1,4 @@
-# KeepTrack: spec (as built, v0.2.0-beta.7)
+# KeepTrack: spec (as built, v0.2.0-beta.8)
 
 Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepTrack, the command is `/keeptrack`.
 
@@ -10,8 +10,8 @@ where it differs from that record (section 9).
 ## 1. Purpose
 
 - Show, at a glance, what this window is working on, which issue it belongs to and which milestone that issue is in.
-- Show the other Desktop sessions of the same repo in Askaway's tree: the group on top (a Desktop sidebar Group, else the
-  session family), then the session and its derived sessions (fork or spawn). Ended sessions are never listed.
+- Show the other Desktop sessions of the same repo in Askaway's tree: the group on top (a Desktop sidebar Group, else
+  `Recents`, the Desktop sidebar's label), then each top session and its derived sessions (fork or spawn). Ended sessions are never listed.
 - Show the open issues that no session works on, grouped by open milestone.
 - Read only. The pane writes two kinds of state: the open flag and the language (`$.store` `lang`), and the issue
   override a `/keeptrack issue` command sets (`$.store` `override:<sessionId>`).
@@ -22,13 +22,13 @@ where it differs from that record (section 9).
 |---|---|
 | `.claude-plugin/plugin.json`, `hooks/hooks.json` | Manifest; the hooks module is `hooks/register.tsx`. |
 | `hooks/register.tsx` | The only module that calls `$`: the poll timer, the atoms, the `/keeptrack` command, the close; the context ancestors (`ancestorsOf`) and the Desktop config read (`readDesktopGroups`). |
-| `hooks/model.ts` | Pure rules: remote parsing, session-to-issue mapping, session tree with its groups and families (`parseDesktopGroups`, `familyOf`, `groupOf`, `cutAcrossGroups`, `sortTops`, `nearestKeptAncestorOf`), issue groups, timelines, state, record projection. |
-| `hooks/pane.tsx` | Draws one `Snapshot`; reads no state. The session groups: `groupsOf`, `renderGroup`, `renderGroupLabel`, `renderRootRows`. |
+| `hooks/model.ts` | Pure rules: remote parsing, session-to-issue mapping, session tree with its groups (`parseDesktopGroups`, `familyOf`, `groupOf`, `cutAcrossGroups`, `sortTops`, `nearestKeptAncestorOf`), issue groups, timelines, state, record projection. |
+| `hooks/pane.tsx` | Draws one `Snapshot`; reads no state. The session groups: `groupsOf`, `renderGroup`, `renderGroupLabel`. |
 | `hooks/band.tsx` | Draws the band row above the prompt: the status line, the repo context and the Open button (section 18); reads no state. |
 | `hooks/turn.ts` | The pure transitions of the main loop's turn (turn.start, tool.call, turn.complete, turn.abort), written into the turn atom. |
 | `hooks/keepglide.ts` | A local copy of askaway's KeepGlide mark, drawn 24 px at the pane header's right (section 17). |
 | `hooks/held.ts` | Keeps the band's press handle across redraws: a local copy of askaway's `held.ts` (mods do not import each other). |
-| `hooks/i18n.ts` | English and pt-BR dictionaries and `t()`; `group.session` is the label of last resort of a group. |
+| `hooks/i18n.ts` | English and pt-BR dictionaries and `t()`; `group.recents` is `Recents` in both languages, the Desktop sidebar's own label (the app bundle has `Recents` 24 times and `Recentes` 0 times, counted on this machine on 2026-10-22, `/usr/lib/claude-desktop/version`: `44.9.0`). |
 | `hooks/look.ts`, `hooks/logo.ts` | Theme keys and glyphs (`look.ts`); the one violet of the logo (`logo.ts`, exempt from the look gate). |
 | `types/index.d.ts` | The contracts: records, issues, PRs, `SessionNode`, `IssueDetails`, `Snapshot`, the drawn state. |
 | `scripts/keeptrack-look-check.sh` | Look gate: no hex colour, colour function or emoji in the drawn code. |
@@ -65,34 +65,37 @@ where it differs from that record (section 9).
    6. Open askaway questions: `ASKAWAY_HOME` (or `~/.claude/state/askaway`), `q/*.json` with no `a/<id>.json` yet; the question's
       `desktop_session` names the session, its `title` is the blocker text. A missing folder is no question.
    7. Overrides: store keys `override:<sessionId>`.
-   8. Tree (`buildTree`), Askaway's shape: group, then the session, then its derived sessions.
+   8. Tree (`buildTree`), Askaway's shape: group, then each top session, then its derived sessions.
       - Listing (`keptIds`): this window at any state, the live members (not archived, and active within 72 h or with an open
         PR) and every member ancestor of those that is not archived. An ended session (archived, or deleted) is never listed,
         except this window's own record. A first pass decides which sessions are listed; only those get commit reads.
-      - Family (`familyOf`): the top of the session's fork and spawn links, up to 8 hops, walked through the listed records and
-        the context ancestors. At each hop the missing parent is read first, then the cap: a fork whose parent is missing,
-        with no spawn title, keeps the top present ancestor as its root (8 hops up included); a missing root that a spawn link
-        names by title is the family `{missing id, title}` while it is at most 8 hops up. A cycle, or a root more than 8 hops
-        up, makes the session its own family. An untitled root takes the title of the spawn link just below it.
-      - Group (`groupOf`): the session's own Desktop Group, else its family root's (a Group with a blank name is skipped), else
-        its family: key = the root's id, label = the root's title, href = the root's id when it has the `local_<id>` shape.
+      - Family (`familyOf`): the root id of the session's fork and spawn links, up to 8 hops, walked through the listed records
+        and the context ancestors; it serves only to inherit the root's Desktop Group. At each hop the missing parent is read
+        first, then the cap: a fork whose parent is missing, with no spawn title, keeps the top present ancestor as its root
+        (8 hops up included); a missing root that a spawn link names by title is the root, by its missing id, while it is at
+        most 8 hops up. A cycle, or a root more than 8 hops up, makes the session its own root.
+      - Group (`groupOf`): the session's own Desktop Group, else its family root's (a Group with a blank name is skipped, and
+        so is a Group whose id is `recents`), else `Recents` (key `recents`, reserved). A `SessionGroup` is
+        `{ key, label, kind }`, `kind` `desktop` or `recents`; the Recents `label` is `''` and the pane draws the dictionary's
+        `Recents` (`group.recents`).
       - Per-session Group rule (`cutAcrossGroups`): a session filed in another group than its parent is cut from it and is a
-        top of its own group, as Askaway does.
+        top of its own group, as Askaway does. The sessions with no Group share the `recents` key, so none is cut from
+        another: a chain past the 8-hop family cap stays nested while its listed depth is 8 or less, as in a shared Desktop
+        Group.
       - Re-attachment (`nearestKeptAncestorOf`): the drawn parent is the nearest listed ancestor; with none the session is a
         top of its group. The issue inheritance follows the drawn parent (section 5); the timeline still names the session's own
         parent, an ended one included (section 10).
-      - Sorting (`sortTops`): the group holding this window first, then the groups by the newest own activity of their tops,
-        then by key (ties no longer keep the input order). Inside a Desktop Group, the top holding this window first, then by
-        activity, newest first. Inside a family, the root first, then the other tops oldest first (Sophia, 2026-10-22, Askaway
-        q-mvjqgw26-cae43d, option A).
-      - Cycles: cut at one link (`cutCycleAbove`); the link left stands only when both members share a Desktop Group, since
-        otherwise each is its own family and the Group rule cuts it.
-      - Drawing (`renderGroup`): the bold label line (a link to the root session on the desktop when the group is a family,
-        with `← this window` when the root is this window; a Desktop Group's name is plain Text); the family root's rows under
-        it, untitled; then the derived rows `├` and `└`:
-        the root's children, then the group's other tops. An ended root is the label only, with no rows of its own: its live
-        derived sessions are the group's `├` and `└` rows. In a Desktop Group every family root is a titled `├` or `└` row with
-        its children nested under it.
+      - Sorting (`sortTops`): the group holding this window first, even when it is Recents; then the named Desktop Groups by
+        the newest own activity of their tops, then by key (ties no longer keep the input order); Recents last otherwise.
+        Inside a group, the top holding this window first, then by activity, newest first, then by session id (Sophia,
+        2026-10-22, Askaway q-mvjtulza-91d6af, option A).
+      - Cycles: cut at one link (`cutCycleAbove`); the link left stands only when both members share a group (one Desktop
+        Group, or Recents), since otherwise the Group rule cuts it.
+      - Drawing (`renderGroup`): the label line, plain bold Text (`group-label-<key>`), never Markdown, with no link and no
+        `← this window`: the Desktop Group's name, or `Recents`. Under it every top is a titled `├` or `└` row (its title on
+        its own row), with its derived rows nested under it, at the 1/3/5 indent in every group, Recents included (W1,
+        section 9). An ended root is not drawn: its live derived sessions are tops of their group (Recents when unfiled),
+        ordered like any other top, and their timeline names it (`forked from <title>`, `spawned from <title>`).
    9. Commits of each kept session: `git symbolic-ref refs/remotes/origin/HEAD` (no network), then `git log -5` on its
       branch unless the branch is the default branch.
    10. This window's issue (section 6): one `gh issue view` call when the window maps to an issue.
@@ -173,7 +176,7 @@ Only these fields are projected (`projectRecord`); all others are dropped unread
 | `cliSessionId` | Matches this window (`$.session.id()`) |
 | `title` | Row title (escaped before it goes into a link) |
 | `createdAt`, `lastActivityAt` | Started time, recency (72 h cutoff), state (working within 5 min) |
-| `isArchived` | Ended: an archived session is never listed, at any age or with an open PR, except this window's own record. As an ancestor it is context only: it links the tree and names its family group (Sophia, 2026-10-22) |
+| `isArchived` | Ended: an archived session is never listed, at any age or with an open PR, except this window's own record. As an ancestor it is context only: it links the tree and lends its Desktop Group (Sophia, 2026-10-22) |
 | `forkedFromSessionId` | Parent, kind fork |
 | `spawnedFrom.sessionId`, `spawnedFrom.title` | Parent, kind spawn, and its title for the timeline |
 | `gitAnchors[0].commonDir` | Repo match (absolute path only) |
@@ -212,7 +215,7 @@ unreadable answer (gh-failed line); a dropped item still counts toward the 501st
 Singular forms: a count of 1 takes the key's `.one` form (`t()` in `hooks/i18n.ts`), in English and pt-BR. Two lines use it: the
 records line above (`error.records.one`) and the pane's counter line, `N open issues · N sessions` (`counter.issues.one`,
 `counter.sessions.one`: `1 open issue`, `1 session`; pt-BR `1 issue aberta`, `1 sessão`). The counter counts the listed sessions only
-(an ended root drawn only as a group label is not counted); with none, it reads `nothing in progress`.
+(an ended root is not drawn and not counted); with none, it reads `nothing in progress`.
 
 A poll never throws into the engine: a failed job is logged by its error name only (`poll failed (Name)`).
 
@@ -232,23 +235,23 @@ A poll never throws into the engine: a failed job is logged by its error name on
 | Mock: "Estado" is hand-written issue prose | Computed from the session state (D7) | Records carry no issue prose |
 | DESIGN 3.1: errors above groups | Same | none |
 | Window without issue | No details block and no GitHub line; the breadcrumb reads `no issue · no milestone` | Mock and Sophia's brief |
-| Ended sessions never listed (D2, W6; 2026-10-22) | Ended = archived (`isArchived`) or deleted (the record is gone; its `deleted_<id>` tombstone is skipped). An ended record other than this window's is not matched, admitted, asked of git, listed or counted. As an ancestor it is context only: it links the tree and names its family group and the timeline of its derived sessions. This window's own archived record is still listed, with the state of its activity | Sophia's decision of 2026-10-22: "KeepTrack must not list sessions that already ended". It replaces the W6 rule (archived ancestors drawn idle). Her earlier request of the same day, finished rows with a ✓ glyph, was withdrawn by her |
-| W6: an ended parent in the tree | An ended parent is no row: its title is the group's label (a link to its session on the desktop), and its live spawn or fork is a `├` or `└` row in the group body whose timeline names it | The row above, drawn in Askaway's tree (row below) |
-| Tree shape is Askaway's (group → session → derived) | One bold label per group (a Desktop sidebar Group, else the session family), the family root's rows under it untitled, then the derived rows; the group holding this window first (section 3 step 8) | Sophia's decision of 2026-10-22 |
+| Ended sessions never listed (D2, W6; 2026-10-22) | Ended = archived (`isArchived`) or deleted (the record is gone; its `deleted_<id>` tombstone is skipped). An ended record other than this window's is not matched, admitted, asked of git, listed or counted. As an ancestor it is context only: it links the tree, lends its Desktop Group and is named in the timeline of its derived sessions. This window's own archived record is still listed, with the state of its activity | Sophia's decision of 2026-10-22: "KeepTrack must not list sessions that already ended". It replaces the W6 rule (archived ancestors drawn idle). Her earlier request of the same day, finished rows with a ✓ glyph, was withdrawn by her |
+| W6: an ended parent in the tree | An ended parent has no row and no label; its live fork or spawn is a top of its group (Recents when unfiled), whose timeline names it | The row above, drawn in Askaway's tree (row below) |
+| Tree shape is Askaway's (group → session → derived) | One bold label per group (a Desktop sidebar Group, else `Recents`); each top a titled row, its derived rows nested; this window's group first, `Recents` last (section 3 step 8) | Sophia's decision of 2026-10-22 (Askaway q-mvjtulza-91d6af, option A): the sessions with no Group take the Desktop sidebar's own name, `Recents`. It withdraws the beta.7 family groups and their rule of derived sessions oldest first under the root's title as label |
 | Released marker not read | The `*.desktop-released.json` markers are not read: ended means archived or deleted only | Checked on this machine on 2026-10-22: 287 markers, all `reason: "delete"`, none naming a live record's `cliSessionId`; 45 of 57 records archived, none with a marker, so archiving writes no marker; the 710 `deleted_<id>` tombstones are already skipped |
-| Missing root and blank title differ from Askaway | A fork whose parent record is missing and that has no spawn title keeps the top present ancestor's family. When the root is untitled, two tops of one family can carry different labels (each takes the spawn title on its own path): the pane takes the first top with a label (`groupLabelOf`), then the repo name, then `the session` | `familyOf` reads only the records the scan holds (2026-10-22) |
+| Missing root differs from Askaway | A fork whose parent record is missing and that has no spawn title keeps the top present ancestor as its root, whose Desktop Group it inherits | `familyOf` reads only the records the scan holds (2026-10-22) |
 | Remote host ignored | Only GitHub hosts count: `github.com`, or an alias whose host contains `github`; the host must match too. A `--repo` call and the no-remote line follow the same rule | S4: a same-named repo on another host is not this repo |
 | Caps: none | Desktop files read 2000; candidate sessions 64 (newest activity first) plus every session with an open PR among the newest 256 records (DL7); membership checks and branch reads over the newest 4 × 64 others; git calls in flight 4 | S1: bounded reads and git calls per poll |
 | Poll deadline: none | 30 s (section 16; chosen by Sophia on 2026-10-21; real polls measured 0.6 to 2.0 s over the last 15 days): a poll past it is abandoned and the flag is released; its late result writes unless a newer poll has written | F07, R2-04: a late poll must not overwrite a newer snapshot |
 | Unused PR and issue fields `reviewRequests` and `assignees` | Not read, not projected (F26, Sophia's choice A) | Nothing drew them |
 | Pane gets this window's id | Not passed: the tree marks this window by its CLI id (`isThisWindow`); the pane compares no id | N3: the id mismatch is gone and render reads no state |
-| Derived indent | 1/3/5 in every group (drawn level; a listed root's children sit in the group body at level 1): the root's children and the group's other tops sit in the group body, 1 cell under the label, the same column as the root's rows; each deeper drawn level adds 2 cells, capped at two levels, so a fourth level stays at 5 (was 1/3/3 by tree depth under a listed root, 2/4/4 before; the boxes add up) | W1, in Askaway's tree |
+| Derived indent | 1/3/5 in every group, Recents included (drawn level): a top sits 1 cell under the label, its children at 3, the next level at 5, and deeper levels stay at 5 (beta.7 drew a family root's children at 1, in the column of its untitled rows; 1/3/3 by tree depth under a listed root and 2/4/4 before that; the boxes add up) | W1, in Askaway's tree |
 | Text of records | Titles, subjects, labels, names and comment bodies: control characters become spaces, capped (200 for text, 100 for labels and names) | S2: no escape sequence reaches a terminal |
 | Timeline of a fork with no parent title | The text without a name: `forked`, `spawned` | W6 |
 | `/keeptrack issue <n>` writes the override | `setIssue` checks the session id (`isSessionLinkId`) before it writes | SE4: defensive; the command cannot reach an invalid id (`projectRecord` drops a record whose `sessionId` lacks the `local_<id>` shape), so no test |
 | A failed poll marks the snapshot stale | Only when it is the newest poll at write time (`isNewest` checked again inside the atom update, `failedPoll`) | ST3: the test (`ST3 guard`, `tests/register.test.ts`) is a guard only: the test kit cannot hold the snapshot atom between the read and the write |
 | Agents after turn.abort | turn.abort does not re-read the agents; the band tick re-reads them (section 18); the hook comment says so | SM2 |
-| Element keys: none named | Each repeated element takes a key of its own, the same on the Markdown and the Text branch: `group-label-<group key>`, `crumb-<session id>`, `line-<issue number>` (titles were already `title-<session id>`); this window's GitHub `link` is drawn once and keeps its key | F (2026-10-22): the engine refuses the whole Pane draw when two Markdown elements share a key, so two families, two listed issues or two linked breadcrumbs drew nothing on the desktop; pinned by the `F:` test in `tests/register.test.ts` |
+| Element keys: none named | Each repeated element takes a key of its own, the same on the Markdown and the Text branch: `group-label-<group key>` (a plain Text label since beta.8), `crumb-<session id>`, `line-<issue number>` (titles were already `title-<session id>`); this window's GitHub `link` is drawn once and keeps its key | F (2026-10-22): the engine refuses the whole Pane draw when two Markdown elements share a key, so two families, two listed issues or two linked breadcrumbs drew nothing on the desktop; pinned by the `F:` test in `tests/register.test.ts` |
 
 ## 10. The breadcrumb and the timeline
 
@@ -265,8 +268,7 @@ A poll never throws into the engine: a failed job is logged by its error name on
 
 Inside one highlighted block (the engine's user-message background, `DETAILS_FILL`):
 
-1. Title row: the session title as a link to `#local_<id>` on the desktop (plain text on the terminal), `← this window`. When
-   this window is a family root, its block has no title row: its group's label line carries the link and `← this window`.
+1. Title row: the session title as a link to `#local_<id>` on the desktop (plain text on the terminal), `← this window`.
 2. Breadcrumb (section 10).
 3. Detail lines `Heading: text` (only when `thisIssue` is drawn): State, Branch, PR, Last commit, Checks, Last comment,
    Blocked by, Next step, Started. Each heading is bold; each line is a separate row. "Blocked by" is `nothing` when no open
@@ -274,8 +276,8 @@ Inside one highlighted block (the engine's user-message background, `DETAILS_FIL
 4. Timeline (section 10).
 5. The GitHub link as the last line: `▪ Open #n on GitHub ↗`, a Markdown https link on the desktop, plain text on the terminal.
 
-Nothing folds. Each group draws its label line, then the family root's rows, then the derived rows (`├`, and `└` on the
-last); deeper derived rows nest under their parent, indent capped at two levels (W1, section 9).
+Nothing folds. Each group draws its label line, then each top as a titled row (`├`, and `└` on the last) with its derived
+rows nested under it; deeper derived rows nest under their parent, indent capped at two levels (W1, section 9).
 
 ## 12. Language
 
@@ -336,7 +338,7 @@ or reads a real record.
 | Title read for an issue reference | 4096 characters, uncut (`titleIssue`); the drawn title is cut to 200 |
 | Record size | 2 MiB (skipped before parse) |
 | Record text field | 4096 characters (record unreadable) |
-| Session tree depth | 8 (a deeper session is the root of a family of its own) |
+| Session tree depth | 8 (a deeper session becomes a top of its group) |
 | Timeline events per session | 6 |
 | Branch commits read | 5 |
 | Session cutoff | 72 h (an open PR keeps a session past it, only among the 256 newest records by activity (the DL7 exception); not for archived, which are never shown, except this window's own) |
@@ -367,12 +369,15 @@ Done in the Claude Desktop with the mod installed, not by the build:
 6. Pane closed: no `gh` process runs (watch the process list for 2 minutes).
 7. The band above the prompt: drawn on the desktop and the terminal with the pane closed; its button reads Open and presses to
    the pane; with the pane open it reads Show; hotkey 2 from an empty composer opens the pane.
-8. Groups: each Desktop sidebar Group labels its sessions with the sidebar's name (plain text); the other sessions are
-   grouped by family under their root's title.
-9. An archived root: drawn as its label only, with its live derived sessions as `├` and `└` rows under it; the label link
-   opens the root session.
-10. W1 indent: the root's children in the same column as the root's rows, 1 cell under the label; each deeper drawn level
-    2 cells more, at most two levels: 1/3/5 in every group, whether its root is listed, ended or in a Desktop Group.
+8. Groups: each Desktop sidebar Group labels its sessions with the sidebar's name (plain text); every other session sits
+   under one `Recents` label, after the named groups unless it holds this window (Sophia, 2026-10-22, Askaway
+   q-mvjtulza-91d6af, option A).
+9. An archived root: not drawn; its live derived sessions are titled rows of their group whose timeline names it.
+10. W1 indent: a top 1 cell under the label, its children at 3, the next level at 5, deeper levels at 5: 1/3/5 in a
+    Desktop Group or in Recents.
+11. A Desktop Group named `Recents`. Expected: two `Recents` labels, keys `group-label-cg-<uuid>` and `group-label-recents`;
+    the pane does not merge a Desktop Group named Recents into the reserved group (pinned by the pane test added on
+    2026-10-22).
 
 ## 18. The band above the prompt (status line)
 

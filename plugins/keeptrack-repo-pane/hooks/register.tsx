@@ -263,7 +263,7 @@ async function askawayFolderOf($: EngineInterface): Promise<string | undefined> 
 }
 
 // The Desktop config (claude_desktop_config.json) and its sidebar Groups, read as Askaway reads them: only when its mtime
-// changes (the folder listing gives it). A file that is not there names no Group, and the tree groups by family. A file over
+// changes (the folder listing gives it). A file that is not there names no Group, and every session sits under Recents. A file over
 // DESKTOP_CONFIG_MAX_BYTES, one that cannot be read or parsed, or a folder whose listing fails keeps the last Groups read.
 // No outcome is logged or toasted: a missing or odd config is normal, and the file also holds MCP settings. The cache is
 // written only on a successful read.

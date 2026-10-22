@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { renderPane, type PaneContext } from '../hooks/pane'
 import { TEXT_MAX, buildTree, groupIssues, type DesktopGroups } from '../hooks/model'
-import { DETAILS_FILL, STATE_GLYPH } from '../hooks/look'
+import { DETAILS_FILL } from '../hooks/look'
 import type { PaneError, SessionNode, Snapshot } from '../types'
 import {
   HOUR,
@@ -163,8 +163,8 @@ test('the details of this window follow the breadcrumb, in the order of the mock
 
 test('the GitHub link of this window is a Markdown https link on the desktop and plain text on the terminal', () => {
   const desktopBlock = nodesOf(drawDesktop()).find(node => node.props.backgroundColor === DETAILS_FILL)
-  // The window's own session link is its group's label, above the block.
-  expect(sessionLinksIn(desktopBlock).length).toBe(0)
+  // The window's own session link is its title, the first line of the block.
+  expect(sessionLinksIn(desktopBlock).length).toBe(1)
   expect(drawnTexts(desktopBlock)).toContain('▪ Open #106 on GitHub ↗')
   expect(nodesOf(desktopBlock).some(node => node.tag === 'Markdown' && String(node.props.text) === '▪ [Open #106 on GitHub ↗](https://github.com/synthetic-owner/synthetic-repo/issues/106)')).toBe(true)
 
@@ -233,17 +233,18 @@ test('a session title is escaped before it goes into its link', () => {
       ),
     }),
   })
-  expect(sessionLinksIn(tree)).toEqual(['**[Fix \\[x\\]\\(y\\) \\*now\\* ↗](#local_aaaa1111)**'])
+  expect(sessionLinksIn(tree)).toEqual(['[Fix \\[x\\]\\(y\\) \\*now\\* ↗](#local_aaaa1111)'])
 })
 
 test('derived rows nest under their parents, one level deeper, with branch glyphs', () => {
   const tree = drawDesktop()
   const texts = drawnTexts(tree)
-  // The fork and the spawn are each the only child of their parent, so both carry the last-child glyph.
-  expect(texts.filter(text => text === '└').length).toBe(2)
-  // The root's rows and its derived rows sit one cell under the group's label.
-  expect(indentBefore(tree, 'session-local_c21d0002')).toBe(1)
-  expect(indentBefore(tree, 'session-local_55c00006')).toBe(1)
+  // The four tops of Recents carry ├ and └ on the last; the fork and the spawn are each the only child of their parent.
+  expect(texts.filter(text => text === '└').length).toBe(3)
+  expect(texts.filter(text => text === '├').length).toBe(3)
+  // The tops sit one cell under the group's label, their derived rows two cells further.
+  expect(indentBefore(tree, 'session-local_c21d0002')).toBe(3)
+  expect(indentBefore(tree, 'session-local_55c00006')).toBe(3)
   expect(indentBefore(tree, `session-${THIS_WINDOW}`)).toBe(1)
 })
 
@@ -265,16 +266,16 @@ function chainIndents(options: { rootArchived?: boolean; desktopGroups?: Desktop
 }
 
 test('derived rows indent 1/3/5 by the level they are drawn at, and a fourth level stays at the two-level cap (W1)', () => {
-  // The root's children are the group's derived rows, one cell under its label; the two levels below them add two cells each.
+  // The root is a top, one cell under its group's label; the two levels below it add two cells each, deeper levels none.
   const listed = chainIndents()
-  expect([1, 2, 3, 4].map(index => listed.get(index))).toEqual([1, 3, 5, 5])
+  expect([0, 1, 2, 3, 4].map(index => listed.get(index))).toEqual([1, 3, 5, 5, 5])
 })
 
-test('a family whose root ended, and a family in a Desktop Group, draw the same 1/3/5 (W1)', () => {
-  // The ended root is not drawn: its child is a top, the first derived row of the group.
+test('a chain whose root ended, and a chain in a Desktop Group, draw the same 1/3/5 (W1)', () => {
+  // The ended root is not drawn: its child is a top of Recents.
   const ended = chainIndents({ rootArchived: true })
   expect([1, 2, 3, 4].map(index => ended.get(index))).toEqual([1, 3, 5, 5])
-  // In a Desktop Group the root is a titled derived row itself.
+  // In a Desktop Group the root is a titled top, as under Recents.
   const desktopGroups: DesktopGroups = {
     names: new Map([['group-chain', 'Chain group']]),
     assignments: new Map([['local_d0000000', 'group-chain']]),
@@ -283,7 +284,7 @@ test('a family whose root ended, and a family in a Desktop Group, draw the same 
   expect([0, 1, 2, 3].map(index => grouped.get(index))).toEqual([1, 3, 5, 5])
 })
 
-// One session alone, as a top of its own family.
+// One session alone, as a top of Recents.
 function oneTop(sessionId: string, title: string): SessionNode {
   const [top] = buildTree([makeRecord({ sessionId, title, lastActivityAt: NOW - MINUTE })], {
     now: NOW,
@@ -298,33 +299,27 @@ function oneTop(sessionId: string, title: string): SessionNode {
 const groupLabelIn = (tree: unknown, groupKey: string): Drawn | undefined =>
   keyed(keyed(tree, `group-${groupKey}`), `group-label-${groupKey}`)
 
-test('each family is a bold label linked to its root, the root rows under it untitled, then its derived rows', () => {
+test('the Recents label is bold Text, never Markdown, and its tops are titled ├/└ rows', () => {
   const tree = drawDesktop()
-  const links = sessionLinksIn(tree)
-  expect(links).toContain('**[Synthetic session three ↗](#local_9b040003)**')
-  expect(links).toContain('**[Synthetic session four ↗](#local_e77f0004)**')
-  expect(links).toContain('**[Synthetic docs ↗](#local_1a2b0005)**')
-  // The label replaces the root's title link: the six sessions still draw six links.
-  expect(links.length).toBe(SIX_TITLES.length)
+  const label = groupLabelIn(tree, 'recents')
+  expect(label?.tag).toBe('Text')
+  expect(label?.props.bold).toBe(true)
+  expect(textOf(label?.props.children)).toBe('Recents')
+  expect(nodesOf(tree).some(node => node.tag === 'Markdown' && String(node.props.text).includes('Recents'))).toBe(false)
 
-  const rootRow = drawnTexts(keyed(tree, 'row-local_1a2b0005'))
-  expect(Object.values(STATE_GLYPH)).toContain(rootRow[0] ?? '')
-  expect(rootRow.some(text => text.startsWith('Synthetic docs'))).toBe(false)
-  const group = drawnTexts(keyed(tree, 'group-local_1a2b0005'))
-  expect(group[0]).toBe('Synthetic docs ↗')
-  expect(group.filter(text => text.startsWith('Synthetic docs')).length).toBe(1)
-  expect(group.indexOf('no issue · no milestone') < group.indexOf('└')).toBe(true)
-  expect(group.indexOf('└') < group.indexOf('Synthetic spawn ↗')).toBe(true)
+  expect(drawnTexts(keyed(tree, 'head-local_1a2b0005'))[0]).toBe('├')
+  expect(drawnTexts(keyed(tree, 'head-local_1a2b0005'))).toContain('Synthetic docs ↗')
+  expect(drawnTexts(keyed(tree, 'head-local_9b040003'))[0]).toBe('└')
+  expect(drawnTexts(keyed(tree, 'head-local_9b040003'))).toContain('Synthetic session three ↗')
+  // Every session, a top or a derived one, is titled with its own link.
+  expect(sessionLinksIn(tree).length).toBe(SIX_TITLES.length)
 })
 
-test('this window as its family root: the marker sits on the label line, the highlighted block starts with the glyph and the breadcrumb', () => {
+test('this window as a top of Recents: its titled row opens the highlighted block, with the glyphs and the marker', () => {
   const tree = drawDesktop()
   expect(sessionLinksIn(tree)[0]).toBe(`**[Synthetic session one ↗](#${THIS_WINDOW})** ← this window`)
-  const group = keyed(tree, `group-${THIS_WINDOW}`)
-  expect(drawnTexts(group)[0]).toBe('Synthetic session one ↗ ← this window')
-  const blockTexts = drawnTexts(nodesOf(group).find(node => node.props.backgroundColor === DETAILS_FILL))
-  expect(blockTexts.slice(0, 2)).toEqual(['●', '#106 · Milestone B'])
-  expect(blockTexts.some(text => text.includes('Synthetic session one') || text.includes('← this window'))).toBe(false)
+  const block = nodesOf(tree).find(node => node.props.backgroundColor === DETAILS_FILL)
+  expect(drawnTexts(block).slice(0, 3)).toEqual(['├', '●', 'Synthetic session one ↗ ← this window'])
 })
 
 test('a Desktop Group label is plain bold Text, never Markdown, and its family roots are titled ├/└ rows with their children nested', () => {
@@ -357,9 +352,22 @@ test('a Desktop Group label is plain bold Text, never Markdown, and its family r
   expect(indentBefore(tree, 'session-local_c21d0002')).toBe(3)
   expect(indentBefore(tree, 'session-local_55c00006')).toBe(3)
   expect(sessionLinksIn(tree).length).toBe(SIX_TITLES.length)
+  // The sessions with no Group follow under Recents, after the named Group.
+  const labelKeys = nodesOf(tree).map(node => String(node.props.key)).filter(key => key.startsWith('group-label-'))
+  expect(labelKeys).toEqual(['group-label-group-release', 'group-label-recents'])
 })
 
-test('an ended root draws its linked label and no rows of its own; its live derived sessions are ├/└ rows, and only they are counted', () => {
+test('a Desktop Group named Recents keeps its own label next to the Recents group: the pane does not merge the two', () => {
+  const named: SessionNode = { ...oneTop('local_b0000004', 'Filed top'), group: { key: 'cg-x', label: 'Recents', kind: 'desktop' } }
+  // A top of Recents: oneTop lists the session with no Desktop Group.
+  const unfiled = oneTop('local_b0000005', 'Unfiled top')
+  const tree = drawDesktop({ snapshot: snapshotWith({ sessions: [named, unfiled] }) })
+  const labels = nodesOf(tree).filter(node => String(node.props.key).startsWith('group-label-'))
+  expect(labels.map(node => String(node.props.key))).toEqual(['group-label-cg-x', 'group-label-recents'])
+  expect(labels.map(node => textOf(node.props.children))).toEqual(['Recents', 'Recents'])
+})
+
+test('an ended root draws no row and no label; its live derived sessions are titled ├/└ tops of Recents that name it, and only they are counted', () => {
   const sessions = buildTree(
     [
       makeRecord({ sessionId: 'local_a0000001', title: 'Archived planning', isArchived: true }),
@@ -383,49 +391,40 @@ test('an ended root draws its linked label and no rows of its own; its live deri
     { now: NOW, cutoffMs: 24 * HOUR, thisCliSessionId: null },
   )
   const tree = drawDesktop({ snapshot: snapshotWith({ sessions }) })
-  expect(sessionLinksIn(tree)).toEqual([
-    '**[Archived planning ↗](#local_a0000001)**',
-    '[Fork A ↗](#local_a0000002)',
-    '[Spawn B ↗](#local_a0000003)',
-  ])
+  expect(sessionLinksIn(tree)).toEqual(['[Fork A ↗](#local_a0000002)', '[Spawn B ↗](#local_a0000003)'])
   expect(keyed(tree, 'session-local_a0000001') === undefined).toBe(true)
   expect(drawnTexts(keyed(tree, 'head-local_a0000002'))[0]).toBe('├')
   expect(drawnTexts(keyed(tree, 'head-local_a0000003'))[0]).toBe('└')
+  expect(drawnTexts(keyed(tree, 'row-local_a0000002'))).toContain('forked from Archived planning')
+  expect(drawnTexts(keyed(tree, 'row-local_a0000003'))).toContain('spawned from Archived planning')
   expect(drawnTexts(tree)).toContain('8 open issues · 2 sessions')
 })
 
-test('a blank group label takes the first top with a label, then the repo name, then "the session", in both languages', () => {
-  const inGroup = (node: SessionNode, label: string): SessionNode => ({
-    ...node,
-    group: { key: 'local_b0000000', label, href: null, isDesktopGroup: false },
-  })
-  const blank = inGroup(oneTop('local_b0000001', 'First'), '')
-  const named = inGroup(oneTop('local_b0000002', 'Second'), 'Named later')
-  const labelOf = (overrides: Partial<Snapshot>, lang: PaneContext['lang'] = 'en'): string =>
-    textOf(groupLabelIn(drawDesktop({ snapshot: snapshotWith(overrides), lang }), 'local_b0000000')?.props.children)
-  expect(labelOf({ sessions: [blank, named] })).toBe('Named later')
-  expect(labelOf({ sessions: [blank] })).toBe('synthetic-repo')
-  expect(labelOf({ sessions: [blank], repo: null })).toBe('the session')
-  expect(labelOf({ sessions: [blank], repo: null }, 'pt')).toBe('a sessão')
+test('the Recents label reads Recents in both languages, as the Desktop sidebar names it', () => {
+  for (const lang of ['en', 'pt'] as const) {
+    expect(textOf(groupLabelIn(drawDesktop({ lang }), 'recents')?.props.children)).toBe('Recents')
+  }
 })
 
-test('a top without a group is its own family: its title is the label, linked to it', () => {
+test('a top without a group is drawn under Recents as a titled └ row', () => {
   const loose: SessionNode = { ...oneTop('local_b0000003', 'Loose top'), group: null }
   const tree = drawDesktop({ snapshot: snapshotWith({ sessions: [loose] }) })
-  expect(sessionLinksIn(tree)).toEqual(['**[Loose top ↗](#local_b0000003)**'])
-  expect(drawnTexts(keyed(tree, 'row-local_b0000003')).some(text => text.startsWith('Loose top'))).toBe(false)
+  expect(textOf(groupLabelIn(tree, 'recents')?.props.children)).toBe('Recents')
+  expect(drawnTexts(keyed(tree, 'head-local_b0000003'))[0]).toBe('└')
+  expect(sessionLinksIn(tree)).toEqual(['[Loose top ↗](#local_b0000003)'])
 })
 
-test('on the terminal a group label is plain bold Text, with no link', () => {
+test("on the terminal the Recents label and this window's title are plain bold Text, with no link", () => {
   const tree = drawTerminal()
   expect(nodesOf(tree).some(node => node.tag === 'Markdown')).toBe(false)
-  const docs = groupLabelIn(tree, 'local_1a2b0005')
-  expect(docs?.tag).toBe('Text')
-  expect(docs?.props.bold).toBe(true)
-  expect(textOf(docs?.props.children)).toBe('Synthetic docs')
-  const thisWindow = groupLabelIn(tree, THIS_WINDOW)
-  expect(thisWindow?.props.bold).toBe(true)
-  expect(textOf(thisWindow?.props.children)).toBe('Synthetic session one ← this window')
+  const recents = groupLabelIn(tree, 'recents')
+  expect(recents?.tag).toBe('Text')
+  expect(recents?.props.bold).toBe(true)
+  expect(textOf(recents?.props.children)).toBe('Recents')
+  const thisTitle = keyed(tree, `title-${THIS_WINDOW}`)
+  expect(thisTitle?.tag).toBe('Text')
+  expect(thisTitle?.props.bold).toBe(true)
+  expect(textOf(thisTitle?.props.children)).toBe('Synthetic session one ← this window')
 })
 
 test('this window is marked by its tree node alone, and a waiting window says so', () => {

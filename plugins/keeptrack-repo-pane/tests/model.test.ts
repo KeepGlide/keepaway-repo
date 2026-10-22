@@ -37,6 +37,9 @@ import {
 
 const OPTS = { now: NOW, cutoffMs: 72 * HOUR, thisCliSessionId: null }
 
+// The group of every session with no Desktop Group.
+const RECENTS = { key: 'recents', label: '', kind: 'recents' }
+
 // Every node of a tree, parents before children.
 const flatten = (nodes: SessionNode[]): SessionNode[] => nodes.flatMap(node => [node, ...flatten(node.children)])
 
@@ -373,8 +376,8 @@ test('buildTree: a cycle is cut, every session appears once, and the walk ends',
   const second = makeRecord({ sessionId: 'local_aaaa0051', parentId: 'local_aaaa0050', parentKind: 'fork' })
   const roots = buildTree([first, second], OPTS)
   expect(flatten(roots)).toHaveLength(2)
-  // Each session of a cycle is its own family (P1), so the link left after the cut joins two groups and is cut too.
-  expect(roots).toHaveLength(2)
+  // Both sessions sit under Recents, so the cycle is cut at one link only.
+  expect(roots).toHaveLength(1)
 })
 
 test('buildTree: a chain deeper than MAX_DEPTH is cut: no node is deeper than MAX_DEPTH', () => {
@@ -487,17 +490,12 @@ test('buildTree on the sample: roots, nesting and the issue of each session', ()
   expect(flatten(roots)).toHaveLength(6)
 })
 
-test('P1: an archived ancestor is not listed; its live child is a top grouped by the root, with its title and link', () => {
+test('P1: an archived ancestor is not listed; its live child is a top under Recents', () => {
   const root = makeRecord({ sessionId: 'local_p1000001', title: 'Synthetic family root', isArchived: true })
   const child = makeRecord({ sessionId: 'local_p1000002', parentId: 'local_p1000001', parentKind: 'fork' })
   for (const tops of [buildTree([root, child], OPTS), buildTree([child], { ...OPTS, ancestors: [root] })]) {
     expect(flatten(tops).map(node => node.id)).toEqual(['local_p1000002'])
-    expect(tops[0]?.group).toEqual({
-      key: 'local_p1000001',
-      label: 'Synthetic family root',
-      href: 'local_p1000001',
-      isDesktopGroup: false,
-    })
+    expect(tops[0]?.group).toEqual(RECENTS)
   }
 })
 
@@ -513,7 +511,7 @@ test('P1: an ended middle session: its child hangs under the nearest listed ance
   const child = makeRecord({ sessionId: 'local_p1000013', parentId: 'local_p1000012', parentKind: 'spawn', parentTitle: 'Synthetic' })
   const tops = buildTree([top, middle, child], OPTS)
   expect(tops.map(node => node.id)).toEqual(['local_p1000011'])
-  expect(tops[0]?.group?.key).toBe('local_p1000011')
+  expect(tops[0]?.group?.key).toBe('recents')
   const drawn = tops[0]?.children[0]
   expect(drawn?.id).toBe('local_p1000013')
   expect(drawn?.parentId).toBe('local_p1000011')
@@ -523,7 +521,7 @@ test('P1: an ended middle session: its child hangs under the nearest listed ance
   expect(drawn?.group).toBeNull()
 })
 
-test('P1: an ended root with two live children: one group keyed by the root, the children oldest first', () => {
+test('P1: an ended root with two live children: both are tops of Recents, newest first', () => {
   const root = makeRecord({ sessionId: 'local_p1000021', title: 'Synthetic ended root', isArchived: true })
   const newer = makeRecord({
     sessionId: 'local_p1000022',
@@ -541,26 +539,20 @@ test('P1: an ended root with two live children: one group keyed by the root, the
     parentTitle: 'Synthetic ended root',
   })
   const tops = buildTree([root, newer, older], OPTS)
-  expect(tops.map(node => node.id)).toEqual(['local_p1000023', 'local_p1000022'])
-  expect(tops.map(node => node.group?.key)).toEqual(['local_p1000021', 'local_p1000021'])
-  expect(tops.map(node => node.group?.label)).toEqual(['Synthetic ended root', 'Synthetic ended root'])
+  expect(tops.map(node => node.id)).toEqual(['local_p1000022', 'local_p1000023'])
+  expect(tops.map(node => node.group?.key)).toEqual(['recents', 'recents'])
 })
 
-test('P1: a live ancestor that was not admitted is context only: not listed, and it still groups the child', () => {
+test('P1: a live ancestor that was not admitted is context only: not listed, and its child is a top under Recents', () => {
   const unadmitted = makeRecord({ sessionId: 'local_p1000031', title: 'Synthetic unadmitted root', lastActivityAt: NOW - MINUTE })
   const child = makeRecord({ sessionId: 'local_p1000032', parentId: 'local_p1000031', parentKind: 'fork' })
   const tops = buildTree([child], { ...OPTS, ancestors: [unadmitted] })
   expect(flatten(tops).map(node => node.id)).toEqual(['local_p1000032'])
   expect(tops[0]?.parentId).toBeNull()
-  expect(tops[0]?.group).toEqual({
-    key: 'local_p1000031',
-    label: 'Synthetic unadmitted root',
-    href: 'local_p1000031',
-    isDesktopGroup: false,
-  })
+  expect(tops[0]?.group).toEqual(RECENTS)
 })
 
-test("P1: the label is the session's Group, else the root's Group, else the root's title; a blank Group name is skipped", () => {
+test("P1: the group is the session's Group, else the root's Group, else Recents; a blank Group name is skipped", () => {
   const root = makeRecord({ sessionId: 'local_p1000041', title: 'Synthetic root title', isArchived: true })
   const child = makeRecord({ sessionId: 'local_p1000042', parentId: 'local_p1000041', parentKind: 'fork' })
   const names: [string, string][] = [
@@ -571,21 +563,11 @@ test("P1: the label is the session's Group, else the root's Group, else the root
   ]
   const groupWith = (assignments: Record<string, string>): SessionNode['group'] | undefined =>
     buildTree([root, child], { ...OPTS, desktopGroups: desktopGroupsOf(names, assignments) })[0]?.group
-  expect(groupWith({ local_p1000042: 'g-own', local_p1000041: 'g-root' })).toEqual({
-    key: 'g-own',
-    label: 'Own group',
-    href: null,
-    isDesktopGroup: true,
-  })
-  expect(groupWith({ local_p1000041: 'g-root' })).toEqual({ key: 'g-root', label: 'Root group', href: null, isDesktopGroup: true })
+  expect(groupWith({ local_p1000042: 'g-own', local_p1000041: 'g-root' })).toEqual({ key: 'g-own', label: 'Own group', kind: 'desktop' })
+  expect(groupWith({ local_p1000041: 'g-root' })).toEqual({ key: 'g-root', label: 'Root group', kind: 'desktop' })
   expect(groupWith({ local_p1000042: 'g-blank', local_p1000041: 'g-root' })?.key).toBe('g-root')
-  expect(groupWith({ local_p1000042: 'g-blank' })).toEqual({
-    key: 'local_p1000041',
-    label: 'Synthetic root title',
-    href: 'local_p1000041',
-    isDesktopGroup: false,
-  })
-  expect(groupWith({ local_p1000042: 'g-unnamed' })?.key).toBe('local_p1000041')
+  expect(groupWith({ local_p1000042: 'g-blank' })).toEqual(RECENTS)
+  expect(groupWith({ local_p1000042: 'g-unnamed' })).toEqual(RECENTS)
   expect(groupWith({ local_p1000042: 'g-long' })?.label).toBe(`${'x'.repeat(LABEL_MAX - 1)}…`)
 })
 
@@ -594,14 +576,15 @@ test('P1: a fork filed in another Group is cut from its parent and becomes a top
   const fork = makeRecord({ sessionId: 'local_p1000052', lastActivityAt: NOW - 2 * HOUR, parentId: 'local_p1000051', parentKind: 'fork' })
   const desktopGroups = desktopGroupsOf([['g-other', 'Other']], { local_p1000052: 'g-other' })
   const tops = buildTree([parent, fork], { ...OPTS, desktopGroups })
-  expect(tops.map(node => node.id)).toEqual(['local_p1000051', 'local_p1000052'])
-  expect(tops[0]?.children).toHaveLength(0)
-  expect(tops[0]?.group?.key).toBe('local_p1000051')
-  expect(tops[1]?.parentId).toBeNull()
-  expect(tops[1]?.depth).toBe(0)
-  expect(tops[1]?.kind).toBe('fork')
-  expect(tops[1]?.group).toEqual({ key: 'g-other', label: 'Other', href: null, isDesktopGroup: true })
-  expect(tops[1]?.timeline.find(event => event.kind === 'session')?.text).toBe('Synthetic parent')
+  // The named Group comes before Recents, though the parent was active last.
+  expect(tops.map(node => node.id)).toEqual(['local_p1000052', 'local_p1000051'])
+  expect(tops[1]?.children).toHaveLength(0)
+  expect(tops[1]?.group?.key).toBe('recents')
+  expect(tops[0]?.parentId).toBeNull()
+  expect(tops[0]?.depth).toBe(0)
+  expect(tops[0]?.kind).toBe('fork')
+  expect(tops[0]?.group).toEqual({ key: 'g-other', label: 'Other', kind: 'desktop' })
+  expect(tops[0]?.timeline.find(event => event.kind === 'session')?.text).toBe('Synthetic parent')
 })
 
 test('P1: two families in one Desktop Group share its key: this window first, then the newest; the group stays together', () => {
@@ -620,7 +603,7 @@ test('P1: two families in one Desktop Group share its key: this window first, th
     ['local_p1000061', 'g-shared'],
     ['local_p1000062', 'g-shared'],
     ['local_p1000063', 'g-shared'],
-    ['local_p1000064', 'local_p1000064'],
+    ['local_p1000064', 'recents'],
   ])
   expect(drawn(null).map(([id]) => id)).toEqual(['local_p1000062', 'local_p1000063', 'local_p1000061', 'local_p1000064'])
 })
@@ -630,34 +613,33 @@ test("P1: a missing root is named by a spawn link's title; a fork falls back to 
   const middle = makeRecord({ sessionId: 'local_p1000072', title: 'Synthetic middle', parentId: 'local_gone0002', parentKind: 'fork' })
   const fork = makeRecord({ sessionId: 'local_p1000073', parentId: 'local_p1000072', parentKind: 'fork' })
   const untitled = makeRecord({ sessionId: 'local_p1000074', parentId: 'local_gone0003', parentKind: 'spawn', parentTitle: '' })
-  const tops = buildTree([spawned, middle, fork, untitled], OPTS)
+  // Each family root is filed in a Group: a session shows which root it found by the Group it inherits.
+  const desktopGroups = desktopGroupsOf(
+    [
+      ['g-spawner', 'Spawner'],
+      ['g-middle', 'Middle'],
+      ['g-untitled', 'Untitled'],
+    ],
+    { local_gone0001: 'g-spawner', local_p1000072: 'g-middle', local_gone0003: 'g-untitled' },
+  )
+  const tops = buildTree([spawned, middle, fork, untitled], { ...OPTS, desktopGroups })
   const groups = new Map(tops.map(node => [node.id, node.group]))
-  expect(groups.get('local_p1000071')).toEqual({ key: 'local_gone0001', label: 'Gone spawner', href: 'local_gone0001', isDesktopGroup: false })
-  expect(groups.get('local_p1000072')).toEqual({
-    key: 'local_p1000072',
-    label: 'Synthetic middle',
-    href: 'local_p1000072',
-    isDesktopGroup: false,
-  })
+  expect(groups.get('local_p1000071')).toEqual({ key: 'g-spawner', label: 'Spawner', kind: 'desktop' })
+  expect(groups.get('local_p1000072')).toEqual({ key: 'g-middle', label: 'Middle', kind: 'desktop' })
   expect(tops.find(node => node.id === 'local_p1000072')?.children.map(node => node.id)).toEqual(['local_p1000073'])
-  expect(groups.get('local_p1000074')?.key).toBe('local_p1000074')
-})
-
-test('P1: an untitled root takes the title the spawn link below it gives', () => {
-  const root = makeRecord({ sessionId: 'local_p1000075', title: '', isArchived: true })
-  const spawned = makeRecord({ sessionId: 'local_p1000076', parentId: 'local_p1000075', parentKind: 'spawn', parentTitle: 'Spawner title' })
-  expect(buildTree([root, spawned], OPTS)[0]?.group?.label).toBe('Spawner title')
+  // An untitled spawn link names no root: the session is its own family, so the missing parent's Group is not read.
+  expect(groups.get('local_p1000074')).toEqual(RECENTS)
 })
 
 test('P1: a cycle, or a root more than MAX_DEPTH hops up, makes the session its own family', () => {
   const first = makeRecord({ sessionId: 'local_p1000081', parentId: 'local_p1000082', parentKind: 'fork' })
   const second = makeRecord({ sessionId: 'local_p1000082', parentId: 'local_p1000081', parentKind: 'fork' })
-  expect(buildTree([first, second], OPTS).map(node => node.group?.key).sort()).toEqual(['local_p1000081', 'local_p1000082'])
-  // In one Desktop Group the two share a key, so the cycle is cut at one link only.
-  const shared = desktopGroupsOf([['g-cycle', 'Cycle']], { local_p1000081: 'g-cycle', local_p1000082: 'g-cycle' })
-  const sharedCycle = buildTree([first, second], { ...OPTS, desktopGroups: shared })
-  expect(sharedCycle).toHaveLength(1)
-  expect(flatten(sharedCycle)).toHaveLength(2)
+  // With no Group both sit under Recents, so the cycle is cut at one link only.
+  expect(buildTree([first, second], OPTS)).toHaveLength(1)
+  // With one of them in a Group, the other is its own family and does not inherit it: the link left after the cut joins
+  // two groups (that Group and Recents) and is cut too.
+  const split = desktopGroupsOf([['g-cycle', 'Cycle']], { local_p1000081: 'g-cycle' })
+  expect(buildTree([first, second], { ...OPTS, desktopGroups: split })).toHaveLength(2)
   const linkId = (index: number): string => `local_p1090${String(index).padStart(2, '0')}`
   const chain = Array.from({ length: MAX_DEPTH + 2 }, (_, index) =>
     makeRecord({
@@ -666,11 +648,12 @@ test('P1: a cycle, or a root more than MAX_DEPTH hops up, makes the session its 
       parentKind: index === 0 ? null : 'fork',
     }),
   )
-  // The leaf alone is listed; its ancestors come as context, so only the family walk sees them.
+  // The leaf alone is listed; its ancestors come as context, so only the family walk sees them, and the root's Group.
+  const desktopGroups = desktopGroupsOf([['g-root', 'Root']], { [linkId(0)]: 'g-root' })
   const keyAt = (hops: number): string | undefined =>
-    buildTree(chain.slice(hops, hops + 1), { ...OPTS, ancestors: chain.slice(0, hops) })[0]?.group?.key
-  expect(keyAt(MAX_DEPTH)).toBe(linkId(0))
-  expect(keyAt(MAX_DEPTH + 1)).toBe(linkId(MAX_DEPTH + 1))
+    buildTree(chain.slice(hops, hops + 1), { ...OPTS, ancestors: chain.slice(0, hops), desktopGroups })[0]?.group?.key
+  expect(keyAt(MAX_DEPTH)).toBe('g-root')
+  expect(keyAt(MAX_DEPTH + 1)).toBe('recents')
 })
 
 test('P1: a missing parent is read before the hop cap: a fork chain 8 hops below its top stays one family', () => {
@@ -684,18 +667,27 @@ test('P1: a missing parent is read before the hop cap: a fork chain 8 hops below
         ...(index === MAX_DEPTH ? top : { parentKind: 'fork' as const }),
       }),
     )
-  // A fork with no spawn title: h8, 8 hops up from h0, is the root of every link, so h0 hangs under h1.
+  // A fork with no spawn title: h8, 8 hops up from h0, is the root of every link, and every link sits under Recents, so h0
+  // hangs under h1.
   const forked = buildTree(chainUnder({ parentKind: 'fork', parentTitle: null }), OPTS)
-  expect(forked.map(node => [node.id, node.group?.key])).toEqual([[linkId(MAX_DEPTH), linkId(MAX_DEPTH)]])
+  expect(forked.map(node => [node.id, node.group?.key])).toEqual([[linkId(MAX_DEPTH), 'recents']])
   expect(flatten(forked)).toHaveLength(MAX_DEPTH + 1)
   expect(flatten(forked).find(node => node.id === linkId(0))?.parentId).toBe(linkId(1))
-  // A spawn title names the missing root 9 hops up from h0, past the cap: h0 is its own family, cut from h1.
-  const spawned = buildTree(chainUnder({ parentKind: 'spawn', parentTitle: 'Gone spawner' }), OPTS)
-  expect(spawned.find(node => node.id === linkId(0))?.group?.key).toBe(linkId(0))
-  expect(spawned.find(node => node.id === linkId(MAX_DEPTH))?.group?.key).toBe('local_gone0009')
+  // The same chain with h8 in a Group: only a root read past the hop cap carries that Group down to h0. Were the cap read
+  // first, h0 would be its own family under Recents, cut from h1 and listed as a second top.
+  const topGroups = desktopGroupsOf([['g-top', 'Top']], { [linkId(MAX_DEPTH)]: 'g-top' })
+  const forkedFiled = buildTree(chainUnder({ parentKind: 'fork', parentTitle: null }), { ...OPTS, desktopGroups: topGroups })
+  expect(forkedFiled.map(node => [node.id, node.group?.key])).toEqual([[linkId(MAX_DEPTH), 'g-top']])
+  expect(flatten(forkedFiled).find(node => node.id === linkId(0))?.parentId).toBe(linkId(1))
+  // A spawn title names the missing root 9 hops up from h0, past the cap: h0 is its own family. With that root in a Group,
+  // h0 falls to Recents and is cut from h1, while h8 keeps the Group.
+  const desktopGroups = desktopGroupsOf([['g-gone', 'Gone']], { local_gone0009: 'g-gone' })
+  const spawned = buildTree(chainUnder({ parentKind: 'spawn', parentTitle: 'Gone spawner' }), { ...OPTS, desktopGroups })
+  expect(spawned.find(node => node.id === linkId(0))?.group?.key).toBe('recents')
+  expect(spawned.find(node => node.id === linkId(MAX_DEPTH))?.group?.key).toBe('g-gone')
 })
 
-test("P1: groups are contiguous: this window's group first, then by the newest top, then by key on equal activity", () => {
+test('P1: the tops of one group: this window first, then by newest activity, then by id on equal activity', () => {
   const mine = makeRecord({ sessionId: 'local_p1000101', cliSessionId: 'cli-this', lastActivityAt: NOW - 10 * HOUR })
   const ended = makeRecord({ sessionId: 'local_p1000102', isArchived: true })
   const first = makeRecord({
@@ -718,15 +710,15 @@ test("P1: groups are contiguous: this window's group first, then by the newest t
   const tops = buildTree([tieLater, between, second, ended, first, mine, tieEarlier], { ...OPTS, thisCliSessionId: 'cli-this' })
   expect(tops.map(node => node.id)).toEqual([
     'local_p1000101',
-    'local_p1000103',
     'local_p1000104',
     'local_p1000105',
     'local_p1000106',
     'local_p1000107',
+    'local_p1000103',
   ])
 })
 
-test('P1: with no Desktop Group and one top per family, the tops keep the old root order, each its own family', () => {
+test('P1: with no Desktop Group, every top sits under Recents, in the old root order', () => {
   const records = sampleSessions()
   const isMine = (record: (typeof records)[number]): number => (record.cliSessionId === 'cli-this' ? 1 : 0)
   // The old order: this window's root first, then the roots by last activity, newest first.
@@ -736,9 +728,7 @@ test('P1: with no Desktop Group and one top per family, the tops keep the old ro
     .map(record => record.sessionId)
   const tops = buildTree(records, { now: NOW, cutoffMs: 72 * HOUR, thisCliSessionId: 'cli-this' })
   expect(tops.map(node => node.id)).toEqual(oldOrder)
-  expect(tops.map(node => node.group)).toEqual(
-    tops.map(node => ({ key: node.id, label: node.title, href: node.id, isDesktopGroup: false })),
-  )
+  expect(tops.map(node => node.group)).toEqual(tops.map(() => RECENTS))
 })
 
 test('P1: the timeline names an ended parent by its title, also when it comes only as a context ancestor', () => {
@@ -774,9 +764,9 @@ test('P1: parseDesktopGroups reads every scope and only code: keys, and a config
   ])
   const configs: unknown[] = [null, 'text', [], {}, { preferences: [] }, { preferences: { epitaxyPrefs: { 'dframe-group-scopes': [] } } }]
   for (const config of configs) expect(parseDesktopGroups(config)).toBe(NO_DESKTOP_GROUPS)
-  // The blank name is parsed, and groupOf keeps it out: the session falls back to its family.
+  // The blank name is parsed, and groupOf keeps it out: the session falls back to Recents.
   const [top] = buildTree([makeRecord({ sessionId: 'local_s4' })], { ...OPTS, desktopGroups: parsed })
-  expect(top?.group).toEqual({ key: 'local_s4', label: 'Synthetic session', href: 'local_s4', isDesktopGroup: false })
+  expect(top?.group).toEqual(RECENTS)
 })
 
 test('P1: this window is listed even when archived, with its group, and its live child hangs under it', () => {
@@ -794,12 +784,24 @@ test('P1: this window is listed even when archived, with its group, and its live
   expect(tops.map(node => node.id)).toEqual(['local_p1000132'])
   expect(tops[0]?.isThisWindow).toBe(true)
   expect(tops[0]?.children.map(node => node.id)).toEqual(['local_p1000133'])
-  expect(tops[0]?.group).toEqual({
-    key: 'local_p1000131',
-    label: 'Synthetic ended root',
-    href: 'local_p1000131',
-    isDesktopGroup: false,
-  })
+  expect(tops[0]?.group).toEqual(RECENTS)
+})
+
+test('P1: Recents comes after every named Group even when newest, unless it holds this window', () => {
+  const loose = makeRecord({ sessionId: 'local_p1000141', lastActivityAt: NOW - MINUTE })
+  const filed = makeRecord({ sessionId: 'local_p1000142', lastActivityAt: NOW - 10 * HOUR })
+  const desktopGroups = desktopGroupsOf([['g-filed', 'Filed']], { local_p1000142: 'g-filed' })
+  const keys = (thisCliSessionId: string | null): (string | undefined)[] =>
+    buildTree([loose, filed], { ...OPTS, thisCliSessionId, desktopGroups }).map(node => node.group?.key)
+  expect(keys(null)).toEqual(['g-filed', 'recents'])
+  expect(keys('cli-local_p1000141')).toEqual(['recents', 'g-filed'])
+  expect(keys('cli-local_p1000142')).toEqual(['g-filed', 'recents'])
+})
+
+test('P1: a Desktop Group with the reserved id recents is skipped: its session sits under Recents', () => {
+  const session = makeRecord({ sessionId: 'local_p1000151' })
+  const desktopGroups = desktopGroupsOf([['recents', 'Filed as recents']], { local_p1000151: 'recents' })
+  expect(buildTree([session], { ...OPTS, desktopGroups })[0]?.group).toEqual(RECENTS)
 })
 
 test('groupIssues on the sample shape: three milestones, the linked issues left out, the no-milestone group last', () => {

@@ -378,14 +378,14 @@ const textIn = (node: unknown): string => {
   return typeof node === 'object' && node !== null ? ((node as DrawnNode).children ?? []).map(textIn).join('') : ''
 }
 
-// A group's label line: the first node of its Box (a Desktop Group's id, else the family root's id, is the group's key).
+// A group's label line: the first node of its Box (a Desktop Group's id, else 'recents', is the group's key).
 const groupLabelIn = (tree: unknown, groupKey: string): DrawnNode | undefined =>
   keyedIn(tree, `group-${groupKey}`)?.children?.[0] as DrawnNode | undefined
 // Whether a session's title line is drawn in the group with this key.
 const isInGroup = (tree: unknown, groupKey: string, sessionId: string): boolean =>
   keyedIn(keyedIn(tree, `group-${groupKey}`), `head-${sessionId}`) !== undefined
-// The branch glyph that starts a session's title line: "├" or "└" on a derived row, null on a family root's rows (the line
-// starts with its state glyph); undefined when the session has no row.
+// The branch glyph that starts a session's title line: "├" or "└" (every row draws one), null when the line starts with
+// another glyph; undefined when the session has no row.
 function branchOf(tree: unknown, sessionId: string): string | null | undefined {
   const head = keyedIn(tree, `head-${sessionId}`)
   if (head === undefined) return undefined
@@ -819,7 +819,7 @@ test('an archived session of this repo within 72 h is not drawn, even with an op
   expect(host.argvs.some(argv => argv.includes('symbolic-ref') && argv.at(-1) === 'HEAD' && argv.includes('/work/archived'))).toBe(false)
 })
 
-test('W6: an archived parent is not drawn as a row: its title labels the group, and its live spawn is a └ row whose timeline names it', async ($: Engine, on) => {
+test('W6: an archived parent is not drawn as a row nor as a label, and its live spawn is a └ row of Recents whose timeline names it', async ($: Engine, on) => {
   const parentCommonDir = '/work/parent/.git'
   const parent = recordOf('local_7f3a0009', {
     title: 'Archived parent',
@@ -835,21 +835,21 @@ test('W6: an archived parent is not drawn as a row: its title labels the group, 
   // No membership check asked git for the parent's origin.
   expect(remoteAsks(host, parentCommonDir)).toBe(0)
   const tree = await drawnTree($, 'desktop')
-  // The label line is the parent's title, a bold link to its session.
-  const label = groupLabelIn(tree, 'local_7f3a0009')
-  expect(label?.type).toBe('Markdown')
-  expect(label?.props?.text).toBe('**[Archived parent ↗](#local_7f3a0009)**')
-  // The spawn is the group's last derived row, and its timeline names the parent again.
-  expect(isInGroup(tree, 'local_7f3a0009', SESSION_ID)).toBe(true)
+  // The label line is Recents, plain Text, not the parent's title.
+  const label = groupLabelIn(tree, 'recents')
+  expect(label?.type).toBe('Text')
+  expect(textIn(label)).toBe('Recents')
+  // The spawn is the group's last row, and its timeline names the parent.
+  expect(isInGroup(tree, 'recents', SESSION_ID)).toBe(true)
   expect(branchOf(tree, SESSION_ID)).toBe('└')
   const drawn = JSON.stringify(tree)
   expect(drawn).toContain('spawned from Archived parent')
-  // The parent has no row of its own (no title line, no state glyph): its title is drawn twice, in the label and the timeline.
+  // The parent has no row of its own (no title line, no state glyph): its title is drawn once, in the timeline.
   expect(branchOf(tree, 'local_7f3a0009')).toBeUndefined()
-  expect(drawn.split('Archived parent').length - 1).toBe(2)
+  expect(drawn.split('Archived parent').length - 1).toBe(1)
 })
 
-test('P4: an archived parent\'s live fork is drawn under the parent\'s title as the group label', async ($: Engine, on) => {
+test('P4: an archived parent\'s live fork is a └ row of Recents whose timeline names the parent', async ($: Engine, on) => {
   const parentId = 'local_7f3a0430'
   const parentCwd = '/work/ended-fork-parent'
   const parent = recordOf(parentId, {
@@ -858,18 +858,18 @@ test('P4: an archived parent\'s live fork is drawn under the parent\'s title as 
     cwd: parentCwd,
     gitAnchors: [{ commonDir: `${parentCwd}/.git` }],
   })
-  // The fork link carries no title: the parent's own record names the group.
+  // The fork link carries no title: the parent's own record names it in the fork's timeline.
   const fork = { ...OWN_RECORD, forkedFromSessionId: parentId }
   const host = stubHost(on, { records: [parent, fork] })
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const tree = await drawnTree($, 'desktop')
-  // A bold link to the parent's session, with no this-window marker: the parent is not this window.
-  const label = groupLabelIn(tree, parentId)
-  expect(label?.type).toBe('Markdown')
-  expect(label?.props?.text).toBe(`**[Ended fork parent ↗](#${parentId})**`)
-  expect(isInGroup(tree, parentId, SESSION_ID)).toBe(true)
+  // The label line is Recents, plain Text: the parent's title is no label and no link.
+  const label = groupLabelIn(tree, 'recents')
+  expect(label?.type).toBe('Text')
+  expect(textIn(label)).toBe('Recents')
+  expect(isInGroup(tree, 'recents', SESSION_ID)).toBe(true)
   expect(branchOf(tree, SESSION_ID)).toBe('└')
   expect(JSON.stringify(tree)).toContain('forked from Ended fork parent')
   // The archived parent has no state row.
@@ -881,7 +881,7 @@ test('P4: an archived parent\'s live fork is drawn under the parent\'s title as 
   await expectClean(host, $)
 })
 
-test('P2: an archived parent is a context ancestor: its title labels the group, its live spawn is a └ row whose timeline names it, and git is not asked about it', async ($: Engine, on) => {
+test('P2: an archived parent is a context ancestor: its live spawn is a └ row of Recents whose timeline names it, and git is not asked about it', async ($: Engine, on) => {
   const parent = recordOf('local_7f3a0401', {
     title: 'Ended parent',
     isArchived: true,
@@ -896,9 +896,9 @@ test('P2: an archived parent is a context ancestor: its title labels the group, 
   await host.clock.settle()
   const tree = await drawnTree($)
   expect(JSON.stringify(tree)).toContain('spawned from Ended parent')
-  // The parent's own record names the group; the spawn is a └ row in its body, and the parent has no row.
-  expect(textIn(groupLabelIn(tree, 'local_7f3a0401'))).toBe('Ended parent')
-  expect(isInGroup(tree, 'local_7f3a0401', SESSION_ID)).toBe(true)
+  // The spawn is a └ row under Recents, and the parent has no row.
+  expect(textIn(groupLabelIn(tree, 'recents'))).toBe('Recents')
+  expect(isInGroup(tree, 'recents', SESSION_ID)).toBe(true)
   expect(branchOf(tree, SESSION_ID)).toBe('└')
   expect(branchOf(tree, 'local_7f3a0401')).toBeUndefined()
   // Neither its origin (get-url) nor its branch (symbolic-ref) is asked of git.
@@ -921,7 +921,7 @@ test('P2: a fork of an archived session hangs under the nearest listed ancestor,
   await expectClean(host, $)
 })
 
-test('P2: a live parent of another repo is a context ancestor too: its title labels the group, and the spawn is a └ row whose timeline names it', async ($: Engine, on) => {
+test('P2: a live parent of another repo is a context ancestor too: the spawn is a └ row of Recents whose timeline names it', async ($: Engine, on) => {
   const parent = recordOf('local_7f3a0412', { title: 'Other repo parent', cwd: '/work/other', gitAnchors: [{ commonDir: OTHER_COMMON_DIR }] })
   const child = { ...OWN_RECORD, spawnedFrom: { sessionId: 'local_7f3a0412' } }
   const host = stubHost(on, { records: [parent, child], remotes: { [OTHER_COMMON_DIR]: OTHER_REMOTE } })
@@ -930,8 +930,8 @@ test('P2: a live parent of another repo is a context ancestor too: its title lab
   await host.clock.settle()
   const tree = await drawnTree($)
   expect(JSON.stringify(tree)).toContain('spawned from Other repo parent')
-  expect(textIn(groupLabelIn(tree, 'local_7f3a0412'))).toBe('Other repo parent')
-  expect(isInGroup(tree, 'local_7f3a0412', SESSION_ID)).toBe(true)
+  expect(textIn(groupLabelIn(tree, 'recents'))).toBe('Recents')
+  expect(isInGroup(tree, 'recents', SESSION_ID)).toBe(true)
   expect(branchOf(tree, SESSION_ID)).toBe('└')
   expect(branchOf(tree, 'local_7f3a0412')).toBeUndefined()
   await expectClean(host, $)
@@ -950,14 +950,14 @@ const FORK = recordOf(FORK_ID, { title: 'Forked child', forkedFromSessionId: SES
 const CUT_CONFIG = desktopConfigOf({ [`code:${SESSION_ID}`]: 'g-1', [`code:${FORK_ID}`]: 'g-2' })
 const configReads = (host: Host): number => host.readPaths.filter(path => path === DESKTOP_CONFIG_PATH).length
 
-test('P2: a fork filed in another Desktop Group than its parent is cut to a titled row under that Group\'s label; with no config it hangs under its parent in the family\'s body', async ($: Engine, on) => {
+test('P2: a fork filed in another Desktop Group than its parent is cut to a titled row under that Group\'s label; with no config it hangs under its parent in Recents', async ($: Engine, on) => {
   const options: StubOptions = { records: [OWN_RECORD, FORK] }
   const host = stubHost(on, options)
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const uncut = await drawnTree($)
-  expect(isInGroup(uncut, SESSION_ID, FORK_ID)).toBe(true)
+  expect(isInGroup(uncut, 'recents', FORK_ID)).toBe(true)
   expect(branchOf(uncut, FORK_ID)).toBe('└')
   options.desktopConfig = CUT_CONFIG
   await host.clock.advance(POLL_MS)
@@ -1007,8 +1007,8 @@ const NO_GROUP_CONFIGS: [string, StubOptions, number][] = [
   ['a config over 4 MiB in its listing', { desktopConfig: CUT_CONFIG, sizes: { [DESKTOP_CONFIG_PATH]: DESKTOP_CONFIG_MAX_BYTES + 1 } }, 0],
   ['an unparsable config', { desktopConfig: '{"preferences": ' }, 1],
 ]
-// A row under a parent, or any row in a Desktop Group, draws a branch glyph; a family root's rows draw none.
-const isNested = (drawn: string): boolean => drawn.includes('├') || drawn.includes('└')
+// Whether the fork's row is drawn among its parent's children: no Group cut it from this window's session.
+const isForkUnderParent = (tree: unknown): boolean => keyedIn(keyedIn(tree, `children-${SESSION_ID}`), `head-${FORK_ID}`) !== undefined
 
 for (const [name, config, reads] of NO_GROUP_CONFIGS) {
   test(`P2: ${name} gives no Groups, with no error line, log line or toast`, async ($: Engine, on) => {
@@ -1019,7 +1019,7 @@ for (const [name, config, reads] of NO_GROUP_CONFIGS) {
     // The poll looked for the config in its folder.
     expect(host.listed).toContain(DESKTOP_CONFIG_DIR)
     expect(configReads(host)).toBe(reads)
-    expect(isNested(await drawnPane($))).toBe(true)
+    expect(isForkUnderParent(await drawnTree($))).toBe(true)
     expect(host.toasts).toEqual([])
     await expectClean(host, $)
   })
@@ -1853,9 +1853,9 @@ test('SP3-1: both the issue list and the PR list cut draw one partial-list line 
   expect(drawn).toContain('list is partial (first 100)')
 })
 
-test('F: a pane with two family groups, two open issues and two issue breadcrumbs is drawn on the desktop, each Markdown with a key of its own', async ($: Engine, on) => {
+test('F: a pane with two sessions under Recents, two open issues and two issue breadcrumbs is drawn on the desktop, each Markdown with a key of its own', async ($: Engine, on) => {
   const otherId = 'local_7f3a0440'
-  // Each family root names an issue in its title, so its breadcrumb links to that issue's page; issues 3 and 4 sit on no
+  // Each session names an issue in its title, so its breadcrumb links to that issue's page; issues 3 and 4 sit on no
   // session, so the issue list draws them.
   const records = [{ ...OWN_RECORD, title: 'Fix disk full #1' }, recordOf(otherId, { title: 'Other family #2' })]
   const host = stubHost(on, { records, issues: issueList(4) })
@@ -1864,8 +1864,8 @@ test('F: a pane with two family groups, two open issues and two issue breadcrumb
   await host.clock.settle()
   // The engine refuses the whole draw when two Markdown elements share a key, so the tree is the proof it was drawn.
   const tree = await drawnTree($, 'desktop')
-  expect(groupLabelIn(tree, SESSION_ID)?.props?.text).toContain(`](#${SESSION_ID})`)
-  expect(groupLabelIn(tree, otherId)?.props?.text).toContain(`](#${otherId})`)
+  expect(keyedIn(tree, `title-${SESSION_ID}`)?.props?.text).toContain(`](#${SESSION_ID})`)
+  expect(keyedIn(tree, `title-${otherId}`)?.props?.text).toContain(`](#${otherId})`)
   const markdowns = nodesOf(tree).filter(node => node.type === 'Markdown')
   const texts = markdowns.map(node => String(node.props?.text))
   for (const number of [1, 2]) {

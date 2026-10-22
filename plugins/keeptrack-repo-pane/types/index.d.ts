@@ -28,13 +28,11 @@ export type TimelineEvent = { at: number; kind: 'commit' | 'pr' | 'session'; tex
 // issues list (null when the issue is not open, or its milestone is not open).
 export type IssueFacts = { url: string; milestoneTitle: string | null }
 
-// The group a tree top is drawn under (Askaway's Group): a Desktop sidebar Group when the session or its family root is filed
-// under one, else the session family (the Desktop root session at the top of its fork and spawn links).
+// The group a tree top is drawn under: a Desktop sidebar Group (the session's, else its family root's), else Recents.
 export type SessionGroup = {
-  key: string            // Desktop Group id, else the family root's sessionId
-  label: string          // Group name (plain, LABEL_MAX), else the family root's title; '' when unknown (the pane falls back)
-  href: string | null    // family root id when isSessionLinkId(id) and the group is a family; null for a Desktop Group
-  isDesktopGroup: boolean
+  key: string                  // Desktop Group id, else RECENTS_KEY ('recents'; reserved)
+  label: string                // Group name (plain, LABEL_MAX); '' for Recents (the pane draws i18n group.recents)
+  kind: 'desktop' | 'recents'
 }
 
 export type SessionNode = {
