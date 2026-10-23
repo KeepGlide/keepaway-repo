@@ -151,7 +151,7 @@ type Cached<T> = { size: number; mtimeMs: number; value: T }
 type Timer = ReturnType<EngineInterface['clock']['every']>
 type Commit = { at: number; subject: string }
 type IssueComment = { author: string; at: number; body: string }
-type GhOutcome = { ok: true; stdout: string; oversized: boolean } | { ok: false; error: PaneError }
+type GhOutcome = { ok: true; stdout: string; oversized: boolean } | { ok: false; error: PaneError; kind: string }
 type GithubMemory = {
   key: string
   milestones: Milestone[]
@@ -794,14 +794,30 @@ function ghExitError(stderr: string): PaneError {
   return 'gh-failed'
 }
 
+// gh's own wording when it cannot reach GitHub ("error connecting to api.github.com", a failed DNS lookup, a dropped link).
+const GH_NETWORK = /error connecting|internet connection|could not resolve|no such host|dial tcp|connection (refused|reset)|network is unreachable|i\/o timeout|tls handshake/i
+
+// The kind of a gh failure as the log names it: never stderr itself, since it can carry a path or a URL.
+function ghFailureKind(error: PaneError, stderr = ''): string {
+  if (error === 'gh-auth') return 'login'
+  if (error === 'gh-rate-limit') return 'rate limit'
+  if (error === 'gh-timeout') return 'timeout'
+  if (error === 'gh-missing') return 'gh missing'
+  return GH_NETWORK.test(stderr) ? 'network/DNS' : 'other'
+}
+
 async function runGh($: EngineInterface, argv: readonly string[], cwd: string): Promise<GhOutcome> {
   try {
     const run = await $.process.run(['gh', ...argv], { cwd, timeoutMs: GH_TIMEOUT_MS })
-    if (run.exitCode !== 0) return { ok: false, error: ghExitError(run.stderr) }
+    if (run.exitCode !== 0) {
+      const error = ghExitError(run.stderr)
+      return { ok: false, error, kind: ghFailureKind(error, run.stderr) }
+    }
     const oversized = run.isStdoutTruncated || new TextEncoder().encode(run.stdout).byteLength > GH_OUTPUT_MAX_BYTES
     return { ok: true, stdout: run.stdout, oversized }
   } catch (error) {
-    return { ok: false, error: ghStartError(error) }
+    const paneError = ghStartError(error)
+    return { ok: false, error: paneError, kind: ghFailureKind(paneError) }
   }
 }
 
@@ -817,7 +833,7 @@ async function fetchPart<T>(
   const outcome = await runGh($, argv, cwd)
   if (!outcome.ok) {
     errors.add(outcome.error)
-    logLine($, `gh ${argv[0] ?? ''} call failed`)
+    logLine($, `gh ${argv[0] ?? ''} call failed (${outcome.kind})`)
     return undefined
   }
   const parsed = outcome.oversized ? null : parse(outcome.stdout)

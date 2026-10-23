@@ -1791,8 +1791,31 @@ test('F13: a gh timeout after a good poll keeps the last good issues and draws i
   const drawn = await drawnPane($)
   expect(drawn).toContain('1 open issue')
   expect(drawn).toContain('GitHub did not answer in time')
-  expect(host.logs).toContain('keeptrack: gh issue call failed')
+  expect(host.logs).toContain('keeptrack: gh issue call failed (timeout)')
 })
+
+// The log names each gh failure's kind, and never its stderr (F03).
+const GH_FAILURE_KINDS: [string, GhMode][] = [
+  ['network/DNS', { exitCode: 1, stderr: 'error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com' }],
+  ['network/DNS', { exitCode: 1, stderr: 'Post "https://api.github.com/graphql": dial tcp: lookup api.github.com: no such host' }],
+  ['login', { exitCode: 1, stderr: 'To get started with GitHub CLI, please run: gh auth login' }],
+  ['rate limit', { exitCode: 1, stderr: 'GraphQL: API rate limit already exceeded for user ID 1.' }],
+  ['other', { exitCode: 1, stderr: 'synthetic failure' }],
+  ['timeout', 'timeout'],
+  ['gh missing', 'missing'],
+]
+
+for (const [kind, gh] of GH_FAILURE_KINDS) {
+  test(`a gh failure logs its kind: ${kind}`, async ($: Engine, on) => {
+    const host = stubHost(on, { gh })
+    await $.session.start(SESSION)
+    await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+    await host.clock.settle()
+    expect(host.logs).toContain(`keeptrack: gh issue call failed (${kind})`)
+    expect(host.logs).toContain(`keeptrack: gh api call failed (${kind})`)
+    if (typeof gh === 'object') for (const line of host.logs) expect(line.includes(gh.stderr)).toBe(false)
+  })
+}
 
 test('F17: an agent list that rejects still lets the band redraw on its tick, and logs the failure name', async ($: Engine, on) => {
   const options: StubOptions = { agents: [{ id: 'agent-1', status: 'running' }] }
