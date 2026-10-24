@@ -795,7 +795,15 @@ function ghExitError(stderr: string): PaneError {
 }
 
 // gh's own wording when it cannot reach GitHub ("error connecting to api.github.com", a failed DNS lookup, a dropped link).
-const GH_NETWORK = /error connecting|internet connection|could not resolve|no such host|dial tcp|connection (refused|reset)|network is unreachable|i\/o timeout|tls handshake/i
+// "could not resolve host" only: GraphQL's "Could not resolve to an Issue" is an answer, not a DNS failure.
+const GH_NETWORK = /error connecting|internet connection|could not resolve host|no such host|dial tcp|connection (refused|reset)|network is unreachable|i\/o timeout|tls handshake/i
+
+// gh's wording for a token GitHub refuses, a link dropped mid-answer, a server error, a GraphQL error and a client error.
+const GH_TOKEN = /bad credentials|HTTP 401/i
+const GH_CUT = /unexpected EOF|context deadline exceeded|stream error|broken pipe/i
+const GH_HTTP_5XX = /HTTP 5\d\d/
+const GH_GRAPHQL = /GraphQL:/
+const GH_HTTP_4XX = /HTTP 4\d\d/
 
 // The kind of a gh failure as the log names it: never stderr itself, since it can carry a path or a URL.
 function ghFailureKind(error: PaneError, stderr = ''): string {
@@ -803,7 +811,13 @@ function ghFailureKind(error: PaneError, stderr = ''): string {
   if (error === 'gh-rate-limit') return 'rate limit'
   if (error === 'gh-timeout') return 'timeout'
   if (error === 'gh-missing') return 'gh missing'
-  return GH_NETWORK.test(stderr) ? 'network/DNS' : 'other'
+  if (GH_TOKEN.test(stderr)) return 'invalid token'
+  if (GH_NETWORK.test(stderr)) return 'network/DNS'
+  if (GH_CUT.test(stderr)) return 'connection cut'
+  if (GH_HTTP_5XX.test(stderr)) return 'HTTP 5xx'
+  if (GH_GRAPHQL.test(stderr)) return 'GraphQL'
+  if (GH_HTTP_4XX.test(stderr)) return 'HTTP 4xx'
+  return 'other'
 }
 
 async function runGh($: EngineInterface, argv: readonly string[], cwd: string): Promise<GhOutcome> {
