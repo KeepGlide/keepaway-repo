@@ -63,7 +63,7 @@ Ele **não** altera nada no GitHub nem no seu repositório. Não registra tempo,
 - **Esta janela primeiro**: a sessão da janela com os detalhes e a linha do tempo da sua issue.
 - **Sessões agrupadas como na barra lateral do Desktop**: no topo o rótulo do grupo, em negrito simples, abaixo as sessões dele. Uma sessão que está num Grupo da barra lateral do Desktop (o dela ou o da raiz dela) é desenhada sob o nome do Grupo; toda sessão sem Grupo fica num único grupo com o rótulo `Recents`, como a barra lateral do Desktop as chama. O rótulo é `Recents` nos dois idiomas, porque o app do Desktop não tem rótulo traduzido, e um Grupo do Desktop chamado "Recents" mantém o rótulo próprio ao lado dele. Cada sessão do topo é uma linha `├`/`└` com título, estado, issue e milestone, e as derivadas (fork ou spawn) ficam aninhadas embaixo dela, a 1, 3 e 5 células. Primeiro vem o grupo desta janela, depois os Grupos com nome pela atividade mais recente, e por último `Recents`; dentro de um grupo, primeiro a sessão desta janela, depois as mais recentes. Cada título de sessão leva à sessão no Desktop.
 - **Sessões encerradas não são listadas**: uma sessão arquivada no Desktop sai da árvore na hora, a menos que seja a sessão desta janela. Uma raiz arquivada não é desenhada: as derivadas ativas dela viram linhas do grupo delas (`Recents` quando não têm Grupo), com o título da mãe na linha do tempo.
-- **Issues abertas por milestone**: as issues abertas que nenhuma sessão trabalha, agrupadas por milestone aberto, com o progresso do milestone.
+- **Issues abertas por milestone**: as issues abertas que nenhuma sessão trabalha, agrupadas por milestone aberto, com o progresso do milestone. Os milestones ordenam pelo prazo, o mais cedo primeiro; dentro de um grupo as issues ordenam por prioridade (`P0` a `P3`, lida dos rótulos), e cada linha traz a sua marca.
 - **Uma faixa acima do prompt** com o estado desta janela: executando ou ociosa, a ferramenta ou o servidor MCP atual com seu ícone, a quantidade de agentes, o tempo decorrido, um estado de espera por você, um estado de erro de dados, o progresso do milestone e o número da issue. A faixa diz `Executando` e `Parada`, e o painel diz `trabalhando` e `ociosa`, por desenho: os dois vocabulários são mantidos separados de propósito.
 - **Um botão Open** na faixa, com a marca KeepGlide antes dele (a marca aparece só no Desktop).
 - **Inglês e português do Brasil** no painel e na faixa.
@@ -93,7 +93,6 @@ flowchart LR
     GH[GitHub via gh: marcos, issues, PRs] --> POLL
     GIT[Git local: remote, branch, log] --> POLL
     REC[Registros de sessão do Desktop] --> POLL
-    ASK[Pasta de perguntas do Askaway] --> POLL
     POLL[Consulta a cada 60 s aberto, 5 min fechado, prazo de 30 s] --> SNAP[Snapshot em um único átomo]
     SNAP --> PANE[Painel: /keeptrack]
     SNAP --> BAND[Faixa acima do prompt]
@@ -233,7 +232,7 @@ Reinicie o Claude Code, ou rode `/reload-plugins`, depois. O que o mod deixa par
 |---|---|---|
 | Código e hooks do plugin | Instalação de plugins do Claude Code | Removidos por `claude plugin uninstall`. |
 | Idioma guardado (`lang`) e issues de janela (`override:<id da sessão>`) | Armazenamento do mod no Claude Code | Ficam. O mod não tem nenhum passo que os apague. As substituições expiram em 30 dias, ou antes, quando nenhum registro de sessão lista a sessão. Para limpar o idioma antes, rode `/keeptrack lang auto`. |
-| Registros de sessão, config do Desktop e pasta do Askaway | `~/.config/Claude/claude-code-sessions`, `~/.config/Claude/claude_desktop_config.json` (só os Grupos da barra lateral e as sessões de cada um são lidos) e `~/.claude/state/askaway` | Não são tocados. O mod só os lê. |
+| Registros de sessão e config do Desktop | `~/.config/Claude/claude-code-sessions`, `~/.config/Claude/claude_desktop_config.json` (só os Grupos da barra lateral e as sessões de cada um são lidos) | Não são tocados. O mod só os lê. |
 | GitHub e o repositório | GitHub e a sua árvore de trabalho | Não são tocados. O mod não grava nada lá. |
 
 ## 🧭 Uso
@@ -253,10 +252,9 @@ Reinicie o Claude Code, ou rode `/reload-plugins`, depois. O que o mod deixa par
 | `KEEPTRACK_POLL_MS` | `60000` | Intervalo de consulta com o painel aberto. Um valor abaixo de 1000, ou que não seja número inteiro, é ignorado e vale o padrão. |
 | `KEEPTRACK_BAND_POLL_MS` | `300000` | Intervalo de consulta com o painel fechado. Mesma regra de `KEEPTRACK_POLL_MS`. |
 | `KEEPTRACK_DESKTOP_SESSIONS` | `$HOME/.config/Claude/claude-code-sessions` | Pasta de registros de sessão que é lida (somente leitura). Definida para os testes. |
-| `ASKAWAY_HOME` | `$HOME/.claude/state/askaway` | Pasta de estado do Askaway cujas perguntas são lidas (somente leitura). |
 | `LC_ALL`, `LC_MESSAGES`, `LANG`, `LANGUAGE` | sem valor | Idioma quando nenhuma escolha está guardada: decide a primeira variável definida. `pt*` dá português; qualquer outra coisa dá inglês. Uma escolha guardada com `/keeptrack lang` sempre vence. |
 
-As duas pastas padrão são montadas a partir de `HOME`. Sem `HOME`, o mod não encontra a pasta de registros.
+A pasta padrão é montada a partir de `HOME`. Sem `HOME`, o mod não encontra a pasta de registros.
 
 Fixo no código, não configurável:
 
@@ -282,7 +280,7 @@ Fixo no código, não configurável:
 ## 🔒 Segurança e privacidade
 
 - **O que sai da máquina:** só chamadas do `gh` ao GitHub, para ler milestones, issues abertas, pull requests abertos, os totais dos milestones e os detalhes de uma issue. Não há chamadas pagas nem chamadas a outros serviços.
-- **O que é lido localmente:** o remote, a branch e o log do git do repositório e das suas sessões, os registros de sessão do Desktop, e a pasta de perguntas do Askaway (`ASKAWAY_HOME`, ou `~/.claude/state/askaway`).
+- **O que é lido localmente:** o remote, a branch e o log do git do repositório e das suas sessões, os registros de sessão do Desktop, e a config do Desktop (só os Grupos da barra lateral).
 - **O que é gravado:** só o estado do mod (o sinal de aberto, o idioma e a issue definida por `/keeptrack issue`). Nada é gravado no GitHub nem no repositório.
 - Para reportar uma vulnerabilidade, veja [SECURITY.md](SECURITY.md).
 
@@ -320,13 +318,13 @@ Limitações conhecidas, como o código se comporta hoje:
 
 | Categoria | Testes |
 |---|---|
-| Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo, projeção de registros (`tests/model.test.ts`) | 84 |
-| Módulo de hooks: consulta, comando do painel, temporizadores e fechamento (`tests/register.test.ts`) | 131 |
+| Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo, projeção de registros (`tests/model.test.ts`) | 93 |
+| Módulo de hooks: consulta, comando do painel, temporizadores e fechamento (`tests/register.test.ts`) | 129 |
 | Faixa: linha de status, estados e botão Open (`tests/band.test.ts`) | 39 |
-| Painel: desenho do snapshot (`tests/pane.test.ts`) | 60 |
+| Painel: desenho do snapshot (`tests/pane.test.ts`) | 62 |
 | Idioma: dicionários em inglês e português do Brasil (`tests/i18n.test.ts`) | 10 |
 | Transições de turno da faixa (`tests/turn.test.ts`) | 8 |
-| **Total** | **332** |
+| **Total** | **341** |
 
 Contagens de `claude plugin test plugins/keeptrack-repo-pane` na árvore de trabalho, ainda não publicada: 332 aprovados, 0 falhas, 6 arquivos.
 

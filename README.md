@@ -63,7 +63,7 @@ It does **not** change anything on GitHub or in your repository. It does not tra
 - **This window first**: the session of the window with its issue's details and timeline.
 - **Sessions grouped as in the Desktop sidebar**: the group label on top, in plain bold text, then its sessions. A session filed in a Desktop sidebar Group (its own, or its root's) is drawn under the Group's name; every session without a Group is listed under one group labelled `Recents`, as the Desktop sidebar names them. The label is `Recents` in both languages, because the Desktop app has no translated label, and a Desktop Group named "Recents" keeps its own label next to it. Each top session is a titled `├`/`└` row with its state, issue and milestone, and its derived sessions (fork or spawn) are nested under it at 1, 3 and 5 cells. This window's group comes first, then the named Groups by newest activity, then `Recents`; inside a group, this window's session comes first, then the newest. Each session title links to its Desktop session.
 - **Ended sessions are not listed**: an archived Desktop session leaves the tree at once, unless it is this window's own session. An archived root is not drawn: its live derived sessions are rows of their group (`Recents` when they have no Group), with the parent's title in their timeline.
-- **Open issues by milestone**: the open issues that no session works on, grouped by open milestone, with the milestone progress.
+- **Open issues by milestone**: the open issues that no session works on, grouped by open milestone, with the milestone progress. Milestones sort by due date, earliest first; inside a group the issues sort by priority (`P0` to `P3`, read from the labels), and each row carries its tag.
 - **A band above the prompt** with the state of this window: running or idle, the current tool or MCP server with its icon, the number of agents, the elapsed time, a waiting-for-you state, a data-error state, the milestone progress and the issue number. The band says `Running` and `Idle`, and the pane says `working` and `idle`, by design: the two vocabularies are kept apart on purpose.
 - **An Open button** on the band, with the KeepGlide mark before it (the mark shows on Desktop only).
 - **English and Brazilian Portuguese** in the pane and the band.
@@ -93,7 +93,6 @@ flowchart LR
     GH[GitHub via gh: milestones, issues, PRs] --> POLL
     GIT[Local git: remote, branch, log] --> POLL
     REC[Desktop session records] --> POLL
-    ASK[Askaway question folder] --> POLL
     POLL[Poll every 60 s open, 5 min closed, 30 s deadline] --> SNAP[Snapshot in one atom]
     SNAP --> PANE[Pane: /keeptrack]
     SNAP --> BAND[Band above the prompt]
@@ -233,7 +232,7 @@ Restart Claude Code, or run `/reload-plugins`, afterwards. What the mod leaves b
 |---|---|---|
 | Plugin code and hooks | Claude Code's plugin installation | Removed by `claude plugin uninstall`. |
 | Stored language (`lang`) and window issues (`override:<session id>`) | The mod's store in Claude Code | Stay. The mod has no step that deletes them. Overrides expire after 30 days, or earlier when no session record lists their session. To clear the language first, run `/keeptrack lang auto`. |
-| Session records, the Desktop config and the Askaway folder | `~/.config/Claude/claude-code-sessions`, `~/.config/Claude/claude_desktop_config.json` (only the sidebar Groups and their session assignments are read) and `~/.claude/state/askaway` | Not touched. The mod only reads them. |
+| Session records and the Desktop config | `~/.config/Claude/claude-code-sessions`, `~/.config/Claude/claude_desktop_config.json` (only the sidebar Groups and their session assignments are read) | Not touched. The mod only reads them. |
 | GitHub and the repository | GitHub and your working tree | Not touched. The mod writes nothing there. |
 
 ## 🧭 Usage
@@ -253,10 +252,9 @@ Restart Claude Code, or run `/reload-plugins`, afterwards. What the mod leaves b
 | `KEEPTRACK_POLL_MS` | `60000` | Poll interval while the pane is open. A value below 1000, or one that is not a whole number, is ignored and the default is used. |
 | `KEEPTRACK_BAND_POLL_MS` | `300000` | Poll interval while the pane is closed. Same rule as `KEEPTRACK_POLL_MS`. |
 | `KEEPTRACK_DESKTOP_SESSIONS` | `$HOME/.config/Claude/claude-code-sessions` | Session records folder that is read (read only). Set for tests. |
-| `ASKAWAY_HOME` | `$HOME/.claude/state/askaway` | Askaway state folder whose questions are read (read only). |
 | `LC_ALL`, `LC_MESSAGES`, `LANG`, `LANGUAGE` | unset | Language when no choice is stored: the first one that is set decides. `pt*` gives Portuguese; anything else gives English. A stored `/keeptrack lang` choice always wins. |
 
-Both default folders are built from `HOME`. When `HOME` is unset, the mod finds no records folder.
+The default folder is built from `HOME`. When `HOME` is unset, the mod finds no records folder.
 
 Fixed in the code, not configurable:
 
@@ -282,7 +280,7 @@ Fixed in the code, not configurable:
 ## 🔒 Security and privacy
 
 - **What leaves the machine:** only `gh` calls to GitHub, to read milestones, open issues, open pull requests, the milestone totals and one issue's details. There are no paid calls and no calls to other services.
-- **What is read locally:** the git remote, branch and log of the repository and of its sessions, the Desktop session records, and the Askaway question folder (`ASKAWAY_HOME`, or `~/.claude/state/askaway`).
+- **What is read locally:** the git remote, branch and log of the repository and of its sessions, the Desktop session records, and the Desktop config (its sidebar Groups only).
 - **What is written:** only the state of the mod (the open flag, the language and the issue set by `/keeptrack issue`). Nothing is written to GitHub or to the repository.
 - To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
@@ -320,13 +318,13 @@ Known limitations, as the code does them today:
 
 | Category | Tests |
 |---|---|
-| Rules: remote parsing, session tree, issue groups, timelines, record projection (`tests/model.test.ts`) | 84 |
-| Hooks module: poll, pane command, timers and close (`tests/register.test.ts`) | 131 |
+| Rules: remote parsing, session tree, issue groups, timelines, record projection (`tests/model.test.ts`) | 93 |
+| Hooks module: poll, pane command, timers and close (`tests/register.test.ts`) | 129 |
 | Band: status line, states and Open button (`tests/band.test.ts`) | 39 |
-| Pane: snapshot drawing (`tests/pane.test.ts`) | 60 |
+| Pane: snapshot drawing (`tests/pane.test.ts`) | 62 |
 | Language: English and pt-BR dictionaries (`tests/i18n.test.ts`) | 10 |
 | Turn transitions of the band (`tests/turn.test.ts`) | 8 |
-| **Total** | **332** |
+| **Total** | **341** |
 
 Counts from `claude plugin test plugins/keeptrack-repo-pane` on the working tree, unreleased: 332 pass, 0 fail, 6 files.
 

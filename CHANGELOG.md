@@ -8,7 +8,12 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+### Added
+- Issues carry a priority tag read from their GitHub labels: `P0` to `P3`, or `priority: critical|high|medium|low` (also the `priority/…`, `priority-…` and `prio…` variants), case-insensitive; critical is P0 and low is P3. Inside each issue group the issues sort by priority, P0 first and unlabelled last, then newest first; the row draws the tag, and P0 and P1 rows draw bold (`hooks/model.ts` `priorityOf`, `hooks/pane.tsx`, `hooks/look.ts`).
+
 ### Changed
+- Open milestone groups sort by due date, earliest first; a milestone with no due date comes after the dated ones, by number (`hooks/model.ts` `groupIssues`).
+- KeepTrack no longer reads Askaway data: the `ASKAWAY_HOME` variable, the Askaway question folder and the "Blocked by" row of the issue details are removed. The waiting state now comes from the engine's own tool check for this window (`tool.check` answers `ask`), so it clears when the call runs or a turn ends. Other sessions no longer show waiting, since no Desktop record says so.
 - The poll is scheduled at once on session start, and the snapshot is marked stale until the poll lands (`hooks/register.tsx`).
 - Each session line draws its state word: working, idle or waiting (`hooks/pane.tsx`).
 - A milestone line reads "X of Y issues closed" (`hooks/pane.tsx`).
