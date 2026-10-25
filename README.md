@@ -64,7 +64,7 @@ It does **not** change anything on GitHub or in your repository. It does not tra
 - **Sessions grouped as in the Desktop sidebar**: the group label on top, in plain bold text, then its sessions. A session filed in a Desktop sidebar Group (its own, or its root's) is drawn under the Group's name; every session without a Group is listed under one group labelled `Recents`, as the Desktop sidebar names them. The label is `Recents` in both languages, because the Desktop app has no translated label, and a Desktop Group named "Recents" keeps its own label next to it. Each top session is a titled `├`/`└` row with its state, issue and milestone, and its derived sessions (fork or spawn) are nested under it at 1, 3 and 5 cells. This window's group comes first, then the named Groups by newest activity, then `Recents`; inside a group, this window's session comes first, then the newest. Each session title links to its Desktop session.
 - **Ended sessions are not listed**: an archived Desktop session leaves the tree at once, unless it is this window's own session. An archived root is not drawn: its live derived sessions are rows of their group (`Recents` when they have no Group), with the parent's title in their timeline.
 - **Open issues by milestone**: the open issues that no session works on, grouped by open milestone, with the milestone progress.
-- **A band above the prompt** with the state of this window: running or idle, the current tool or MCP server with its icon, the number of agents, the elapsed time, a waiting-for-you state, a data-error state, the milestone progress and the issue number.
+- **A band above the prompt** with the state of this window: running or idle, the current tool or MCP server with its icon, the number of agents, the elapsed time, a waiting-for-you state, a data-error state, the milestone progress and the issue number. The band says `Running` and `Idle`, and the pane says `working` and `idle`, by design: the two vocabularies are kept apart on purpose.
 - **An Open button** on the band, with the KeepGlide mark before it (the mark shows on Desktop only).
 - **English and Brazilian Portuguese** in the pane and the band.
 
@@ -108,7 +108,7 @@ sequenceDiagram
     participant G as gh and git
     participant D as Desktop records
     T->>K: tick at the cadence of the open flag
-    K->>G: milestones, open issues and open PRs (3 gh calls, in parallel)
+    K->>G: milestones, open issues, open PRs and milestone totals (4 gh calls, in parallel)
     G-->>K: JSON from GitHub
     K->>D: list records, read the changed ones
     D-->>K: session records
@@ -190,9 +190,9 @@ Ground rules:
 | 2 | Check that the repository has a GitHub remote | `git remote get-url origin` | Exit 0 and a URL whose host is `github.com`, or an SSH alias with `github` in its name (for example `git@github-<label>:<owner>/<repo>.git`). Otherwise the pane shows `no GitHub remote for this repo`. |
 | 3 🧑 | Add the marketplace, unless `claude plugin marketplace list` already shows `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Exit 0, and `claude plugin marketplace list` shows `sophia-mods` with `Source: Folder (<path>)`. |
 | 4 🧑 | Install the plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Exit 0, and `claude plugin list` shows `keeptrack-repo-pane@sophia-mods` with `Version: 0.2.0-beta.8` and `Status: ✔ enabled`. |
-| 5 | Check that the command is registered | In a Desktop session, `/keeptrack bogus` | A toast with the usage line `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` (`hooks/i18n.ts:28`). Nothing changes. |
+| 5 | Check that the command is registered | In a Desktop session, `/keeptrack bogus` | A toast with the usage line `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto`. Nothing changes. |
 | 6 | Open the pane | `/keeptrack` | A pane titled `KeepTrack` opens. It shows `Loading the repo...`, then the open issues by milestone, or an error line from [Troubleshooting](#-troubleshooting). |
-| 7 | Switch the language to Portuguese | `/keeptrack lang pt-BR` | The pane and the band switch to Portuguese. While loading, the pane shows `Carregando o repo...` (`hooks/i18n.ts:96`). |
+| 7 | Switch the language to Portuguese | `/keeptrack lang pt-BR` | The pane and the band switch to Portuguese. While loading, the pane shows `Carregando o repo...`. |
 | 8 | Return to the automatic language | `/keeptrack lang auto` | The stored choice is removed. The language follows the first set variable of `LC_ALL`, `LC_MESSAGES`, `LANG` or `LANGUAGE`: `pt*` gives Portuguese, anything else gives English. |
 | 9 | Check that gh reads the repository | `gh issue list -R <owner>/<repo> --state open --limit 1 --json number` | Exit 0 and a JSON array: `[]` or `[{"number":<n>}]`. |
 | 10 | Hand back | none | Report to the human the result of each step, the output of step 9 and any skipped step. No token is printed. |
@@ -262,16 +262,16 @@ Fixed in the code, not configurable:
 
 | Setting | Value | Where |
 |---|---|---|
-| Poll deadline | 30 s | `POLL_DEADLINE_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:73` |
-| Band redraw tick | 30 s | `BAND_TICK_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:48` |
-| gh call timeout | 15 s | `GH_TIMEOUT_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:55` |
-| git call timeout | 5 s | `GIT_TIMEOUT_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:56` |
-| Open issues per poll | 500 | `ISSUE_LIMIT`, `plugins/keeptrack-repo-pane/hooks/register.tsx:60` |
-| Open pull requests per poll | 100 | `PR_LIMIT`, `plugins/keeptrack-repo-pane/hooks/register.tsx:61` |
-| Session cutoff | 72 h | `SESSION_CUTOFF_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:54` |
-| Issue override lifetime | 30 days | `OVERRIDE_TTL_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:78` |
-| Abandoned polls allowed at once | 2 | `MAX_ABANDONED_POLLS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:76` |
-| Working-state window | 5 min after the last activity | `WORKING_WINDOW_MS`, `plugins/keeptrack-repo-pane/hooks/model.ts:27` |
+| Poll deadline | 30 s | `POLL_DEADLINE_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Band redraw tick | 30 s | `BAND_TICK_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| gh call timeout | 15 s | `GH_TIMEOUT_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| git call timeout | 5 s | `GIT_TIMEOUT_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Open issues per poll | 500 | `ISSUE_LIMIT`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Open pull requests per poll | 100 | `PR_LIMIT`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Session cutoff | 72 h | `SESSION_CUTOFF_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Issue override lifetime | 30 days | `OVERRIDE_TTL_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Abandoned polls allowed at once | 2 | `MAX_ABANDONED_POLLS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Working-state window | 5 min after the last activity | `WORKING_WINDOW_MS`, `plugins/keeptrack-repo-pane/hooks/model.ts` |
 
 ## 📚 Documentation
 
@@ -281,7 +281,7 @@ Fixed in the code, not configurable:
 
 ## 🔒 Security and privacy
 
-- **What leaves the machine:** only `gh` calls to GitHub, to read milestones, open issues, open pull requests and one issue's details. There are no paid calls and no calls to other services.
+- **What leaves the machine:** only `gh` calls to GitHub, to read milestones, open issues, open pull requests, the milestone totals and one issue's details. There are no paid calls and no calls to other services.
 - **What is read locally:** the git remote, branch and log of the repository and of its sessions, the Desktop session records, and the Askaway question folder (`ASKAWAY_HOME`, or `~/.claude/state/askaway`).
 - **What is written:** only the state of the mod (the open flag, the language and the issue set by `/keeptrack issue`). Nothing is written to GitHub or to the repository.
 - To report a vulnerability, see [SECURITY.md](SECURITY.md).
@@ -311,24 +311,24 @@ Known limitations, as the code does them today:
 
 - **A merged pull request does not link its issue.** Only open pull requests are queried, so an issue whose PR was merged does not show that PR. Workaround: `/keeptrack issue <n>` in the window sets the issue by hand.
 - **Archived sessions are never listed.** An archived session leaves the tree at once, even when its branch has an open PR, unless it is this window's session. Its live derived sessions stay listed in their group, with its title only in their timeline. Workaround: none; reopen the session from the Desktop sidebar to see it again.
-- **Checks always read `no CI`.** The mod reads the check rollup of open pull requests, but the Checks line always reads `no CI` because the issue details do not pass it through (register.tsx:926). The KeepGlide repositories run no GitHub Actions. Workaround: none.
+- **Checks always read `no CI`.** The mod reads the check rollup of open pull requests, but the Checks line always reads `no CI` because the issue details do not pass it through. The KeepGlide repositories run no GitHub Actions. Workaround: none.
 - **The working state is a heuristic.** A session counts as working for 5 minutes after its last activity, so the band can lag the real state. Workaround: none.
-- **Only GitHub remotes count.** A remote on another host shows as `no GitHub remote`. Workaround: none.
-- **Lists are capped per poll.** 500 open issues and 100 open pull requests are read; past that the pane shows `list is partial`. Workaround: none.
+- **Only GitHub remotes count.** A remote on another host shows as `no GitHub remote`. gh is called without a host, so a GitHub Enterprise host whose name contains `github` is read from github.com; the maintainer accepts this. Workaround: none.
+- **Lists are capped per poll.** 500 open issues and 100 open pull requests are read; past that the pane shows `list is partial`. Workaround: none. The milestone totals do not come from that capped list: GraphQL counts them, for the first 100 open milestones.
 
 ## 🧪 Tests
 
 | Category | Tests |
 |---|---|
-| Rules: remote parsing, session tree, issue groups, timelines, record projection (`tests/model.test.ts`) | 81 |
-| Hooks module: poll, pane command, timers and close (`tests/register.test.ts`) | 99 |
-| Band: status line, states and Open button (`tests/band.test.ts`) | 37 |
-| Pane: snapshot drawing (`tests/pane.test.ts`) | 40 |
+| Rules: remote parsing, session tree, issue groups, timelines, record projection (`tests/model.test.ts`) | 83 |
+| Hooks module: poll, pane command, timers and close (`tests/register.test.ts`) | 117 |
+| Band: status line, states and Open button (`tests/band.test.ts`) | 38 |
+| Pane: snapshot drawing (`tests/pane.test.ts`) | 53 |
 | Language: English and pt-BR dictionaries (`tests/i18n.test.ts`) | 10 |
-| Turn transitions of the band (`tests/turn.test.ts`) | 6 |
-| **Total** | **273** |
+| Turn transitions of the band (`tests/turn.test.ts`) | 8 |
+| **Total** | **309** |
 
-Counts from `claude plugin test plugins/keeptrack-repo-pane` on the 0.2.0-beta.8 release: 273 pass, 0 fail, 6 files.
+Counts from `claude plugin test plugins/keeptrack-repo-pane` on the working tree, unreleased: 309 pass, 0 fail, 6 files.
 
 ## 🔧 Development
 
@@ -344,7 +344,7 @@ Run the tests:
 claude plugin test plugins/keeptrack-repo-pane
 ```
 
-Run the look check, which fails on any hex colour, colour function or emoji in the drawn code:
+Run the look check, which fails on any hex colour, colour function or emoji in the drawn code (`action-icons.ts` is exempt from the emoji check only):
 
 ```bash
 bash plugins/keeptrack-repo-pane/scripts/keeptrack-look-check.sh

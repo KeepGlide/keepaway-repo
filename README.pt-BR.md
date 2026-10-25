@@ -64,7 +64,7 @@ Ele **não** altera nada no GitHub nem no seu repositório. Não registra tempo,
 - **Sessões agrupadas como na barra lateral do Desktop**: no topo o rótulo do grupo, em negrito simples, abaixo as sessões dele. Uma sessão que está num Grupo da barra lateral do Desktop (o dela ou o da raiz dela) é desenhada sob o nome do Grupo; toda sessão sem Grupo fica num único grupo com o rótulo `Recents`, como a barra lateral do Desktop as chama. O rótulo é `Recents` nos dois idiomas, porque o app do Desktop não tem rótulo traduzido, e um Grupo do Desktop chamado "Recents" mantém o rótulo próprio ao lado dele. Cada sessão do topo é uma linha `├`/`└` com título, estado, issue e milestone, e as derivadas (fork ou spawn) ficam aninhadas embaixo dela, a 1, 3 e 5 células. Primeiro vem o grupo desta janela, depois os Grupos com nome pela atividade mais recente, e por último `Recents`; dentro de um grupo, primeiro a sessão desta janela, depois as mais recentes. Cada título de sessão leva à sessão no Desktop.
 - **Sessões encerradas não são listadas**: uma sessão arquivada no Desktop sai da árvore na hora, a menos que seja a sessão desta janela. Uma raiz arquivada não é desenhada: as derivadas ativas dela viram linhas do grupo delas (`Recents` quando não têm Grupo), com o título da mãe na linha do tempo.
 - **Issues abertas por milestone**: as issues abertas que nenhuma sessão trabalha, agrupadas por milestone aberto, com o progresso do milestone.
-- **Uma faixa acima do prompt** com o estado desta janela: executando ou ociosa, a ferramenta ou o servidor MCP atual com seu ícone, a quantidade de agentes, o tempo decorrido, um estado de espera por você, um estado de erro de dados, o progresso do milestone e o número da issue.
+- **Uma faixa acima do prompt** com o estado desta janela: executando ou ociosa, a ferramenta ou o servidor MCP atual com seu ícone, a quantidade de agentes, o tempo decorrido, um estado de espera por você, um estado de erro de dados, o progresso do milestone e o número da issue. A faixa diz `Executando` e `Parada`, e o painel diz `trabalhando` e `ociosa`, por desenho: os dois vocabulários são mantidos separados de propósito.
 - **Um botão Open** na faixa, com a marca KeepGlide antes dele (a marca aparece só no Desktop).
 - **Inglês e português do Brasil** no painel e na faixa.
 
@@ -108,7 +108,7 @@ sequenceDiagram
     participant G as gh e git
     participant D as Registros do Desktop
     T->>K: tique na cadência do sinal de aberto
-    K->>G: marcos, issues abertas e PRs abertos (3 chamadas gh, em paralelo)
+    K->>G: marcos, issues abertas, PRs abertos e totais dos marcos (4 chamadas gh, em paralelo)
     G-->>K: JSON do GitHub
     K->>D: lista os registros, lê os alterados
     D-->>K: registros de sessão
@@ -190,9 +190,9 @@ Regras de base:
 | 2 | Conferir se o repositório tem um remote no GitHub | `git remote get-url origin` | Saída 0 e uma URL cujo host é `github.com`, ou um alias SSH com `github` no nome (por exemplo `git@github-<label>:<owner>/<repo>.git`). Se não, o painel mostra `sem remote no GitHub para este repo`. |
 | 3 🧑 | Adicionar o marketplace, a menos que `claude plugin marketplace list` já mostre `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Saída 0, e `claude plugin marketplace list` mostra `sophia-mods` com `Source: Folder (<path>)`. |
 | 4 🧑 | Instalar o plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Saída 0, e `claude plugin list` mostra `keeptrack-repo-pane@sophia-mods` com `Version: 0.2.0-beta.8` e `Status: ✔ enabled`. |
-| 5 | Conferir se o comando está registrado | Em uma sessão do Desktop, `/keeptrack bogus` | Um toast com a linha de uso `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em inglês, ou `Uso: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em português (`hooks/i18n.ts:28` e `:110`). Nada muda. |
+| 5 | Conferir se o comando está registrado | Em uma sessão do Desktop, `/keeptrack bogus` | Um toast com a linha de uso `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em inglês, ou `Uso: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em português. Nada muda. |
 | 6 | Abrir o painel | `/keeptrack` | Abre um painel com o título `KeepTrack`. Mostra `Carregando o repo...`, depois as issues abertas por milestone, ou uma linha de erro de [Solução de problemas](#-solução-de-problemas). |
-| 7 | Trocar o idioma para português | `/keeptrack lang pt-BR` | O painel e a faixa mudam para português. Durante o carregamento, o painel mostra `Carregando o repo...` (`hooks/i18n.ts:96`). |
+| 7 | Trocar o idioma para português | `/keeptrack lang pt-BR` | O painel e a faixa mudam para português. Durante o carregamento, o painel mostra `Carregando o repo...`. |
 | 8 | Voltar ao idioma automático | `/keeptrack lang auto` | A escolha guardada é removida. O idioma segue a primeira variável definida entre `LC_ALL`, `LC_MESSAGES`, `LANG` ou `LANGUAGE`: `pt*` dá português; qualquer outra coisa dá inglês. |
 | 9 | Conferir se o gh lê o repositório | `gh issue list -R <owner>/<repo> --state open --limit 1 --json number` | Saída 0 e um array JSON: `[]` ou `[{"number":<n>}]`. |
 | 10 | Devolver à pessoa | nenhum | Relatar à pessoa o resultado de cada passo, a saída do passo 9 e qualquer passo pulado. Nenhum token é impresso. |
@@ -262,16 +262,16 @@ Fixo no código, não configurável:
 
 | Ajuste | Valor | Onde |
 |---|---|---|
-| Prazo de uma consulta | 30 s | `POLL_DEADLINE_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:73` |
-| Tique de redesenho da faixa | 30 s | `BAND_TICK_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:48` |
-| Timeout de chamada do gh | 15 s | `GH_TIMEOUT_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:55` |
-| Timeout de chamada do git | 5 s | `GIT_TIMEOUT_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:56` |
-| Issues abertas por consulta | 500 | `ISSUE_LIMIT`, `plugins/keeptrack-repo-pane/hooks/register.tsx:60` |
-| Pull requests abertos por consulta | 100 | `PR_LIMIT`, `plugins/keeptrack-repo-pane/hooks/register.tsx:61` |
-| Corte de sessões recentes | 72 h | `SESSION_CUTOFF_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:54` |
-| Validade de uma issue de janela | 30 dias | `OVERRIDE_TTL_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:78` |
-| Consultas abandonadas ao mesmo tempo | 2 | `MAX_ABANDONED_POLLS`, `plugins/keeptrack-repo-pane/hooks/register.tsx:76` |
-| Janela do estado "trabalhando" | 5 min após a última atividade | `WORKING_WINDOW_MS`, `plugins/keeptrack-repo-pane/hooks/model.ts:27` |
+| Prazo de uma consulta | 30 s | `POLL_DEADLINE_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Tique de redesenho da faixa | 30 s | `BAND_TICK_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Timeout de chamada do gh | 15 s | `GH_TIMEOUT_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Timeout de chamada do git | 5 s | `GIT_TIMEOUT_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Issues abertas por consulta | 500 | `ISSUE_LIMIT`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Pull requests abertos por consulta | 100 | `PR_LIMIT`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Corte de sessões recentes | 72 h | `SESSION_CUTOFF_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Validade de uma issue de janela | 30 dias | `OVERRIDE_TTL_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Consultas abandonadas ao mesmo tempo | 2 | `MAX_ABANDONED_POLLS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
+| Janela do estado "trabalhando" | 5 min após a última atividade | `WORKING_WINDOW_MS`, `plugins/keeptrack-repo-pane/hooks/model.ts` |
 
 ## 📚 Documentação
 
@@ -281,7 +281,7 @@ Fixo no código, não configurável:
 
 ## 🔒 Segurança e privacidade
 
-- **O que sai da máquina:** só chamadas do `gh` ao GitHub, para ler milestones, issues abertas, pull requests abertos e os detalhes de uma issue. Não há chamadas pagas nem chamadas a outros serviços.
+- **O que sai da máquina:** só chamadas do `gh` ao GitHub, para ler milestones, issues abertas, pull requests abertos, os totais dos milestones e os detalhes de uma issue. Não há chamadas pagas nem chamadas a outros serviços.
 - **O que é lido localmente:** o remote, a branch e o log do git do repositório e das suas sessões, os registros de sessão do Desktop, e a pasta de perguntas do Askaway (`ASKAWAY_HOME`, ou `~/.claude/state/askaway`).
 - **O que é gravado:** só o estado do mod (o sinal de aberto, o idioma e a issue definida por `/keeptrack issue`). Nada é gravado no GitHub nem no repositório.
 - Para reportar uma vulnerabilidade, veja [SECURITY.md](SECURITY.md).
@@ -311,24 +311,24 @@ Limitações conhecidas, como o código se comporta hoje:
 
 - **Um pull request mesclado não vincula a sua issue.** Só pull requests abertos são consultados, então uma issue cujo PR foi mesclado não mostra esse PR. Contorno: `/keeptrack issue <n>` na janela define a issue à mão.
 - **Sessões arquivadas nunca são listadas.** Uma sessão arquivada sai da árvore na hora, mesmo quando a branch dela tem um PR aberto, a menos que seja a sessão desta janela. As derivadas ativas dela continuam listadas no grupo delas, com o título dela só na linha do tempo. Contorno: nenhum; reabra a sessão pela barra lateral do Desktop para vê-la de novo.
-- **Checks sempre mostram `no CI`.** O mod lê o resumo de checks dos pull requests abertos, mas a linha Checks sempre mostra `no CI`, porque os detalhes da issue não repassam esse valor (register.tsx:926). Os repositórios KeepGlide não rodam GitHub Actions. Contorno: nenhum.
+- **Checks sempre mostram `no CI`.** O mod lê o resumo de checks dos pull requests abertos, mas a linha Checks sempre mostra `no CI`, porque os detalhes da issue não repassam esse valor. Os repositórios KeepGlide não rodam GitHub Actions. Contorno: nenhum.
 - **O estado "trabalhando" é uma heurística.** Uma sessão conta como trabalhando por 5 minutos após a última atividade, então a faixa pode atrasar em relação ao estado real. Contorno: nenhum.
-- **Só remotes do GitHub contam.** Um remote em outro host aparece como `no GitHub remote`. Contorno: nenhum.
-- **As listas têm limite por consulta.** São lidas 500 issues abertas e 100 pull requests abertos; além disso o painel mostra `list is partial`. Contorno: nenhum.
+- **Só remotes do GitHub contam.** Um remote em outro host aparece como `no GitHub remote`. O gh é chamado sem host, então um host GitHub Enterprise cujo nome contém `github` é lido do github.com; o mantenedor aceita isso. Contorno: nenhum.
+- **As listas têm limite por consulta.** São lidas 500 issues abertas e 100 pull requests abertos; além disso o painel mostra `list is partial`. Contorno: nenhum. Os totais dos milestones não vêm da lista cortada: o GraphQL os conta, para os primeiros 100 milestones abertos.
 
 ## 🧪 Testes
 
 | Categoria | Testes |
 |---|---|
-| Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo, projeção de registros (`tests/model.test.ts`) | 81 |
-| Módulo de hooks: consulta, comando do painel, temporizadores e fechamento (`tests/register.test.ts`) | 99 |
-| Faixa: linha de status, estados e botão Open (`tests/band.test.ts`) | 37 |
-| Painel: desenho do snapshot (`tests/pane.test.ts`) | 40 |
+| Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo, projeção de registros (`tests/model.test.ts`) | 83 |
+| Módulo de hooks: consulta, comando do painel, temporizadores e fechamento (`tests/register.test.ts`) | 117 |
+| Faixa: linha de status, estados e botão Open (`tests/band.test.ts`) | 38 |
+| Painel: desenho do snapshot (`tests/pane.test.ts`) | 53 |
 | Idioma: dicionários em inglês e português do Brasil (`tests/i18n.test.ts`) | 10 |
-| Transições de turno da faixa (`tests/turn.test.ts`) | 6 |
-| **Total** | **273** |
+| Transições de turno da faixa (`tests/turn.test.ts`) | 8 |
+| **Total** | **309** |
 
-Contagens de `claude plugin test plugins/keeptrack-repo-pane` na release 0.2.0-beta.8: 273 aprovados, 0 falhas, 6 arquivos.
+Contagens de `claude plugin test plugins/keeptrack-repo-pane` na árvore de trabalho, ainda não publicada: 309 aprovados, 0 falhas, 6 arquivos.
 
 ## 🔧 Desenvolvimento
 
@@ -344,7 +344,7 @@ Rode os testes:
 claude plugin test plugins/keeptrack-repo-pane
 ```
 
-Rode a verificação de aparência, que falha em qualquer cor hexadecimal, função de cor ou emoji no código desenhado:
+Rode a verificação de aparência, que falha em qualquer cor hexadecimal, função de cor ou emoji no código desenhado (`action-icons.ts` fica isento só da verificação de emoji):
 
 ```bash
 bash plugins/keeptrack-repo-pane/scripts/keeptrack-look-check.sh

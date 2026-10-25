@@ -10,7 +10,7 @@ From the repository root:
 claude plugin test plugins/keeptrack-repo-pane
 ```
 
-The look gate checks that the drawn code has no hex colour, colour function or emoji:
+The look gate checks that the drawn code has no hex colour, colour function or emoji (`action-icons.ts` is exempt from the emoji check only):
 
 ```bash
 bash plugins/keeptrack-repo-pane/scripts/keeptrack-look-check.sh

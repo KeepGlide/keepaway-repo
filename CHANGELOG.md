@@ -8,6 +8,39 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+### Changed
+- The poll is scheduled at once on session start, and the snapshot is marked stale until the poll lands (`hooks/register.tsx`).
+- Each session line draws its state word: working, idle or waiting (`hooks/pane.tsx`).
+- A milestone line reads "X of Y issues closed" (`hooks/pane.tsx`).
+- A milestone with open issues that all sessions work on reads "N open, all in sessions" (`hooks/pane.tsx`).
+- The header counter keeps its counts when no session is listed: `N open issues · 0 sessions · nothing in progress` (`hooks/pane.tsx`).
+- The "Sessions on this machine" heading is removed from the pane, by owner decision (`hooks/pane.tsx`).
+- A milestone progress line ends with `· due YYYY-MM-DD` when GitHub gives the milestone a due date (`hooks/pane.tsx`).
+- The footer age uses the rows' scale (`N min`, `N h`, `N d`) instead of a raw minute count (`hooks/pane.tsx`).
+- The session timeline marks a session event with `◇`; `▪` now marks only a link (`hooks/pane.tsx`).
+- The "Next step" line reads "no next step" (pt-BR "nenhum registrado") when no value exists (`hooks/pane.tsx`).
+- The band's running line leaves out the agents word when there are 0 agents (`hooks/band.tsx`).
+- The logo in the band is static and no longer turns while the loop runs, since a turning loop has no pause control (WCAG 2.2.2) (`hooks/logo-element.tsx`, `hooks/logo.ts`).
+- The sessions section draws nothing when no session is listed (`hooks/pane.tsx`).
+- The issue list reads open issues only, and the milestone totals come from one GraphQL call per poll, issues only, with REST's counts as the fallback (`hooks/register.tsx`, `types/index.d.ts`).
+- The issues of a closed milestone are grouped under that milestone's title and marked as closed, not under "No milestone / issue" (`hooks/pane.tsx`, `hooks/model.ts`).
+
+### Fixed
+- More than 500 open issues no longer undercount: the milestone totals are exact, and the list flags partial (`hooks/register.tsx`).
+- "All closed" is drawn only from exact milestone counts, never from a REST zero or a failed totals call (`hooks/pane.tsx`).
+- A session.start during a poll in flight polls for the new session once that poll settles (`hooks/register.tsx`).
+- A poll that began under an earlier session, and a waiting-flag read it started before a session.start, write nothing (`hooks/register.tsx`).
+- A turn ended by the 2 h age cap ends at its expiry, not at the tick that found it (`hooks/turn.ts`, `hooks/register.tsx`).
+- The band's waiting flag is refreshed on the 30 s band tick, so a question shows within one tick (`hooks/register.tsx`, `waitingAtom`).
+- The turn is reset at session start, so the previous session's turn is not counted (`hooks/register.tsx`).
+- A tool call outside a turn starts an inferred turn, since its turn start may have been lost (`hooks/turn.ts`).
+- A turn older than 2 hours (`TURN_MAX_AGE_MS`) ends on the band tick, so a lost end event no longer keeps the band Running (`hooks/turn.ts`, `hooks/register.tsx`).
+- A pull request from a fork is no PR of this repository, so it no longer matches a local branch of the same name (`hooks/register.tsx`).
+- The numeric prefix of a branch is read as an issue number only with 1 to 5 digits, so a longer number at the start of a branch name is no issue number; a date prefix is never one (`hooks/model.ts`).
+- A first poll that settles with no repo context draws `Could not read the repo: state unknown` (pt-BR `Não foi possível ler o repo: estado desconhecido`) instead of `Loading the repo...` forever (`hooks/pane.tsx`, `hooks/register.tsx`, `hooks/i18n.ts`).
+- The issues of a closed milestone take that milestone's title from the issue's own milestone field, so the group title and its label agree (`hooks/model.ts`, `hooks/register.tsx`, `types/index.d.ts`).
+- The "N open, all in sessions" line is drawn only when the issue list is complete and holds every open issue the milestone counts; otherwise the milestone shows its title and progress only (`hooks/model.ts`, `hooks/pane.tsx`).
+
 ## [0.2.0-beta.8] - 2026-10-22
 
 ### Added
