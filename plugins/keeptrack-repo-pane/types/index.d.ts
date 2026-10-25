@@ -1,9 +1,16 @@
 // The contracts of the KeepTrack pane (repo-work-pane-design-spec.md section 2.6), read by hooks/model.ts, hooks/register.tsx and
 // hooks/pane.tsx. The record fields are the ones repo-work-pane-design-spec.md section 2.7 reads and no others.
 
-export type Milestone = { number: number; title: string; openIssues: number; closedIssues: number; dueOn: string | null }
+// countsExact: openIssues and closedIssues count the issues only, from GraphQL; false when they are REST's counts (PRs included) or
+// missing. Only an exact zero of open issues reads as all closed.
+export type Milestone = {
+  number: number; title: string; openIssues: number; closedIssues: number; dueOn: string | null; countsExact: boolean
+}
 
-export type Issue = { number: number; title: string; milestone: number | null; labels: string[]; updatedAt: string; url: string }
+// milestoneTitle: the title of the issue's own milestone from the issue list (open or closed), null with none (pm1-9).
+export type Issue = {
+  number: number; title: string; milestone: number | null; milestoneTitle: string | null; labels: string[]; updatedAt: string; url: string
+}
 
 export type PullRequest = {
   number: number; title: string; state: 'OPEN' | 'MERGED' | 'CLOSED'; headRefName: string; url: string; createdAt: string
@@ -43,7 +50,10 @@ export type SessionNode = {
   group: SessionGroup | null   // set on every top of snapshot.sessions, null on derived nodes
 }
 
-export type IssueGroup = { milestone: Milestone | null; issues: Issue[] }   // milestone null = "Sem milestone / issue"
+// milestone null with closedTitle null = "Sem milestone / issue". closedTitle set = the issues of a closed milestone, drawn under its
+// title and marked closed (pm1-9; its counts are not read, so no milestone record). claimsLinked: the one-line "all in sessions" claim
+// may be drawn, since the list is complete and holds every open issue the milestone counts (rev-g1-5).
+export type IssueGroup = { milestone: Milestone | null; closedTitle: string | null; issues: Issue[]; claimsLinked: boolean }
 
 export type PaneError = 'gh-missing' | 'gh-auth' | 'gh-rate-limit' | 'gh-timeout' | 'gh-failed' | 'no-remote' | 'records-unreadable' | 'git-failed'
 
@@ -95,6 +105,10 @@ declare module 'claude-code' {
       turn: { startedAt: number | null; endedAt: number | null; tool: string | null }
       // The agents that have not ended (pending, running or waiting), as $.agent.list() counted them, and when their run began.
       agentRun: { count: number; since: number | null }
+      // Whether this window's session has an open askaway question, refreshed by the band tick (hooks/register.tsx).
+      waiting: boolean
+      // Whether the first poll settled with no snapshot to show (no repo context): the pane draws the failure line, not Loading (ux4-2).
+      loadFailed: boolean
     }
   }
 }

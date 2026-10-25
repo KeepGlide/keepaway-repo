@@ -1,7 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 import { renderPane, type PaneContext } from '../hooks/pane'
 import { TEXT_MAX, buildTree, groupIssues, type DesktopGroups } from '../hooks/model'
-import { DETAILS_FILL } from '../hooks/look'
+import { t } from '../hooks/i18n'
+import { DETAILS_FILL, STATE_GLYPH } from '../hooks/look'
 import type { PaneError, SessionNode, Snapshot } from '../types'
 import {
   HOUR,
@@ -102,7 +103,7 @@ function snapshotWith(overrides: Partial<Snapshot> = {}): Snapshot {
       issueFacts: SAMPLE_ISSUE_FACTS,
     }),
     milestones: SAMPLE_MILESTONES,
-    issueGroups: groupIssues(SAMPLE_MILESTONES, SAMPLE_ISSUES, SAMPLE_LINKED),
+    issueGroups: groupIssues(SAMPLE_MILESTONES, SAMPLE_ISSUES, SAMPLE_LINKED, false),
     openIssueCount: SAMPLE_ISSUES.length,
     thisIssue: SAMPLE_THIS_ISSUE,
     unreadableCount: 0,
@@ -156,9 +157,43 @@ test('the details of this window follow the breadcrumb, in the order of the mock
   expect(blockTexts).toContain('no PR')
   expect(blockTexts).toContain('no CI')
   expect(blockTexts).toContain('nothing')
-  expect(blockTexts).toContain('—')
+  expect(blockTexts).toContain('no next step')
   expect(blockTexts.some(text => /^dev-one · .+ ago · keep \*this\* \[markup\]\(x\) as text$/.test(text))).toBe(true)
   expect(blockTexts.indexOf('▪ Open #106 on GitHub ↗')).toBe(blockTexts.length - 1)
+})
+
+// With no next step recorded, the row names that state in words, not a dash (ux4-21).
+test('the next step row says no next step in English and nenhum registrado in pt-BR', () => {
+  for (const [lang, words] of [
+    ['en', 'no next step'],
+    ['pt', 'nenhum registrado'],
+  ] as const) {
+    const block = nodesOf(drawDesktop({ lang })).find(node => node.props.backgroundColor === DETAILS_FILL)
+    expect(drawnTexts(block)).toContain(words)
+  }
+})
+
+// With no session listed the pane draws no session block, so no blank line doubles up (rev-g1-13).
+test('with no session listed the pane draws no empty session block, in both languages', () => {
+  for (const lang of ['en', 'pt'] as const) {
+    const tree = drawDesktop({ lang, snapshot: snapshotWith({ sessions: [] }) })
+    const emptyBoxes = nodesOf(tree).filter(node => node.tag === 'Box' && [node.props.children].flat(Infinity).filter(Boolean).length === 0)
+    expect(emptyBoxes.map(node => node.props.key)).toEqual([])
+  }
+})
+
+// The header logo is decorative: the bold heading beside it already names the pane, so the picture has no alt text (ux4-14).
+test('the header logo has an empty alt, since the heading beside it names the pane', () => {
+  expect(keyed(drawDesktop(), 'logo')?.props.alt).toBe('')
+})
+
+// Session events in the timeline use their own glyph, not the link mark or the commit dot (ux4-20).
+test('a session event in the timeline is drawn with the diamond glyph, not the link mark or the commit dot', () => {
+  const glyphs = nodesOf(drawDesktop())
+    .filter(node => node.props.key === 'glyph')
+    .map(node => textOf(node.props.children))
+  expect(glyphs).toContain('◇')
+  expect(glyphs).not.toContain('▪')
 })
 
 test('the GitHub link of this window is a Markdown https link on the desktop and plain text on the terminal', () => {
@@ -319,7 +354,7 @@ test('this window as a top of Recents: its titled row opens the highlighted bloc
   const tree = drawDesktop()
   expect(sessionLinksIn(tree)[0]).toBe(`**[Synthetic session one ↗](#${THIS_WINDOW})** ← this window`)
   const block = nodesOf(tree).find(node => node.props.backgroundColor === DETAILS_FILL)
-  expect(drawnTexts(block).slice(0, 3)).toEqual(['├', '●', 'Synthetic session one ↗ ← this window'])
+  expect(drawnTexts(block).slice(0, 3)).toEqual(['├', '● working', 'Synthetic session one ↗ ← this window'])
 })
 
 test('a Desktop Group label is plain bold Text, never Markdown, and its family roots are titled ├/└ rows with their children nested', () => {
@@ -344,7 +379,11 @@ test('a Desktop Group label is plain bold Text, never Markdown, and its family r
   expect(textOf(label?.props.children)).toBe('Release 0.3 [x](y)')
   expect(nodesOf(tree).some(node => node.tag === 'Markdown' && String(node.props.text).includes('Release'))).toBe(false)
 
-  expect(drawnTexts(keyed(tree, `head-${THIS_WINDOW}`)).slice(0, 3)).toEqual(['├', '●', 'Synthetic session one ↗ ← this window'])
+  expect(drawnTexts(keyed(tree, `head-${THIS_WINDOW}`)).slice(0, 3)).toEqual([
+    '├',
+    '● working',
+    'Synthetic session one ↗ ← this window',
+  ])
   expect(drawnTexts(keyed(tree, 'head-local_1a2b0005'))[0]).toBe('└')
   expect(drawnTexts(keyed(tree, 'head-local_1a2b0005'))).toContain('Synthetic docs ↗')
   expect(drawnTexts(keyed(tree, 'head-local_c21d0002'))[0]).toBe('└')
@@ -521,6 +560,28 @@ test('the counter names one open issue and one session in the singular (RP1)', (
   )
 })
 
+test('with no session listed the counter keeps the open issue count, then 0 sessions and nothing in progress (pm1-3, ux4-4)', () => {
+  const snapshot = snapshotWith({ openIssueCount: 2, sessions: [] })
+  expect(drawnTexts(drawDesktop({ snapshot }))).toContain('2 open issues · 0 sessions · nothing in progress')
+  expect(drawnTexts(drawDesktop({ snapshot, lang: 'pt' }))).toContain('2 issues abertas · 0 sessões · nada em andamento')
+})
+
+// Each state's word key; the glyph of the state comes from STATE_GLYPH (look.ts), as the row draws it.
+const STATE_KEYS = { working: 'state.working', idle: 'state.idle', waiting: 'state.waiting' } as const
+
+test('every session row pairs its glyph with the word of its own state, in both languages (ux4-1, rev-g1-7)', () => {
+  for (const lang of ['en', 'pt'] as const) {
+    const rows = nodesOf(drawDesktop({ lang }))
+      .filter(node => node.tag === 'Text' && node.props.key === 'state')
+      .map(node => textOf(node.props.children))
+    const pairs = (Object.keys(STATE_KEYS) as (keyof typeof STATE_KEYS)[]).map(state => `${STATE_GLYPH[state]} ${t(lang, STATE_KEYS[state])}`)
+    // The sample carries a working, an idle and a waiting session, so each pair must be drawn and no other pair may be.
+    expect(rows.length).toBeGreaterThan(2)
+    for (const pair of pairs) expect(rows).toContain(pair)
+    for (const row of rows) expect(pairs).toContain(row)
+  }
+})
+
 test('the records line names one unreadable record in the singular, in both languages (RP2)', () => {
   const snapshot = snapshotWith({ errors: ['records-unreadable'], unreadableCount: 1 })
   expect(drawnTexts(drawDesktop({ snapshot }))).toContain('1 session record could not be read')
@@ -539,6 +600,80 @@ test('issue groups: open milestones by number, a milestone with no open issue as
   expect(at('Milestone Z · all closed · ready to close') < at('No milestone / issue')).toBe(true)
 })
 
+test('a milestone title is followed by its closed and total issues, in both languages (pm1-1)', () => {
+  const texts = drawnTexts(drawDesktop())
+  const at = (list: string[], text: string): number => list.indexOf(text)
+  expect(texts[at(texts, 'Milestone B') + 1]).toBe('10 of 16 issues closed')
+  expect(texts[at(texts, 'Milestone A') + 1]).toBe('0 of 1 issue closed · due 2026-10-31')
+  expect(texts[at(texts, 'Milestone Z · all closed · ready to close') + 1]).toBe('1 of 1 issue closed')
+  const pt = drawnTexts(drawDesktop({ lang: 'pt' }))
+  expect(pt[at(pt, 'Milestone B') + 1]).toBe('10 de 16 issues fechadas')
+  expect(pt[at(pt, 'Milestone A') + 1]).toBe('0 de 1 issue fechada · prazo 2026-10-31')
+  expect(pt[at(pt, 'Milestone Z · todas fechadas · pronta para fechar') + 1]).toBe('1 de 1 issue fechada')
+})
+
+test('a milestone with one open issue on sessions reads its count in the singular, in both languages (ux4-16)', () => {
+  const snapshot = snapshotWith({
+    issueGroups: [
+      {
+        milestone: { number: 32, title: 'Milestone R', openIssues: 1, closedIssues: 0, dueOn: null, countsExact: true },
+        closedTitle: null,
+        issues: [],
+        claimsLinked: true,
+      },
+    ],
+  })
+  expect(drawnTexts(drawDesktop({ snapshot }))).toContain('Milestone R · 1 open, all in sessions')
+  const pt = drawnTexts(drawDesktop({ snapshot, lang: 'pt' }))
+  expect(pt).toContain('Milestone R · 1 aberta, todas em sessões')
+  expect(pt[pt.indexOf('Milestone R · 1 aberta, todas em sessões') + 1]).toBe('0 de 1 issue fechada')
+})
+
+test('an open milestone whose open issues all sit on sessions names them, with its progress (pm1-2)', () => {
+  const snapshot = snapshotWith({
+    issueGroups: [
+      {
+        milestone: { number: 31, title: 'Milestone Q', openIssues: 2, closedIssues: 1, dueOn: null, countsExact: true },
+        closedTitle: null,
+        issues: [],
+        claimsLinked: true,
+      },
+    ],
+  })
+  const texts = drawnTexts(drawDesktop({ snapshot }))
+  const at = texts.indexOf('Milestone Q · 2 open, all in sessions')
+  expect(at).toBeGreaterThan(-1)
+  expect(texts[at + 1]).toBe('1 of 3 issues closed')
+  expect(drawnTexts(drawDesktop({ snapshot, lang: 'pt' }))).toContain('Milestone Q · 2 abertas, todas em sessões')
+})
+
+test('rev-g1-5: a one-line milestone whose list does not back its count draws its title and progress, without the claim', () => {
+  const snapshot = snapshotWith({
+    issueGroups: [
+      {
+        milestone: { number: 33, title: 'Milestone S', openIssues: 2, closedIssues: 0, dueOn: null, countsExact: true },
+        closedTitle: null,
+        issues: [],
+        claimsLinked: false,
+      },
+    ],
+  })
+  const texts = drawnTexts(drawDesktop({ snapshot }))
+  expect(texts[texts.indexOf('Milestone S') + 1]).toBe('0 of 2 issues closed')
+  expect(texts.some(text => text.includes('all in sessions'))).toBe(false)
+  expect(drawnTexts(drawDesktop({ snapshot, lang: 'pt' })).some(text => text.includes('em sessões'))).toBe(false)
+})
+
+test('pm1-9: the issues of a closed milestone sit under its title, marked closed, in both languages', () => {
+  const snapshot = snapshotWith({
+    issueGroups: [{ milestone: null, closedTitle: 'Milestone Y', issues: SAMPLE_ISSUES.slice(0, 1), claimsLinked: false }],
+  })
+  expect(drawnTexts(drawDesktop({ snapshot }))).toContain('Milestone Y · closed')
+  const pt = drawnTexts(drawDesktop({ snapshot, lang: 'pt' }))
+  expect(pt).toContain('Milestone Y · fechado')
+  expect(pt).not.toContain('Sem milestone / issue')
+})
+
 test('an issue row links to its https page on the desktop only', () => {
   const desktop = drawDesktop()
   const links = nodesOf(desktop).filter(node => node.tag === 'Markdown').map(node => String(node.props.text))
@@ -547,8 +682,16 @@ test('an issue row links to its https page on the desktop only', () => {
 })
 
 test('the footer names the repo and the age of the snapshot', () => {
-  const texts = drawnTexts(drawDesktop())
-  expect(texts.some(text => /^Updated \d+ min ago · gh · synthetic-owner\/synthetic-repo$/.test(text))).toBe(true)
+  // The pane reads the wall clock (Date.now()), so the snapshot is set two minutes old on that clock.
+  const texts = drawnTexts(drawDesktop({ snapshot: snapshotWith({ fetchedAt: Date.now() - 2 * MINUTE }) }))
+  expect(texts).toContain('Updated 2 min ago · gh · synthetic-owner/synthetic-repo')
+})
+
+// The footer's age is the rows' age: "just now" in the first minute, not "0 min ago" (ux4-17).
+test('the footer says just now in the first minute, as the rows do, in both languages', () => {
+  const snapshot = snapshotWith({ fetchedAt: Date.now() - 10 * 1000 })
+  expect(drawnTexts(drawDesktop({ snapshot }))).toContain('Updated just now · gh · synthetic-owner/synthetic-repo')
+  expect(drawnTexts(drawDesktop({ snapshot, lang: 'pt' }))).toContain('Atualizado agora · gh · synthetic-owner/synthetic-repo')
 })
 
 test('each pane error draws its line above the groups', () => {
@@ -573,7 +716,9 @@ test('each pane error draws its line above the groups', () => {
   const texts = drawnTexts(drawDesktop({ snapshot: snapshotWith({ errors, truncated: true, truncatedLimits: [100], unreadableCount: 2 }) }))
   for (const line of lines) expect(texts).toContain(line)
   expect(texts).toContain('list is partial (first 100)')
-  const groupAt = texts.indexOf('Sessions on this machine')
+  // The groups open at their label: each error line sits above Recents, not merely above the first session row (rev-g1-6).
+  const groupAt = texts.indexOf('Recents')
+  expect(groupAt).toBeGreaterThan(-1)
   for (const line of lines) expect(texts.indexOf(line) < groupAt).toBe(true)
 })
 
@@ -583,24 +728,40 @@ test('a stale snapshot keeps its last data, draws its failure line, and its foot
   const texts = drawnTexts(drawDesktop({ snapshot }))
   expect(texts).toContain('GitHub rate limit: showing the last data')
   expect(texts).toContain('Updated 5 min ago · gh · synthetic-owner/synthetic-repo')
-  expect(texts).toContain('Sessions on this machine')
+  expect(texts.some(text => text.startsWith('Synthetic session one'))).toBe(true)
   expect(texts.join('\n')).toContain('Synthetic session one')
 })
 
 test('no-github mode draws the sessions and the no-remote line, and no issue section', () => {
   const texts = drawnTexts(
-    drawDesktop({ snapshot: snapshotWith({ mode: 'no-github', repo: null, issueGroups: [], errors: ['no-remote'] }) }),
+    drawDesktop({
+      snapshot: snapshotWith({
+        mode: 'no-github',
+        repo: null,
+        issueGroups: [],
+        errors: ['no-remote'],
+        fetchedAt: Date.now() - 2 * MINUTE,
+      }),
+    }),
   )
-  expect(texts).toContain('Sessions on this machine')
+  expect(texts.some(text => text.startsWith('Synthetic session'))).toBe(true)
   expect(texts).toContain('no GitHub remote for this repo')
   expect(texts).not.toContain('Issues without session')
-  expect(texts.some(text => /^Updated \d+ min ago · gh · —$/.test(text))).toBe(true)
+  expect(texts).toContain('Updated 2 min ago · gh · —')
+})
+
+test('ux4-2: a first poll that settled with no snapshot draws the failure line, not Loading, in both languages', () => {
+  const texts = drawnTexts(drawDesktop({ snapshot: null, loadFailed: true }))
+  expect(texts).toContain('Could not read the repo: state unknown')
+  expect(texts).not.toContain('Loading the repo...')
+  expect(drawnTexts(drawDesktop({ snapshot: null, loadFailed: true, lang: 'pt' }))).toContain('Não foi possível ler o repo: estado desconhecido')
 })
 
 test('a snapshot not yet read draws the loading line only', () => {
   const texts = drawnTexts(drawDesktop({ snapshot: null }))
   expect(texts).toContain('Loading the repo...')
-  expect(texts).not.toContain('Sessions on this machine')
+  expect(texts.some(text => text.startsWith('Synthetic session'))).toBe(false)
+  expect(texts).not.toContain('Recents')
 })
 
 test('F01: the partial-list line names the cap that was hit (100 PRs), not the open-issue count', () => {

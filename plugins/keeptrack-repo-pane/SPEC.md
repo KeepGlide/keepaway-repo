@@ -4,7 +4,7 @@ Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepTrack,
 
 The mod draws, in a Claude Code pane, the work of the repository this session belongs to: the open milestones and their
 open issues, the Desktop sessions working on each issue, and, for this window, its issue's details and timeline. Its design
-record is `Dossier/mocks/keeptrack-pane-mocks/keeptrack-pane-design-spec.md` (decisions D1 to D8); this file describes what the code does now and
+record is the external private file `repo-work-pane-design-spec.md`, kept outside this repository (decisions D1 to D8); this file describes what the code does now and
 where it differs from that record (section 9).
 
 ## 1. Purpose
@@ -12,7 +12,8 @@ where it differs from that record (section 9).
 - Show, at a glance, what this window is working on, which issue it belongs to and which milestone that issue is in.
 - Show the other Desktop sessions of the same repo in Askaway's tree: the group on top (a Desktop sidebar Group, else
   `Recents`, the Desktop sidebar's label), then each top session and its derived sessions (fork or spawn). Ended sessions are never listed.
-- Show the open issues that no session works on, grouped by open milestone.
+- Show the open issues that no session works on, grouped by open milestone; the issues of a closed milestone are grouped under
+  that milestone's title and marked as closed.
 - Read only. The pane writes two kinds of state: the open flag and the language (`$.store` `lang`), and the issue
   override a `/keeptrack issue` command sets (`$.store` `override:<sessionId>`).
 
@@ -25,6 +26,8 @@ where it differs from that record (section 9).
 | `hooks/model.ts` | Pure rules: remote parsing, session-to-issue mapping, session tree with its groups (`parseDesktopGroups`, `familyOf`, `groupOf`, `cutAcrossGroups`, `sortTops`, `nearestKeptAncestorOf`), issue groups, timelines, state, record projection. |
 | `hooks/pane.tsx` | Draws one `Snapshot`; reads no state. The session groups: `groupsOf`, `renderGroup`, `renderGroupLabel`. |
 | `hooks/band.tsx` | Draws the band row above the prompt: the status line, the repo context and the Open button (section 18); reads no state. |
+| `hooks/logo-element.tsx` | The logo elements: the pane header's mark (`renderKeepTrackLogo`), the band's leading mark (`renderKeepTrackMark`) and the KeepGlide mark (`renderKeepGlide`), drawn from `logo.ts` and `keepglide.ts` (section 18). |
+| `hooks/action-icons.ts` | One table of the action icons, emoji and SVG per key, for the band's status line (section 18). |
 | `hooks/turn.ts` | The pure transitions of the main loop's turn (turn.start, tool.call, turn.complete, turn.abort), written into the turn atom. |
 | `hooks/keepglide.ts` | A local copy of askaway's KeepGlide mark, drawn 24 px at the pane header's right (section 17). |
 | `hooks/held.ts` | Keeps the band's press handle across redraws: a local copy of askaway's `held.ts` (mods do not import each other). |
@@ -36,9 +39,9 @@ where it differs from that record (section 9).
 
 ## 3. Data flow
 
-1. `session.start` sets the language, registers `/keeptrack`, drops the old timer, starts the window's timer at its cadence and polls
-   when no poll started within that cadence (the last attempt, or the snapshot's time when that is later; once, at start, while the pane is closed). It also starts the band's
-   tick (section 18). A reload (`/reload-plugins`) gives the module a new instance with no timers of its own: the engine drops the
+1. `session.start` sets the language, registers `/keeptrack`, drops the old timer and starts the band's tick (section 18). It resets
+   the band's turn to idle and marks the snapshot stale. Then it starts the window's timer at its cadence and polls at once: the
+   poll is not held back by the cadence or by the time of the last poll, since that poll belongs to the previous session. A poll still in flight at that session.start is not skipped: the new session's poll starts when that one settles (state2-3). A reload (`/reload-plugins`) gives the module a new instance with no timers of its own: the engine drops the
    old timers, and `session.start` runs again for the changed hooks. If an instance finds its timers missing at a band draw (no
    `session.start` ran in it), the draw schedules `ensureTimers` through the clock, which starts the tick and, when no poller runs,
    the poll at the cadence. Starting is idempotent: a running timer is never started twice.
@@ -50,7 +53,7 @@ where it differs from that record (section 9).
    1. Repo: `$.session.repo()` gives the root and the origin remote; when it names none (the engine reads origin only), the repo's
       remote is the first remote `git remote` lists (`remoteUrlOf`: origin when present, else the first by name, so a repo whose
       only remote is `github` is read from it). `parseRemote` gives owner and name.
-   2. GitHub (3 gh calls, in parallel): milestones, open issues, open PRs (section 4).
+   2. GitHub (4 gh calls, in parallel): milestones, open issues, open PRs, milestone totals (section 4).
    3. Desktop records: the records folder is listed to depth 2; only `local_<id>.json` files are records, and other files in the folder (for example `scheduled-tasks.json` and `deleted_<id>` tombstones) are ignored; files over 2 MiB are skipped; a file is read again only when
       its size or mtime changed. Records that fail to parse are counted.
    3b. Desktop Groups (`readDesktopGroups`, `parseDesktopGroups`): `$HOME/.config/Claude/claude_desktop_config.json`, found by one
@@ -60,7 +63,7 @@ where it differs from that record (section 9).
       unknown shape gives no Groups. Nothing is logged and no toast is shown (Sophia, 2026-10-22, Askaway q-mvjqh5fa-8dc206,
       option A).
    4. Candidates: this window's record always; any other record whose git common dir has an origin that names this repo (match by host, owner and name, case-insensitive; the newest 63 others by activity, plus every other one among the newest 256 records by activity whose branch has an open PR; section 16). An archived record is never a candidate, except this window's own (section 9). The records up the parent chains of the candidates that are not candidates themselves, in any state (archived, of another repo, past the 64 cap), are context ancestors (`ancestorsOf`): they link and group the tree only, and are never listed, never counted, never asked of git and never read beyond the scan. A record with no `gitAnchors` derives its common dir with
-      `git rev-parse --git-common-dir` in its cwd. A common dir that git reports as not a repository (exit 128, not-a-repository stderr) is a definite non-member: the record is left out and sets no `git-failed`.
+      `git rev-parse --path-format=absolute --git-common-dir` in its cwd. A common dir that git reports as not a repository (exit 128, not-a-repository stderr) is a definite non-member: the record is left out and sets no `git-failed`.
    5. Branch of each member of the newest 4 × 64 others (the scan window; membership is checked there too): `git symbolic-ref --quiet HEAD` in its cwd, `refs/heads/` removed (detached HEAD gives no branch; section 4). The open-PR admission of step 4 needs these reads.
    6. Open askaway questions: `ASKAWAY_HOME` (or `~/.claude/state/askaway`), `q/*.json` with no `a/<id>.json` yet; the question's
       `desktop_session` names the session, its `title` is the blocker text. A missing folder is no question.
@@ -96,7 +99,7 @@ where it differs from that record (section 9).
         its own row), with its derived rows nested under it, at the 1/3/5 indent in every group, Recents included (W1,
         section 9). An ended root is not drawn: its live derived sessions are tops of their group (Recents when unfiled),
         ordered like any other top, and their timeline names it (`forked from <title>`, `spawned from <title>`).
-   9. Commits of each kept session: `git symbolic-ref refs/remotes/origin/HEAD` (no network), then `git log -5` on its
+   9. Commits of each kept session: `git symbolic-ref --quiet --short refs/remotes/origin/HEAD` (no network), then `git log -5` on its
       branch unless the branch is the default branch.
    10. This window's issue (section 6): one `gh issue view` call when the window maps to an issue.
    11. Snapshot: sessions, milestones, issue groups (issues no session shows), counters, `thisIssue`, `unreadableCount`,
@@ -111,26 +114,29 @@ gh calls (argv arrays, no shell; cwd is the repo root; timeout 15 s each):
 
 | # | Argv | When | Gives |
 |---|---|---|---|
-| 1 | `gh api --paginate repos/OWNER/NAME/milestones?state=open&per_page=100` | every poll | open milestones, every page, `open_issues`, `closed_issues` |
-| 2 | `gh issue list --repo OWNER/NAME --state open --limit 501 --json number,title,milestone,labels,updatedAt,url` | every poll | open issues: gh is asked for `ISSUE_LIMIT + 1` (501) and the first 500 are kept; only a 501st issue sets `truncated`, so the truncation line shows only when more than 500 open issues exist |
-| 3 | `gh api graphql -f owner=OWNER -f name=NAME -f query=<PR query>` (`-f` for all three: `-F` would turn a digit name into a number) | every poll | open PRs (`states: OPEN`, first 100, by update time) with `closingIssuesReferences` (first 50, and their `totalCount`), `reviewDecision`, last commit checks; more than 100 sets `truncated` |
-| 4 | `gh issue view <n> --repo OWNER/NAME --json number,title,url,state,milestone,comments` | only when this window maps to issue `<n>` | the window's issue (section 6) |
+| 1 | `gh api --paginate repos/OWNER/NAME/milestones?state=open&per_page=100` | every poll | open milestones, every page (title, number, due date); their issue totals come from GraphQL (row 3) |
+| 2 | `gh issue list --repo OWNER/NAME --state open --limit 501 --json number,title,milestone,labels,updatedAt,url` | every poll | open issues (the rows): gh is asked for `ISSUE_LIMIT + 1` (501) and the first 500 are kept; only a 501st issue sets `truncated`, so the truncation line shows only when more than 500 open issues exist. Each issue's milestone title comes from its own `milestone` field, so the issues of a closed milestone keep it (pm1-9) |
+| 3 | `gh api graphql -f query=<milestone query> -f o=OWNER -f r=NAME` | every poll | the exact issue counts of each open milestone: `issues(states: OPEN)` and `issues(states: CLOSED)` `totalCount`, issues only, no PR (pm1-8); the first 100 open milestones; a failed or unreadable answer keeps the REST counts, not exact (see below) |
+| 4 | `gh api graphql -f owner=OWNER -f name=NAME -f query=<PR query>` (`-f` for all of them: `-F` would turn a digit name into a number) | every poll | open PRs (`states: OPEN`, first 100, by update time) with `closingIssuesReferences` (first 50, and their `totalCount`), `reviewDecision`, last commit checks; more than 100 sets `truncated` |
+| 5 | `gh issue view <n> --repo OWNER/NAME --json number,title,url,state,milestone,comments` | only when this window maps to issue `<n>` | the window's issue (section 6) |
 
 The PR query is GraphQL because gh 2.45 has no `closingIssuesReferences` JSON field.
+
+The milestone totals are one GraphQL call per poll (row 3): `repository.milestones(first: 100, states: OPEN)`, each with the `totalCount` of its open and of its closed issues. REST's `open_issues` and `closed_issues` count the PRs too, so they are the fallback only: a milestone the answer does not hold (a failed call, an unreadable node, a milestone past the first 100) keeps them and is marked not exact (`Milestone.countsExact` false). A failed call is logged (`gh api call failed`) and adds no pane error line, since the REST counts still stand. Only exact counts draw the `all closed` line.
 
 Open milestones are read with `gh api --paginate` (100 per page); the gh answer cap and the 15 s timeout bound the read.
 
 git calls (timeout 5 s each): `symbolic-ref --quiet HEAD` per candidate, with the `refs/heads/` prefix removed (`branchOf`): the full ref
 is read, so a tag with the branch's name no longer yields `heads/<name>`; an unborn branch yields its name; a detached HEAD (exit 1, no
-stderr) yields no branch and is not a failure; `rev-parse --git-common-dir` per cwd of a record
+stderr) yields no branch and is not a failure; `rev-parse --path-format=absolute --git-common-dir` per cwd of a record
 without `gitAnchors` and for the root when there is no GitHub remote (cached per cwd); `remote get-url origin` per distinct
 common dir (cached per common dir; a not-a-repository answer is cached as no remote), and when origin is absent `remote` then `remote get-url <first>` (the same cache); the root
-without an engine origin asks the same way on each poll. `symbolic-ref refs/remotes/origin/HEAD` and `log -5 --format=%ct%x09%s` per
+without an engine origin asks the same way on each poll. `symbolic-ref --quiet --short refs/remotes/origin/HEAD` and `log -5 --format=%ct%x09%s` per
 kept session with a branch; the log is parsed from git's output as it comes, not trimmed, so a commit with an empty subject still counts.
 
-Budget: three gh calls per minute while the pane is open, plus the fourth call while this window maps to an issue. While the pane
-is closed: three gh calls every 5 minutes (`KEEPTRACK_BAND_POLL_MS`), plus the fourth call when mapped, so at most 4 gh calls per 5
-minutes per window, and one poll at session start. Git is local.
+Budget: four gh calls per minute while the pane is open, plus the fifth call (`gh issue view`) while this window maps to an issue. While the pane
+is closed: four gh calls every 5 minutes (`KEEPTRACK_BAND_POLL_MS`), plus the fifth call when mapped, so at most 5 gh calls per 5
+minutes per window, and one poll at session start (and one more when a session.start landed during a poll in flight). Git is local.
 
 ## 5. Session to issue (first match wins, no merging)
 
@@ -138,8 +144,11 @@ minutes per window, and one poll at session start. Git is local.
 2. PR: the open PR whose `headRefName` is the session's branch and whose `closingIssuesReferences` names issues. Several:
    the lowest number. A PR's closing references are read 50 at a time; when GitHub reports more than 50, the PR names no issue
    and the session maps by its branch, title or parent.
-3. Branch: `^(?:[\w.-]+/)?(\d{1,6})-` on the branch, where a leading `YYYY-MM-DD-` date is skipped and is not taken as the number,
-   else `issue-(\d{1,6})` (case-insensitive, word boundary); a number outside 1 to 999999 counts as no match. The date is not
+3. Branch: `^(?:[\w.-]+/)?(\d{1,5})-` on the branch, where a leading `YYYY-MM-DD-` date is skipped and is not taken as the number,
+   else `issue-(\d{1,6})` (case-insensitive, word boundary); a number outside 1 to 999999 counts as no match. The prefix takes
+   1 to 5 digits only: `fix/999999-big` (6 digits) matches neither rule and maps to no issue. The 5-digit cap (review gh3-4)
+   keeps a long number at the start of a branch name from being read as an issue. Known leftover: a year-like prefix
+   (`2024-cleanup`, `release/2026-q4`) still maps to #2024 or #2026. The date is not
    looked past: `2026-10-22-issue-123` maps to 123 by the `issue-` rule, while `2026-10-22-97-fix` maps to no issue.
 4. Title: the first `#(\d{1,6})` in the uncut session title (`titleIssue`, section 7) that is a valid number: several valid
    references still take the first (`Refs #97, #103` → 97); a reference outside 1 to 999999 (such as `#0`) is skipped, so `#0 fixes #106` → 106.
@@ -207,6 +216,8 @@ Each line is drawn above the groups, in the language of the pane. The sessions a
 
 Each cut list draws its own partial-list line: first 500 for issues, first 100 for PRs; both when both are cut.
 
+Before any snapshot exists the pane draws `Loading the repo...` (pt-BR `Carregando o repo...`) only while the first poll has not settled. A first poll that settles with no repo context (no snapshot to show, `loadFailed`) draws `Could not read the repo: state unknown` (pt-BR `Não foi possível ler o repo: estado desconhecido`) instead, so the pane never stays on Loading (ux4-2).
+
 A gh answer over 4 MiB (UTF-8 bytes), or cut by the engine, is not parsed: gh-failed.
 
 An unreadable issue item is dropped and counted in one log line (count only); a non-empty list with no readable item is an
@@ -215,19 +226,20 @@ unreadable answer (gh-failed line); a dropped item still counts toward the 501st
 Singular forms: a count of 1 takes the key's `.one` form (`t()` in `hooks/i18n.ts`), in English and pt-BR. Two lines use it: the
 records line above (`error.records.one`) and the pane's counter line, `N open issues · N sessions` (`counter.issues.one`,
 `counter.sessions.one`: `1 open issue`, `1 session`; pt-BR `1 issue aberta`, `1 sessão`). The counter counts the listed sessions only
-(an ended root is not drawn and not counted); with none, it reads `nothing in progress`.
+(an ended root is not drawn and not counted). With no session listed it reads `N open issues · 0 sessions · nothing in progress`
+(pt-BR `nada em andamento`): the counts stay in every case. The open-issue count comes from gh issue list (section 4, row 2).
 
 A poll never throws into the engine: a failed job is logged by its error name only (`poll failed (Name)`).
 
 ## 9. As built: deviations from the design record
 
-| Design (repo-work-pane-design-spec.md) | As built | Reason |
+| Design (external private record `repo-work-pane-design-spec.md`, kept outside this repository) | As built | Reason |
 |---|---|---|
 | D1: open or merged PR closes the issue | Only open PRs map: the GraphQL query asks for `OPEN` | Merged PRs are not in the query; adding them is a new query field, deferred |
 | D2: open PR keeps an archived session | An ended session (archived, or deleted) drops out even with an open PR (this window excepted) | Sophia's rule, restated on 2026-10-22: KeepTrack does not list sessions that already ended (row "Ended sessions never listed" below); `buildTree` tests pin it |
 | D4: milestones, one page of 100 | Every page (`gh api --paginate`, 100 per page), bounded by the 4 MiB answer cap and the 15 s timeout | RB1-4: one page drops every open milestone past the 100th |
 | D4: `closingIssuesReferences(first: 10)` | First 50 with `totalCount`; more than 50: the PR names no issue | DL9: the lowest of a partial page may not be the lowest |
-| D5: "Próximo passo" dropped | Drawn as `—` | Sophia's decision for this pane |
+| D5: "Próximo passo" dropped | Drawn as `no next step` (pt-BR `nenhum registrado`) when no value exists; no snapshot field feeds it yet | Sophia's decision for this pane; a bare dash read as an empty value (ux4-21) |
 | D5: "Checks" from the PR check rollup | Always `no CI` (`checks` null) | GitHub Actions is off in the repos (`17a`) |
 | D5: "Último commit" from `git log -1` | Newest of `git log -5` (the same read the timeline uses) | One git call serves both |
 | D5: "Estado" is the session state word | Session state word; `issue closed` is added when the issue is closed | An override may name a closed issue |
@@ -249,7 +261,7 @@ A poll never throws into the engine: a failed job is logged by its error name on
 | Text of records | Titles, subjects, labels, names and comment bodies: control characters become spaces, capped (200 for text, 100 for labels and names) | S2: no escape sequence reaches a terminal |
 | Timeline of a fork with no parent title | The text without a name: `forked`, `spawned` | W6 |
 | `/keeptrack issue <n>` writes the override | `setIssue` checks the session id (`isSessionLinkId`) before it writes | SE4: defensive; the command cannot reach an invalid id (`projectRecord` drops a record whose `sessionId` lacks the `local_<id>` shape), so no test |
-| A failed poll marks the snapshot stale | Only when it is the newest poll at write time (`isNewest` checked again inside the atom update, `failedPoll`) | ST3: the test (`ST3 guard`, `tests/register.test.ts`) is a guard only: the test kit cannot hold the snapshot atom between the read and the write |
+| A failed poll marks the snapshot stale | Only when it is the newest poll at write time (`isNewest` checked again inside the atom update, `failedPoll`), and only when the poll began under the current session (`failedPoll` epoch check, state2-6) | ST3: the test (`ST3 guard`, `tests/register.test.ts`) is a guard only: the test kit cannot hold the snapshot atom between the read and the write |
 | Agents after turn.abort | turn.abort does not re-read the agents; the band tick re-reads them (section 18); the hook comment says so | SM2 |
 | Element keys: none named | Each repeated element takes a key of its own, the same on the Markdown and the Text branch: `group-label-<group key>` (a plain Text label since beta.8), `crumb-<session id>`, `line-<issue number>` (titles were already `title-<session id>`); this window's GitHub `link` is drawn once and keeps its key | F (2026-10-22): the engine refuses the whole Pane draw when two Markdown elements share a key, so two families, two listed issues or two linked breadcrumbs drew nothing on the desktop; pinned by the `F:` test in `tests/register.test.ts` |
 
@@ -258,10 +270,10 @@ A poll never throws into the engine: a failed job is logged by its error name on
 - Breadcrumb: `#n · <milestone> · <origin>`. The origin is the drawn parent's: `derived from #m` (a derived session drawn
   under a listed parent with an issue) or `derived` (its drawn parent has none, or it is a top of its group: its parent ended,
   is a context ancestor or sits in another group); a session with no parent link has no origin. With no issue: `no issue · no milestone`.
-  On the desktop `#n` links to the issue page when it is a plain https address. The milestone is its title up to the first
+  On the desktop `#n` links to the issue page when it is a https://github.com page. The milestone is its title up to the first
   ` · `.
 - Timeline: the 6 newest events of the session, always drawn, never folded. Kinds: commit (`●`, subject as plain text),
-  PR (`↗`, `PR #n opened: <title>`, from the PR's `createdAt`), session (`▪`, `started`, `forked from <title>`, or
+  PR (`↗`, `PR #n opened: <title>`, from the PR's `createdAt`), session (`◇`, `started`, `forked from <title>`, or
   `spawned from <title>`, the title of the session's own parent, an ended one included). Commits are the branch's own last 5, newest first, empty on the default branch.
 
 ## 11. This window's block
@@ -272,12 +284,32 @@ Inside one highlighted block (the engine's user-message background, `DETAILS_FIL
 2. Breadcrumb (section 10).
 3. Detail lines `Heading: text` (only when `thisIssue` is drawn): State, Branch, PR, Last commit, Checks, Last comment,
    Blocked by, Next step, Started. Each heading is bold; each line is a separate row. "Blocked by" is `nothing` when no open
-   question names the session. "Started" is `hh:mm · <age>`.
+   question names the session. "Next step" reads `no next step` (pt-BR `nenhum registrado`) while no value exists, which is
+   always so far, since no snapshot field feeds it. "Started" is `hh:mm · <age>`.
 4. Timeline (section 10).
-5. The GitHub link as the last line: `▪ Open #n on GitHub ↗`, a Markdown https link on the desktop, plain text on the terminal.
+5. The GitHub link as the last line: `▪ Open #n on GitHub ↗`, a Markdown link to a https://github.com page on the desktop, plain text on the terminal.
 
 Nothing folds. Each group draws its label line, then each top as a titled row (`├`, and `└` on the last) with its derived
 rows nested under it; deeper derived rows nest under their parent, indent capped at two levels (W1, section 9).
+
+Each session row's title line reads the branch glyph, then the state glyph with its word (`● working`, `○ idle`,
+`◐ waiting for you`; pt-BR `trabalhando`, `ociosa`, `esperando você`), then the title, on every row. The sessions section draws
+nothing when no session is listed: no heading, no label, no empty row.
+
+Below the sessions, the open issues that no session works on are drawn by milestone. Each milestone group is bold, with its title
+up to the first ` · `, then a progress line `<closed> of <total> issues closed` (pt-BR `<closed> de <total> issues fechadas`, the
+singular `issue closed` or `issue fechada` when the total is 1). When GitHub gives the milestone a due date, the line ends with
+` · due YYYY-MM-DD` (pt-BR `prazo YYYY-MM-DD`). The totals come from GraphQL (section 4, row 3); only a failed call leaves REST's counts, and those are not exact. An open milestone
+whose open issues all sit on sessions draws one line instead of its issues, `<title> · N open, all in sessions` (pt-BR
+`<title> · N abertas, todas em sessões`), then the progress line. That claim is drawn only when the issue list is complete and holds every open issue the milestone counts; otherwise the milestone draws its title and progress line only (rev-g1-5). An open milestone with no open issue left reads
+`<title> · all closed · ready to close` (pt-BR `todas fechadas · pronta para fechar`), drawn only from exact counts (`Milestone.countsExact`); a milestone with inexact counts draws its title and progress line. Issues with no milestone sit under
+`No milestone / issue` (pt-BR `Sem milestone / issue`). The issues of a closed milestone are not in that group: they are grouped
+under the closed milestone's title, marked `<title> · closed` (pt-BR `<title> · fechado`) with no progress line, the title read from
+each issue's own milestone field (pm1-9).
+
+The pane's footer reads `Updated <age> · gh · <owner/name>` (pt-BR `Atualizado <age> · gh · <owner/name>`). The age uses the same
+scale as the rows: `just now` (pt-BR `agora`) under one minute, then `N min ago` (`há N min`), `N h ago` (`há N h`) or `N d ago`
+(`há N d`).
 
 ## 12. Language
 
@@ -294,14 +326,14 @@ rows nested under it; deeper derived rows nest under their parent, indent capped
   clear it. `/keeptrack lang <choice>`. Any other argument: a toast with the usage line and no change. `/keeptrack open` and
   `/keeptrack issue <n>` followed by extra words also show the usage toast and change nothing.
 - A window that is not a Desktop session (no record with its `cliSessionId`) cannot set an issue: a toast says so.
-- Store keys: `override:<sessionId>` = `{ issue, ts }`, `lang`. Nothing else is persisted. An override is dropped on a poll when no listed record names its session or its `ts` is over 30 days old (not on a poll with an unreadable folder). The 30-day lifetime (`OVERRIDE_TTL_MS`) also applies on read: an expired override is ignored
+- Store keys: `override:<sessionId>` = `{ issue, ts }`, `lang`. Nothing else is persisted. An override is dropped on a poll when no record in the records folder names its session (any repo's: the store is shared by every window) or its `ts` is over 30 days old (not on a poll with an unreadable folder). The 30-day lifetime (`OVERRIDE_TTL_MS`) also applies on read: an expired override is ignored
   even when the record scan was partial and the prune did not run. Module memory holds the file read
   cache, git lookups and the last good gh data.
 - The state lives in the mod's `$.store`, keyed by the plugin name (`keeptrack-repo-pane`), so the store of the old name
   `github-repo-work-pane` is not read. Checked on 2026-10-22: no store file existed under either name, so the rename lost nothing.
 - The pane id stays `repo-work` (`PANE` in `hooks/register.tsx`) on purpose: the Desktop may remember a pane by its id, and renaming
-  it could lose that (decided 2026-10-22). Functions and comments use KeepTrack names; the pane id `repo-work` and the design
-  record's file name `repo-work-pane-design-spec.md` stay as they are on purpose.
+  it could lose that (decided 2026-10-22). Functions use KeepTrack names, and some comments still cite the design record's file name; the pane id `repo-work` stays as it is on purpose, and the design
+  record is the external private file `repo-work-pane-design-spec.md`, kept outside this repository.
 
 ## 14. Environment overrides (tests)
 
@@ -315,14 +347,14 @@ rows nested under it; deeper derived rows nest under their parent, indent capped
 
 Run from the mod folder:
 
-1. `claude plugin validate .`: manifest, hooks and types. Pass with no error. Known warnings: the `$` and state summaries, and
-   the gating-hook notes for `command.run` and `ui.close` (see the report of the build).
+1. `claude plugin validate .`: manifest, hooks and types. Pass with no error. Known warnings (the complete list; validation still passes): the `$` summary (types declare nothing on `$`), the state
+   summary, and the gating-hook notes without `.catch` for `command.run`, `turn.abort`, `tool.call`, `agent.spawn` and `ui.close`.
 2. `claude plugin test .`: the unit, pane, band, turn, i18n and hooks-module tests (fixtures are synthetic; no real record, remote or
    GitHub call). The register tests stub `$` in memory: gh and git never run.
 3. `scripts/keeptrack-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
-   `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark).
+   `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only.
 4. `agentic-mod-release-tool.sh keeptrack-repo-pane --check` must pass before the mod is installed (CLAUDE.md rule 6a).
-   This mod is not installed yet.
+   The mod is published as 0.2.0-beta.8 (commit 517f460) and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
 or reads a real record.
@@ -357,6 +389,9 @@ or reads a real record.
 | Desktop config | 4 MiB; read only when its mtime changes; one `$.fs.list` of `$HOME/.config/Claude` per poll |
 | Family walk | 8 hops per listed session (`familyOf`); every walk up the records' parent links keeps a seen set (`familyOf`, `nearestKeptAncestorOf`, `addAncestors`, `ancestorsOf`); the walks over the drawn links run after the cycles are cut |
 
+gh is called with `--repo owner/name` and no host (`hooks/register.tsx`), so gh's default host answers (github.com unless gh is configured
+otherwise): a GitHub Enterprise host whose name contains `github` is read from github.com. This is accepted by the owner.
+
 ## 17. Desktop check (for Sophia)
 
 Done in the Claude Desktop with the mod installed, not by the build:
@@ -384,10 +419,9 @@ Done in the Claude Desktop with the mod installed, not by the build:
 - Drawn by `on('ui.render', { component: 'AbovePrompt' })` on the desktop and the terminal, always: with the pane open or closed,
   with or without an issue. One row; it wraps to two rows on a narrow surface. Left: the leading mark, the status line, the repo
   context. Right: the KeepGlide mark (desktop only) and the button.
-- Leading mark (`renderKeepTrackMark`, `hooks/logo-element.tsx`): on the desktop the product mark, concept C (the checkpoint) from
-  `hooks/logo.ts`: `keepTrackSvg` still, and `keepTrackLoadingSvg` (the same drawing with its ring turning, SMIL, 2 s). The turning
-  mark shows while the main loop or an agent runs; the still mark when idle, and when the person asks for reduced motion (read from
-  `prefers-reduced-motion` where the page offers it). On the terminal the text glyph: `▶` running, `○` idle. Concept C is provisional
+- Leading mark (`renderKeepTrackMark`, `hooks/logo-element.tsx`): on the desktop the still product mark, concept C (the checkpoint)
+  from `hooks/logo.ts` (`keepTrackSvg`), in every state. It never turns: a turning loop has no pause control (WCAG 2.2.2), so the
+  turning variant is not in `logo.ts`. On the terminal the text glyph: `▶` running, `○` idle. Concept C is provisional
   (A, B and C are not chosen): the markup lives in `logo.ts` alone, so a swap changes that one file. The brand colours stay literal.
 - Action icons (`hooks/action-icons.ts`, one table: emoji and SVG per key): on the terminal the emoji as text; on the desktop a 14 px
   SVG on a 24 px grid, 2 px stroke, `currentColor` (an emoji renders as an odd glyph in the Desktop band font). Keys and emoji:
@@ -399,23 +433,32 @@ Done in the Claude Desktop with the mod installed, not by the build:
 - Status line (`bandStatusWords`, `hooks/band.tsx`), from the main loop only (turn events without an `agentId`), as words, each with
   its icon:
   - Running, from turn.start to turn.complete or turn.abort, and for as long as an agent is active after the turn has ended:
-    `Running · <tool or thinking> · <n> agents · <elapsed>`. The tool is the name of the running turn's last tool.call (never its
+    `Running · <tool or thinking> · <n> agents · <elapsed>`; the agents part is left out when `<n>` is 0
+    (`Running · <tool or thinking> · <elapsed>`). The tool is the name of the running turn's last tool.call (never its
     arguments); `thinking` until its first call. An MCP tool (`mcp__<server>__<tool>`) reads `MCP <server>`, e.g.
-    `Running · MCP master-jev-hook`. Once the turn has ended, the tool part is dropped: `Running · <n> agents · <elapsed>`.
+    `Running · MCP master-jev-hook`. Once the turn has ended, the tool part is dropped: `Running · <n> agents · <elapsed>` (or `Running · <elapsed>` with no agent).
+    A main-loop tool.call (one with no `agentId`) that arrives while no turn runs opens an inferred turn at its time, with that tool,
+    since its turn.start may have been lost; a subagent's tool.call never opens one. The inferred turn ends like any other, with
+    turn.complete or turn.abort. A turn that has run past `TURN_MAX_AGE_MS` (2 h, `hooks/turn.ts`) is ended by the band tick, so the
+    band reads `Idle` from then on; a lost end event therefore cannot keep the band Running for longer. The turn ends at its expiry, `startedAt + TURN_MAX_AGE_MS`, not at the tick that found it (`turnTimedOut`), so the idle `since` is the expiry time. A tool.call after that opens
+    another inferred turn, whose elapsed time counts from zero.
     The elapsed time reads `42 s`, `3 min`, `1 h 5 min`, counted from the earliest of: the running turn's start; the start of a turn
     that ended while an agent it overlapped still runs (R2-05: `turnEnded` keeps the start as `endedTurnStart`, and it counts only
     when the turn ended at or after the agents' run began); the start of the agents' run.
   - Idle: `Idle · <since>`, where since is the last turn's end (`just now`, `5 min ago`, `2 h ago`, `3 d ago`); `Idle` before the
     first turn.
   - The state word and the agents are the band's own words; pt-BR: `Executando`, `Parada`, `pensando`, `agentes`.
+  - Vocabulary by design: the band says `Running` and `Idle` (pt-BR `Executando`, `Parada`); the pane says `working`, `idle` and
+    `waiting` (pt-BR `trabalhando`, `ociosa`, `esperando você`; `state.working`, `state.idle`, `state.waiting` in `hooks/i18n.ts`).
+    The two vocabularies are kept apart on purpose.
   - The agents counted are the ones whose `$.agent.list()` status is pending, running or waiting (not idle, not ended). Their count and
     the start of their run (kept while the count stays above zero) are the atom `agentRun: { count, since }`, read again on turn.start,
     turn.complete, agent.spawn and each band tick. A status `waiting` counts: the agent waits on background work it owns.
   - The transitions are the pure functions of `hooks/turn.ts`, written by the hooks into the atoms `turn: { startedAt, endedAt, tool,
-    endedTurnStart }` and `agentRun`.
+    endedTurnStart }`, `agentRun` and `waiting` (the band's waiting flag, a boolean).
 - Repo context (`bandContextWords`, icons 🎯 and 📌): `<milestone> <closed>/<total> · #<n>`. The milestone is this window's milestone
-  title (cut to 24 characters with `…` in the band); the total is open plus closed issues of that milestone from the snapshot's open
-  milestones. The milestone reads `no milestone · #<n>` when the issue has none, and only its title when it is not open. `no issue`
+  title (cut to 24 characters with `…` in the band); the total is the open plus closed issues of that milestone, counted from gh issue
+  list (section 4, row 2). The milestone reads `no milestone · #<n>` when the issue has none, and only its title when it is not open. `no issue`
   when the window maps to no issue; `no GitHub remote` when the window has no remote; nothing before the first poll. `#<n>` alone when
   the issue's details are missing.
 - Button: `Open` (`Abrir`) while the pane is closed, `Show` (`Mostrar`) while it is open; hotkey `2` (askaway's band keeps `1`). Its press
@@ -424,7 +467,8 @@ Done in the Claude Desktop with the mod installed, not by the build:
 - The press handle survives a redraw (`hooks/held.ts`), so the first click after a focus move still lands.
 - Redraws: each turn, tool and agent change invalidates `ui.render`. tool.call redraws are at most one per second; a call inside
   that second is drawn at its end. The repo data comes from the snapshot the timer keeps fresh (section 3): every minute while the
-  pane is open, every 5 minutes while it is closed. The band's tick (`BAND_TICK_MS`, 30 s) re-reads the agents and invalidates `ui.render`
+  pane is open, every 5 minutes while it is closed. The band's tick (`BAND_TICK_MS`, 30 s) re-reads the agents, refreshes the `waiting` flag from this window's open askaway questions
+  (so a question shows within one tick, not at the poll's cadence), ends a turn that has run past `TURN_MAX_AGE_MS`, and invalidates `ui.render`
   on every tick while an agent runs, and otherwise by `bandRedrawDue`: on every tick while a turn runs, and on every second tick (each
   minute) while idle; a change in the agent count is drawn at once. A subagent's tool.call redraws the band (at most once per second,
   `redrawForTool`); the main loop's tool.call names its tool.

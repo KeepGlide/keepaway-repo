@@ -137,7 +137,7 @@ function loopWords(view: BandView): BandWord[] {
   return [
     word(t(lang, 'band.running')),
     ...work,
-    word(agentsText(lang, view.agents), 'agent'),
+    ...(view.agents > 0 ? [word(agentsText(lang, view.agents), 'agent')] : []),
     word(spanText(lang, view.now - (origin ?? view.now))),
   ]
 }

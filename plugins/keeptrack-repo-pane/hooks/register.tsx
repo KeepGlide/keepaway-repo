@@ -8,7 +8,7 @@ import { detectLang, resolveLang, t, type Lang, type LangEnv } from './i18n'
 import { renderPane } from './pane'
 import { renderBand, type BandIssue, type BandRepo } from './band'
 import { heldButtons, type HeldButtons } from './held'
-import { IDLE_TURN, bandRedrawDue, turnEnded, turnStarted, turnToolNamed } from './turn'
+import { IDLE_TURN, bandRedrawDue, turnEnded, turnExpired, turnStarted, turnTimedOut, turnToolNamed } from './turn'
 import {
   LABEL_MAX,
   NO_DESKTOP_GROUPS,
@@ -59,7 +59,7 @@ const GH_TIMEOUT_MS = 15_000
 const GIT_TIMEOUT_MS = 5_000
 // The newest commits of a branch the timeline may draw (repo-work-pane-design-spec.md D6, SessionInput.commits).
 const COMMIT_LIMIT = 5
-// The limits of the three gh calls (repo-work-pane-design-spec.md D4); a result at the limit sets `truncated`.
+// The limits of the gh list calls (repo-work-pane-design-spec.md D4); a result at the limit sets `truncated`.
 const ISSUE_LIMIT = 500
 const PR_LIMIT = 100
 // The closing references read per PR; a PR that closes more links no issue, since its lowest is then not known (DL9).
@@ -89,6 +89,7 @@ const LANG_KEY = 'lang'
 const RECORD_FOLDER_DEPTH = 2
 // A question id is used in a path under the askaway folder, so it must be a plain name.
 const QUESTION_ID = /^[A-Za-z0-9_.-]{1,128}$/
+// The open issues: the rows of the pane, and each row's milestone (its number and title, for the closed-milestone groups).
 const ISSUE_FIELDS = 'number,title,milestone,labels,updatedAt,url'
 // The open PRs with the issues they close and the last commit's checks (repo-work-pane-design-spec.md D4). gh 2.45 has no such JSON field.
 const PR_QUERY = `query($owner: String!, $name: String!) {
@@ -96,10 +97,19 @@ const PR_QUERY = `query($owner: String!, $name: String!) {
     pullRequests(states: OPEN, first: ${PR_LIMIT}, orderBy: {field: UPDATED_AT, direction: DESC}) {
       totalCount
       nodes {
-        number title state headRefName url createdAt reviewDecision
-        closingIssuesReferences(first: ${CLOSING_LIMIT}) { totalCount nodes { number } }
+        number title state headRefName url createdAt reviewDecision isCrossRepository
+        closingIssuesReferences(first: ${CLOSING_LIMIT}) { totalCount nodes { number repository { nameWithOwner } } }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       }
+    }
+  }
+}`
+// The exact issue counts of the open milestones, issues only: REST's open_issues and closed_issues count the PRs too (pm1-8). The first
+// 100 open milestones; a milestone past them keeps its REST counts, marked not exact (countsExact).
+const MILESTONE_QUERY = `query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    milestones(first: 100, states: OPEN) {
+      nodes { number open: issues(states: OPEN) { totalCount } closed: issues(states: CLOSED) { totalCount } }
     }
   }
 }`
@@ -117,9 +127,13 @@ const LANG_CHOICES: ReadonlyMap<string, Lang | 'auto'> = new Map<string, Lang | 
 // open flag and the language.
 const snapshotAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'snapshot' } as const, null as Snapshot | null)
 const openAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'open' } as const, false)
+// Set when the first poll settled with no snapshot to show, so the pane draws the failure line instead of Loading (ux4-2).
+const loadFailedAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'loadFailed' } as const, false)
 const langAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'lang' } as const, 'en' as Lang)
 // The main loop's turn, written by turn.start, tool.call, turn.complete and turn.abort: the band's status line reads it.
 const turnAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'turn' } as const, IDLE_TURN)
+// Whether this window's session has an open askaway question, read by the band tick (refreshWaiting), so a question shows within one tick.
+const waitingAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'waiting' } as const, false)
 // The agents that have not ended, from $.agent.list(), and since when the current run of them began (readAgents).
 type AgentRun = { count: number; since: number | null }
 const agentRunAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'agentRun' } as const, { count: 0, since: null } as AgentRun)
@@ -147,10 +161,14 @@ type GithubMemory = {
 }
 
 let polling = false
+// Set when a session.start lands during a poll: the new session's poll starts when that poll settles (state2-3, SPEC 2.5).
+let repollOnSettle = false
 // The poll sequence: a poll takes the next number when it starts. writtenSeq is the number of the last poll that wrote the snapshot;
 // a result writes only while its number is above it, so a late poll never overwrites a newer one (R2-04, CR3).
 let startedSeq = 0
 let writtenSeq = 0
+// The session the polls read: a session.start moves it on, and a poll that began under the old one writes nothing (state2-6).
+let sessionEpoch = 0
 const isNewest = (seq: number): boolean => seq > writtenSeq
 // The polls past their deadline that have not settled yet (at most MAX_ABANDONED_POLLS run at once).
 let abandonedPolls = 0
@@ -757,6 +775,8 @@ async function sessionsOf(
   seq: number,
 ): Promise<SessionsOutcome> {
   const scan = await scanRecords($, await recordsRootOf($))
+  // The overrides are pruned against every record in the folder, not this repo's only: the store is shared by every window, so
+  // another repo's override must survive this window's poll.
   if (scan.complete && isNewest(seq)) await pruneOverrides($, new Set(scan.records.map(record => record.sessionId)))
   const members = await memberRecordsOf($, scan.records, context, thisId)
   const candidates = admittedOf(await withBranches($, members.records), new Set(github.prs.map(pr => pr.headRefName)), thisId)
@@ -849,7 +869,8 @@ function milestoneOf(raw: unknown): Milestone | null {
   const openIssues = numberOf(childOf(raw, 'open_issues'))
   const closedIssues = numberOf(childOf(raw, 'closed_issues'))
   if (number === null || title === null || openIssues === null || closedIssues === null) return null
-  return { number, title, openIssues, closedIssues, dueOn: textOf(childOf(raw, 'due_on')) }
+  // REST's counts (the PRs included) are not exact until milestonesCountedOf takes the GraphQL counts.
+  return { number, title, openIssues, closedIssues, dueOn: textOf(childOf(raw, 'due_on')), countsExact: false }
 }
 
 function parseMilestones(text: string): Milestone[] | null {
@@ -875,37 +896,54 @@ function issueOf(raw: unknown): Issue | null {
     number,
     title: plain(title, TEXT_MAX),
     milestone: numberOf(childOf(childOf(raw, 'milestone'), 'number')),
+    milestoneTitle: plain(textOf(childOf(childOf(raw, 'milestone'), 'title')) ?? '', LABEL_MAX) || null,
     labels: namesOf(childOf(raw, 'labels'), 'name'),
     updatedAt,
     url,
   }
 }
 
-// The issues of the list answer and the count of items that did not read (RB1-5). null when it is no list, or when no item of a
-// non-empty list reads: that answer is as unreadable as text that does not parse.
-type IssuePage = { issues: Issue[]; dropped: number }
+// The issue counts of one milestone: its open and its closed issues, from GraphQL (no PR is in them).
+type IssueCount = { open: number; closed: number }
+// The open issues (the rows), the items the list holds, and the items that did not read (RB1-5). null when it is no list, or when no
+// item of a non-empty list reads: that answer is as unreadable as text that does not parse.
+type IssuePage = { issues: Issue[]; listed: number; dropped: number }
 
 function parseIssues(text: string): IssuePage | null {
   const value = parseJsonText(text)
   if (!Array.isArray(value)) return null
   const issues = value.map(issueOf).filter(isPresent)
   if (value.length > 0 && issues.length === 0) return null
-  return { issues, dropped: value.length - issues.length }
+  return { issues, listed: value.length, dropped: value.length - issues.length }
 }
 
-// The issue numbers a list of nodes names: `closingIssuesReferences` and the like.
-function nodeNumbersOf(value: unknown): number[] {
-  return asArray(childOf(value, 'nodes')).flatMap(node => {
+// The exact counts of each open milestone, by its number, from MILESTONE_QUERY. null when the answer holds no milestone list; a node that
+// does not read is left out, so its milestone keeps its REST counts (not exact).
+function parseMilestoneCounts(text: string): ReadonlyMap<number, IssueCount> | null {
+  const nodes = childOf(childOf(childOf(childOf(parseJsonText(text), 'data'), 'repository'), 'milestones'), 'nodes')
+  if (!Array.isArray(nodes)) return null
+  const counts = new Map<number, IssueCount>()
+  for (const node of nodes) {
     const number = numberOf(childOf(node, 'number'))
-    return number === null ? [] : [number]
-  })
+    const open = numberOf(childOf(childOf(node, 'open'), 'totalCount'))
+    const closed = numberOf(childOf(childOf(node, 'closed'), 'totalCount'))
+    if (number !== null && open !== null && closed !== null) counts.set(number, { open, closed })
+  }
+  return counts
 }
 
-// The issues a PR closes; none when GitHub holds more than the page read, since the lowest of a partial page may not be the
+// The issues a PR closes in this repo. A reference to another repo's issue names no issue here (gh3-5), so only the nodes whose
+// repository is this repo count. None when GitHub holds more than the page read, since the lowest of a partial page may not be the
 // lowest (DL9): the session then maps by its next signal (repo-work-pane-design-spec.md D1).
-function closingIssuesOf(references: unknown): number[] {
+function closingIssuesOf(references: unknown, slug: string): number[] {
   const total = numberOf(childOf(references, 'totalCount'))
-  return total !== null && total > CLOSING_LIMIT ? [] : nodeNumbersOf(references)
+  if (total !== null && total > CLOSING_LIMIT) return []
+  return asArray(childOf(references, 'nodes')).flatMap(node => {
+    const number = numberOf(childOf(node, 'number'))
+    const repository = textOf(childOf(childOf(node, 'repository'), 'nameWithOwner'))
+    const isThisRepo = repository !== null && repository.toLowerCase() === slug.toLowerCase()
+    return number === null || !isThisRepo ? [] : [number]
+  })
 }
 
 function checksOf(commits: unknown): PullRequest['checks'] {
@@ -913,7 +951,9 @@ function checksOf(commits: unknown): PullRequest['checks'] {
   return oneOf(childOf(childOf(childOf(head, 'commit'), 'statusCheckRollup'), 'state'), CHECK_STATES)
 }
 
-function pullRequestOf(raw: unknown): PullRequest | null {
+function pullRequestOf(raw: unknown, slug: string): PullRequest | null {
+  // A PR from a fork is no PR of this repo, though its head branch may share a name with a local branch (gh3-2).
+  if (childOf(raw, 'isCrossRepository') === true) return null
   const number = numberOf(childOf(raw, 'number'))
   const title = textOf(childOf(raw, 'title'))
   const headRefName = textOf(childOf(raw, 'headRefName'))
@@ -931,7 +971,7 @@ function pullRequestOf(raw: unknown): PullRequest | null {
     url,
     createdAt,
     reviewDecision: oneOf(childOf(raw, 'reviewDecision'), REVIEW_DECISIONS),
-    closes: closingIssuesOf(childOf(raw, 'closingIssuesReferences')),
+    closes: closingIssuesOf(childOf(raw, 'closingIssuesReferences'), slug),
     checks: checksOf(childOf(raw, 'commits')),
   }
 }
@@ -939,11 +979,13 @@ function pullRequestOf(raw: unknown): PullRequest | null {
 type PullRequestPage = { prs: PullRequest[]; total: number }
 
 // The PR page of the GraphQL answer: data.repository.pullRequests.
-function parsePullRequestPage(text: string): PullRequestPage | null {
+function parsePullRequestPage(text: string, slug: string): PullRequestPage | null {
   const pulls = childOf(childOf(childOf(parseJsonText(text), 'data'), 'repository'), 'pullRequests')
   if (!isJsonObject(pulls)) return null
   return {
-    prs: asArray(pulls.nodes).map(pullRequestOf).filter(isPresent),
+    prs: asArray(pulls.nodes)
+      .map(node => pullRequestOf(node, slug))
+      .filter(isPresent),
     total: numberOf(pulls.totalCount) ?? 0,
   }
 }
@@ -1080,7 +1122,7 @@ function rememberGithub(
   if (issues !== undefined) {
     // gh is asked for one more than ISSUE_LIMIT: only that extra item marks the list partial, a dropped one included (RB1-5).
     memory.issues = issues.issues.slice(0, ISSUE_LIMIT)
-    memory.issuesTruncated = issues.issues.length + issues.dropped > ISSUE_LIMIT
+    memory.issuesTruncated = issues.listed > ISSUE_LIMIT
   }
   if (page !== undefined) {
     memory.prs = page.prs
@@ -1096,15 +1138,25 @@ function truncatedLimitsOf(memory: GithubMemory): number[] {
   return limits
 }
 
+// The milestones with their exact issue counts from GraphQL (pm1-8). A milestone the answer does not hold keeps its REST counts, which
+// count the PRs too, and stays not exact.
+function milestonesCountedOf(milestones: Milestone[], counts: ReadonlyMap<number, IssueCount> | undefined): Milestone[] {
+  return milestones.map(milestone => {
+    const count = counts?.get(milestone.number)
+    return count === undefined ? milestone : { ...milestone, openIssues: count.open, closedIssues: count.closed, countsExact: true }
+  })
+}
+
 async function githubOf($: EngineInterface, context: RepoContext, seq: number): Promise<GithubPart> {
   const { repo, root } = context
   if (repo === null || root === null) return emptyGithub()
   const slug = slugOf(repo)
   const memory = memoryFor(slug)
   const errors = new Set<PaneError>()
-  const [milestones, issues, page] = await Promise.all([
+  const [milestones, issues, page, counts] = await Promise.all([
     // Every page of open milestones, which gh merges into one list (RB1-4); GH_OUTPUT_MAX_BYTES and the timeout bound it.
     fetchPart($, ['api', '--paginate', `repos/${slug}/milestones?state=open&per_page=100`], root, parseMilestones, errors),
+    // The open issues only: the rows of the pane. Only the extra item past ISSUE_LIMIT marks the list partial.
     fetchPart(
       $,
       ['issue', 'list', '--repo', slug, '--state', 'open', '--limit', String(ISSUE_LIMIT + 1), '--json', ISSUE_FIELDS],
@@ -1116,13 +1168,23 @@ async function githubOf($: EngineInterface, context: RepoContext, seq: number): 
       $,
       ['api', 'graphql', '-f', `owner=${repo.owner}`, '-f', `name=${repo.name}`, '-f', `query=${PR_QUERY}`],
       root,
-      parsePullRequestPage,
+      text => parsePullRequestPage(text, slug),
       errors,
+    ),
+    // The milestone totals, one call per poll. A failure is logged by fetchPart and keeps the REST counts: it is no pane error, since
+    // those counts still stand (not exact), so the throwaway set takes nothing.
+    fetchPart(
+      $,
+      ['api', 'graphql', '-f', `query=${MILESTONE_QUERY}`, '-f', `owner=${repo.owner}`, '-f', `name=${repo.name}`],
+      root,
+      parseMilestoneCounts,
+      new Set<PaneError>(),
     ),
   ])
   // The count only: an item's text never reaches the log.
   if (issues !== undefined && issues.dropped > 0) logLine($, `gh issue items not readable (${issues.dropped})`)
-  if (isNewest(seq)) rememberGithub(memory, milestones, issues, page)
+  const counted = milestones === undefined ? undefined : milestonesCountedOf(milestones, counts)
+  if (isNewest(seq)) rememberGithub(memory, counted, issues, page)
   return {
     milestones: memory.milestones,
     issues: memory.issues,
@@ -1140,7 +1202,7 @@ async function currentSessionIdOf($: EngineInterface): Promise<string | null> {
 }
 
 // One poll: the repo, the gh data, the sessions and this window's issue, then the snapshot atom (repo-work-pane-design-spec.md 2.1).
-// null while the repo context has never been read: the state stays unknown (F02).
+// null while the repo context has never been read (F02); refresh then marks the failure for the pane (ux4-2).
 async function buildSnapshot($: EngineInterface, seq: number): Promise<Snapshot | null> {
   const now = await $.clock.now()
   const read = await repoContextOf($)
@@ -1163,7 +1225,8 @@ async function buildSnapshot($: EngineInterface, seq: number): Promise<Snapshot 
     repo: context.repo,
     sessions: sessions.nodes,
     milestones: github.milestones,
-    issueGroups: context.repo === null ? [] : groupIssues(github.milestones, github.issues, linked),
+    issueGroups:
+      context.repo === null ? [] : groupIssues(github.milestones, github.issues, linked, github.truncatedLimits.includes(ISSUE_LIMIT)),
     openIssueCount: github.issues.length,
     thisIssue: windowIssue.details,
     thisIssueNumber: thisNode?.issue?.number ?? null,
@@ -1175,10 +1238,13 @@ async function buildSnapshot($: EngineInterface, seq: number): Promise<Snapshot 
   }
 }
 
-// Writes the poll's snapshot, unless a newer poll has written (R2-04); a poll with no repo context yet writes nothing.
-async function refresh($: EngineInterface, seq: number): Promise<void> {
+// Writes the poll's snapshot, unless a newer poll has written (R2-04); a poll with no repo context yet writes no snapshot.
+// The band's waiting flag is not written here: the band tick (refreshWaiting) owns it, so two writers never race on it (state2-7).
+async function refresh($: EngineInterface, seq: number, epoch: number): Promise<void> {
   const snapshot = await buildSnapshot($, seq)
-  if (snapshot === null || !isNewest(seq)) return
+  // A poll that began under an earlier session writes nothing: the session it read is gone (state2-6).
+  if (!isNewest(seq) || epoch !== sessionEpoch) return
+  if (snapshot === null) return markLoadFailed($)
   writtenSeq = seq
   await update($, snapshotAtom, () => snapshot)
   $.ui.invalidate('ui.render')
@@ -1186,7 +1252,7 @@ async function refresh($: EngineInterface, seq: number): Promise<void> {
 
 // The poll under its deadline (F07): a poll not settled after POLL_DEADLINE_MS is abandoned, and its flag is freed. Its refresh goes
 // on, and its result still writes unless a newer poll has written (R2-04). The deadline timer is cancelled once the poll settles.
-async function refreshWithin($: EngineInterface, seq: number): Promise<void> {
+async function refreshWithin($: EngineInterface, seq: number, epoch: number): Promise<void> {
   attemptedAt = await $.clock.now()
   return new Promise<void>((resolve, reject) => {
     let abandoned = false
@@ -1199,7 +1265,7 @@ async function refreshWithin($: EngineInterface, seq: number): Promise<void> {
       if (abandoned) abandonedPolls -= 1
       else deadline.cancel()
     }
-    refresh($, seq).then(
+    refresh($, seq, epoch).then(
       () => {
         settle()
         resolve()
@@ -1232,14 +1298,24 @@ function emptySnapshotOf(context: RepoContext, now: number): Snapshot {
   }
 }
 
+// The pane's Loading line ends once a poll settles with no snapshot: the failure line is drawn instead (ux4-2). The flag is read only
+// while no snapshot exists, so it is not cleared when a snapshot is written.
+async function markLoadFailed($: EngineInterface): Promise<void> {
+  await update($, loadFailedAtom, () => true)
+  $.ui.invalidate('ui.render')
+}
+
 // A poll that failed (a throw, or the deadline): the last snapshot stays, marked stale, and the error name is logged (F07). With no
-// snapshot yet, the last known repo context gives an empty one, so the pane leaves Loading; with neither, the state stays unknown.
-async function failedPoll($: EngineInterface, seq: number, error: unknown): Promise<void> {
+// snapshot yet, the last known repo context gives an empty one, so the pane leaves Loading; with neither, the failure line is drawn.
+async function failedPoll($: EngineInterface, seq: number, epoch: number, error: unknown): Promise<void> {
   logLine($, `poll failed (${failureNameOf(error)})`)
+  // A poll that began under an earlier session marks nothing: the snapshot now belongs to the session that replaced it (state2-6).
+  if (epoch !== sessionEpoch) return
   const previous = await read($, snapshotAtom)
   const base = previous ?? (lastRepoContext === null ? null : emptySnapshotOf(lastRepoContext, await $.clock.now()))
   // A newer poll has written: its snapshot stands, so this failure marks nothing (R2-04).
-  if (base === null || !isNewest(seq)) return
+  if (!isNewest(seq)) return
+  if (base === null) return markLoadFailed($)
   // The mark is set on the value stored at write time, and only while no newer poll has written (R2-04).
   await update($, snapshotAtom, current => (isNewest(seq) ? { ...(current ?? base), stale: true } : current))
   $.ui.invalidate('ui.render')
@@ -1256,12 +1332,17 @@ function startPoll($: EngineInterface): void {
   polling = true
   startedSeq += 1
   const seq = startedSeq
+  const epoch = sessionEpoch
   report(
     $,
-    refreshWithin($, seq)
-      .catch((error: unknown) => failedPoll($, seq, error))
+    refreshWithin($, seq, epoch)
+      .catch((error: unknown) => failedPoll($, seq, epoch, error))
       .finally(() => {
         polling = false
+        if (repollOnSettle) {
+          repollOnSettle = false
+          startPoll($)
+        }
       }),
   )
 }
@@ -1305,12 +1386,15 @@ function startBandTick($: EngineInterface): void {
   bandTick = $.clock.every(BAND_TICK_MS, () => report($, tickBand($)))
 }
 
-// The band's tick: it re-reads the agents, redraws on every tick while any runs, and otherwise on the cadence of bandRedrawDue.
-// A count that changed is drawn at once, so the band shows Idle as soon as the last agent ends.
+// The band's tick: it re-reads the agents and the question folder, ends a turn that lost its end, redraws on every tick while any
+// agent runs, and otherwise on the cadence of bandRedrawDue. A count that changed is drawn at once, so the band shows Idle as soon
+// as the last agent ends.
 async function tickBand($: EngineInterface): Promise<void> {
   bandTicks += 1
   const before = await read($, agentRunAtom)
   await readAgents($).catch((error: unknown) => logLine($, `agent list failed (${failureNameOf(error)})`))
+  await refreshWaiting($).catch((error: unknown) => logLine($, `question check failed (${failureNameOf(error)})`))
+  await endStaleTurn($)
   const after = await read($, agentRunAtom)
   if (after.count !== before.count || after.count > 0 || bandRedrawDue(await read($, turnAtom), bandTicks)) {
     $.ui.invalidate('ui.render')
@@ -1410,14 +1494,32 @@ function bandIssueOf(snapshot: Snapshot | null): BandIssue | null {
   }
 }
 
-// The band's flags from the snapshot: the error flag when it holds an error other than no-remote (the repo line already names the
-// missing remote), and the waiting flag when this window's session has an open askaway question (its node reads 'waiting' in the same poll).
+// The band's error flag from the snapshot: an error other than no-remote (the repo line already names the missing remote).
 function bandErrorOf(snapshot: Snapshot | null): boolean {
   return snapshot !== null && snapshot.errors.some(error => error !== 'no-remote')
 }
 
-function bandWaitingOf(snapshot: Snapshot | null): boolean {
-  return snapshot !== null && flattenNodes(snapshot.sessions).some(node => node.isThisWindow && node.state === 'waiting')
+// The band's waiting flag, refreshed by the band tick: this window's session has an open askaway question. The tick reads the question
+// folder for it, so a question shows within one BAND_TICK_MS, not at the poll's cadence (the closed pane polls every BAND_POLL_MS).
+async function refreshWaiting($: EngineInterface): Promise<void> {
+  // A read that ends after a session.start writes nothing: the flag belongs to the session that the start replaced (state2-7).
+  const epoch = sessionEpoch
+  const snapshot = await read($, snapshotAtom)
+  const own = snapshot === null ? undefined : flattenNodes(snapshot.sessions).find(node => node.isThisWindow)
+  const waiting = own !== undefined && (await blockersOf($)).has(own.id)
+  const current = await read($, waitingAtom)
+  if (epoch !== sessionEpoch || waiting === current) return
+  await update($, waitingAtom, () => waiting)
+  $.ui.invalidate('ui.render')
+}
+
+// A turn past TURN_MAX_AGE_MS has lost its end event (a restart, a reload): it ends here, so the band does not count it forever.
+// The band redraws at once when the end changes the turn, so the Running line does not wait for the next odd tick (state2-8, rev-g1-9).
+async function endStaleTurn($: EngineInterface): Promise<void> {
+  const now = await $.clock.now()
+  if (!turnExpired(await read($, turnAtom), now)) return
+  await update($, turnAtom, prev => (turnExpired(prev, now) ? turnTimedOut(prev) : prev))
+  $.ui.invalidate('ui.render')
 }
 
 // ---- the band's session state: the main loop's turn, its tool and the agents ----
@@ -1439,7 +1541,8 @@ async function finishTurn($: EngineInterface): Promise<void> {
 // A tool call of the running turn: its name only, never its arguments.
 async function noteTool($: EngineInterface, tool: string): Promise<void> {
   const name = plain(tool, TOOL_NAME_MAX)
-  await update($, turnAtom, prev => turnToolNamed(prev, name))
+  const now = await $.clock.now()
+  await update($, turnAtom, prev => turnToolNamed(prev, name, now))
   await redrawForTool($)
 }
 
@@ -1494,12 +1597,23 @@ async function runCommand($: EngineInterface, args: string): Promise<void> {
 export const register: Register = on => {
   // A new session drops the old timer and registers the command in the session's language.
   on('session.start', async ($, e, next) => {
+    sessionEpoch += 1
     const lang = await currentLang($)
     await update($, langAtom, () => lang)
     await registerCommand($, lang)
     stopTimer()
     startBandTick($)
-    await resumePolling($)
+    // The turn, the waiting flag, the agent run and the session list belong to the previous session: they are dropped here, and a poll
+    // still in flight from it writes nothing (its epoch is old). The new session polls at once, since the last poll's time may be
+    // within the cadence.
+    await update($, turnAtom, () => IDLE_TURN)
+    await update($, waitingAtom, () => false)
+    await update($, agentRunAtom, () => ({ count: 0, since: null }))
+    await update($, snapshotAtom, snapshot => (snapshot === null ? null : { ...snapshot, sessions: [] }))
+    await scheduleTimer($)
+    // A poll still in flight reads the previous session: the new session's poll starts when that one settles (state2-3).
+    if (polling) repollOnSettle = true
+    else startPoll($)
     return next(e)
   })
 
@@ -1514,13 +1628,15 @@ export const register: Register = on => {
     if (await read($, openAtom)) $.clock.after(0, () => report($, startIfOpen($)))
     return renderPane($.ui.resolve(e), {
       snapshot: await read($, snapshotAtom),
+      loadFailed: await read($, loadFailedAtom),
       lang: await read($, langAtom),
       surface: e.surface,
     })
   })
 
-  // The band row above the prompt, on the desktop and the terminal, always drawn from the snapshot atom alone. A render starts
-  // no work: the poll that refreshes the band's text runs with the open pane (SPEC section 18).
+  // The band row above the prompt, on the desktop and the terminal, drawn from its atoms alone. A render starts no work: the band's
+  // repo text comes from the poll on the window's timer (POLL_MS open, BAND_POLL_MS closed), its turn and waiting flag from the band tick
+  // (SPEC section 18).
   on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
     // A draw that finds the timers missing (a reloaded instance) starts them through the clock, as the pane's draw does.
     if (poller === undefined || bandTick === undefined) $.clock.after(0, () => report($, ensureTimers($)))
@@ -1534,7 +1650,7 @@ export const register: Register = on => {
         open: await read($, openAtom),
         repo: bandRepoOf(snapshot),
         issue: bandIssueOf(snapshot),
-        waiting: bandWaitingOf(snapshot),
+        waiting: await read($, waitingAtom),
         error: bandErrorOf(snapshot),
         turn: await read($, turnAtom),
         agents: run.count,

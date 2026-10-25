@@ -1,7 +1,7 @@
 // Tests of the band row above the prompt (hooks/band.tsx and its handler in hooks/register.tsx): its status line (running with
 // the tool, the agents and the elapsed time, or idle with the time since the last turn), its repo context (the milestone with
 // its progress and the issue, no issue, no GitHub remote), the icon of each state and action (an SVG on the desktop, the emoji on
-// the terminal), the product mark (turning only while Running, still under reduced motion), the KeepGlide mark before the button
+// the terminal), the product mark (still in every state, never turning: ux4-13), the KeepGlide mark before the button
 // on the desktop, its Open button with hotkey 2 on the desktop and the terminal, the press that opens the pane, the label that reads
 // Show once it is open, the press handle kept across a redraw, and the elapsed time of an agent that outlives its turn (R2-05).
 // The host is stubbed beneath the plugin as register.test.ts does: no record is read, and gh and git never run.
@@ -136,10 +136,10 @@ test('the running status names the tool, the agents and the elapsed time, in eac
   expect(lineOf(bandStatusWords(view({ turn: RUNNING, agents: 2 })))).toBe('Running · Bash · 2 agents · 3 min')
   expect(lineOf(bandStatusWords(view({ turn: { ...RUNNING, tool: null }, agents: 1 })))).toBe('Running · thinking · 1 agent · 3 min')
   expect(lineOf(bandStatusWords(view({ turn: { startedAt: NOW - 42 * SECOND, endedAt: null, tool: null } })))).toBe(
-    'Running · thinking · 0 agents · 42 s',
+    'Running · thinking · 42 s',
   )
   expect(lineOf(bandStatusWords(view({ turn: { startedAt: NOW - 61 * MINUTE, endedAt: null, tool: 'Read' } })))).toBe(
-    'Running · Read · 0 agents · 1 h 1 min',
+    'Running · Read · 1 h 1 min',
   )
   expect(lineOf(bandStatusWords(view({ lang: 'pt', turn: RUNNING, agents: 1 })))).toBe('Executando · Bash · 1 agente · 3 min')
   expect(lineOf(bandStatusWords(view({ lang: 'pt', turn: RUNNING, agents: 3 })))).toBe('Executando · Bash · 3 agentes · 3 min')
@@ -234,9 +234,9 @@ for (const [tool, icon] of TOOL_ICONS) {
 
 test('an MCP tool reads as its server, with the mcp icon: "Running · MCP master-jev-hook"', () => {
   const turn = { ...RUNNING, tool: 'mcp__master-jev-hook__request_decision' }
-  expect(lineOf(bandStatusWords(view({ turn })))).toBe('Running · MCP master-jev-hook · 0 agents · 3 min')
+  expect(lineOf(bandStatusWords(view({ turn })))).toBe('Running · MCP master-jev-hook · 3 min')
   expect(bandStatusWords(view({ turn }))[1]).toEqual({ icon: 'mcp', text: 'MCP master-jev-hook' })
-  expect(lineOf(bandStatusWords(view({ lang: 'pt', turn })))).toBe('Executando · MCP master-jev-hook · 0 agentes · 3 min')
+  expect(lineOf(bandStatusWords(view({ lang: 'pt', turn })))).toBe('Executando · MCP master-jev-hook · 3 min')
 })
 
 test('thinking, the agents and idle each carry their icon', () => {
@@ -275,13 +275,33 @@ test('on the desktop an action is drawn as its SVG; on the terminal the same act
   expect(drawnNodes(terminal).some(node => node.tag === 'Svg')).toBe(false)
 })
 
-test('the product mark turns only while the main loop runs on the desktop; the terminal shows ▶ or ○', () => {
-  const running = renderBand(DESKTOP, view({ surface: 'desktop', turn: RUNNING }), () => {}, heldButtons())
-  const idle = renderBand(DESKTOP, view({ surface: 'desktop' }), () => {}, heldButtons())
-  expect(svgSourcesOf(running)[0]).toContain('animateTransform')
-  expect(svgSourcesOf(idle)[0]).not.toContain('animateTransform')
+test('the product mark stays still in every state on the desktop; the terminal shows ▶ or ○', () => {
+  const scope = globalThis as { matchMedia?: (query: string) => { matches: boolean } }
+  const before = scope.matchMedia
+  scope.matchMedia = () => ({ matches: false }) // a page that accepts motion: the mark still does not turn (ux4-13)
+  try {
+    const running = renderBand(DESKTOP, view({ surface: 'desktop', turn: RUNNING }), () => {}, heldButtons())
+    const idle = renderBand(DESKTOP, view({ surface: 'desktop' }), () => {}, heldButtons())
+    expect(svgSourcesOf(running)[0]).not.toContain('animateTransform')
+    expect(svgSourcesOf(running)[0]).toBe(svgSourcesOf(idle)[0])
+  } finally {
+    scope.matchMedia = before
+  }
   expect(textsOf(renderBand(TERMINAL, view({ turn: RUNNING }), () => {}, heldButtons()))).toContain('▶')
   expect(textsOf(renderBand(TERMINAL, view(), () => {}, heldButtons()))).toContain('○')
+})
+
+// The mark never turns, with or without a page to ask: a turning mark with no pause breaks WCAG 2.2.2 (ux4-13).
+test('without matchMedia the running mark stays still on the desktop', () => {
+  const scope = globalThis as { matchMedia?: (query: string) => { matches: boolean } }
+  const before = scope.matchMedia
+  scope.matchMedia = undefined
+  try {
+    const drawn = renderBand(DESKTOP, view({ surface: 'desktop', turn: RUNNING }), () => {}, heldButtons())
+    expect(svgSourcesOf(drawn)[0]).not.toContain('animateTransform')
+  } finally {
+    scope.matchMedia = before
+  }
 })
 
 test('under reduced motion the running mark stays still', () => {

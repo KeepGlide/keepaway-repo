@@ -35,7 +35,7 @@ const ISSUE_NUMBER_MAX = 999_999
 const URL_REMOTE = /^(?:https|ssh):\/\/(?:[^@/\s]+@)?([A-Za-z0-9.-]+)(?::\d{1,5})?\/([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})\/?/
 const SCP_REMOTE = /^(?:[^@/:\s]+@)?([A-Za-z0-9._-]+):([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})\/?/
 const SESSION_LINK_ID = /^local_[A-Za-z0-9_-]{1,128}/
-const BRANCH_NUMBER_PREFIX = /^(?:[\w.-]+\/)?(?!\d{4}-\d{2}-\d{2}-)(\d{1,6})-/g
+const BRANCH_NUMBER_PREFIX = /^(?:[\w.-]+\/)?(?!\d{4}-\d{2}-\d{2}-)(\d{1,5})-/g
 const BRANCH_ISSUE_WORD = /\bissue-(\d{1,6})\b/gi
 const TITLE_NUMBER = /#(\d{1,6})\b/g
 
@@ -112,7 +112,8 @@ function firstIssueOf(text: string, pattern: RegExp): number | null {
 }
 
 // The issue a branch names (repo-work-pane-design-spec.md D1, step 3): a leading number after an optional prefix first, as gh's
-// <n>-<slug> names it, so an issue-<n> word in the slug does not win; a leading date such as 2026-10-22- is skipped. Else an
+// <n>-<slug> names it, so an issue-<n> word in the slug does not win; a leading date such as 2026-10-22- is skipped, and a number of
+// more than 5 digits names no issue. Else an
 // issue-<n> word.
 export function issueFromBranch(branch: string): number | null {
   return firstIssueOf(branch, BRANCH_NUMBER_PREFIX) ?? firstIssueOf(branch, BRANCH_ISSUE_WORD)
@@ -483,21 +484,46 @@ function newestFirst(issues: readonly Issue[]): Issue[] {
   return [...issues].sort((a, b) => time(b) - time(a))
 }
 
-// The issue groups of the pane (repo-work-pane-design-spec.md D4): one group per milestone, by number descending, each with its issues that
-// no session shows (`linked`). An open milestone with no such issue is a one-line group (issues empty). Issues without a
-// milestone, or whose milestone is not in the list, form the last group, shown only when it has issues.
-export function groupIssues(milestones: Milestone[], issues: Issue[], linked: ReadonlySet<number>): IssueGroup[] {
+// The issue groups of the pane (repo-work-pane-design-spec.md D4): one group per open milestone, by number descending, each with its issues
+// that no session shows (`linked`). An open milestone with no such issue is a one-line group (issues empty): if its openIssues is above 0,
+// its title shows that count of open issues, all in sessions, but only when the list is complete (`issuesPartial` false) and holds every
+// open issue the milestone counts (claimsLinked, rev-g1-5). The issues of a closed milestone form one group per milestone, titled by the
+// issue's own milestone field and marked closed (pm1-9). Issues without a milestone form the last group, shown only when it has issues.
+export function groupIssues(milestones: Milestone[], issues: Issue[], linked: ReadonlySet<number>, issuesPartial: boolean): IssueGroup[] {
   const unlinked = issues.filter(issue => !linked.has(issue.number))
   const listed = new Set(milestones.map(milestone => milestone.number))
   const groups: IssueGroup[] = [...milestones]
     .sort((a, b) => b.number - a.number)
     .map(milestone => ({
       milestone,
+      closedTitle: null,
       issues: newestFirst(unlinked.filter(issue => issue.milestone === milestone.number)),
+      claimsLinked: !issuesPartial && issues.filter(issue => issue.milestone === milestone.number).length === milestone.openIssues,
     }))
-  const loose = newestFirst(unlinked.filter(issue => issue.milestone === null || !listed.has(issue.milestone)))
-  if (loose.length > 0) groups.push({ milestone: null, issues: loose })
+  groups.push(...closedGroupsOf(listed, unlinked))
+  const loose = newestFirst(
+    unlinked.filter(issue => issue.milestone === null || (!listed.has(issue.milestone) && issue.milestoneTitle === null)),
+  )
+  if (loose.length > 0) groups.push({ milestone: null, closedTitle: null, issues: loose, claimsLinked: false })
   return groups
+}
+
+// One group per closed milestone that holds an unlinked issue, by number descending. The title is the issue's own milestone title.
+function closedGroupsOf(listed: ReadonlySet<number>, unlinked: readonly Issue[]): IssueGroup[] {
+  const titles = new Map<number, string>()
+  for (const issue of unlinked) {
+    if (issue.milestone !== null && !listed.has(issue.milestone) && issue.milestoneTitle !== null) {
+      titles.set(issue.milestone, issue.milestoneTitle)
+    }
+  }
+  return [...titles]
+    .sort(([a], [b]) => b - a)
+    .map(([number, title]) => ({
+      milestone: null,
+      closedTitle: title,
+      issues: newestFirst(unlinked.filter(issue => issue.milestone === number)),
+      claimsLinked: false,
+    }))
 }
 
 // The timeline of a session, newest first, at most `limit` events (repo-work-pane-design-spec.md D6). The text of each event is the variable

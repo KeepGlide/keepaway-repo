@@ -11,6 +11,9 @@ export type BandTurn = {
 
 export const IDLE_TURN: BandTurn = { startedAt: null, endedAt: null, tool: null }
 
+// A turn that has run this long is over: its end event was lost (a restart, a reload), so the band must not count it forever.
+export const TURN_MAX_AGE_MS = 2 * 60 * 60 * 1000
+
 // A turn starts at `now`, with no tool called yet.
 export const turnStarted = (now: number): BandTurn => ({ startedAt: now, endedAt: null, tool: null })
 
@@ -18,9 +21,19 @@ export const turnStarted = (now: number): BandTurn => ({ startedAt: now, endedAt
 export const turnEnded = (previous: BandTurn, now: number): BandTurn =>
   previous.startedAt === null ? previous : { startedAt: null, endedAt: now, tool: null, endedTurnStart: previous.startedAt }
 
-// The running turn's tool is the one it last called, by name only. A call outside a turn changes nothing.
-export const turnToolNamed = (previous: BandTurn, tool: string): BandTurn =>
-  previous.startedAt === null ? previous : { ...previous, tool }
+// The running turn's tool is the one it last called, by name only. A call outside a turn starts an inferred turn at `now`, since its
+// turn.start may have been lost.
+export const turnToolNamed = (previous: BandTurn, tool: string, now: number): BandTurn =>
+  previous.startedAt === null ? { ...turnStarted(now), tool } : { ...previous, tool }
+
+// Whether a turn has run past TURN_MAX_AGE_MS. Idle is never expired.
+export const turnExpired = (turn: BandTurn, now: number): boolean =>
+  turn.startedAt !== null && now - turn.startedAt > TURN_MAX_AGE_MS
+
+// A turn past its age cap ends at its expiry, startedAt + TURN_MAX_AGE_MS: its end was lost, and the idle "since" is when the cap ran out,
+// not the tick that found it. A turn that is not running changes nothing.
+export const turnTimedOut = (previous: BandTurn): BandTurn =>
+  previous.startedAt === null ? previous : turnEnded(previous, previous.startedAt + TURN_MAX_AGE_MS)
 
 // Whether the band redraws on a tick of its own clock (every 30 s): while a turn runs, on every tick, so the elapsed time moves; while
 // idle, on every second tick, so the time since the last turn moves each minute.

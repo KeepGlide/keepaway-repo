@@ -1,6 +1,6 @@
 // The KeepTrack product mark: concept C, the checkpoint (a Sky milestone ring crossed by the Teal kite, one Coral dot for the
-// progress mark). Copied from keepglide-company's brand drafts of 2026-10-21: repo-work-c-checkpoint-mark-only.svg (still) and
-// repo-work-c-checkpoint-loading.svg (the same drawing with a spinning ring, SMIL). The concept is provisional: Sophia has not
+// progress mark). Copied from keepglide-company's brand drafts of 2026-10-21: repo-work-c-checkpoint-mark-only.svg (still). The spinning
+// variant of that draft is not copied: the band mark is static everywhere (ux4-13, WCAG 2.2.2). The concept is provisional: Sophia has not
 // picked between A, B and C, so a swap is a change to this file only. The mark keeps its brand colours in both themes, so this
 // file is exempt from the look gate's colour check (scripts/keeptrack-look-check.sh), like keepglide.ts.
 
@@ -23,10 +23,6 @@ const KITE =
   '<path d="M464.2 318.3 C602.6 353.3 607.4 378.2 671.7 455.7"/>' +
   '</g></g>'
 
-// The loading mark turns its ring once per 2 s (the file's own markup; its title says 1.8 s).
-const SPIN =
-  '<animateTransform attributeName="transform" type="rotate" from="0 512 512" to="360 512 512" dur="2s" repeatCount="indefinite"/>'
-
 // The terminal's stand-in for the logo in the pane heading.
 export const LOGO_GLYPH = '⎇'
 
@@ -37,9 +33,4 @@ function svgDocument(size: number, body: string): string {
 // The still mark as an SVG document for the `Svg` element, `size` CSS pixels square.
 export function keepTrackSvg({ size = 16 }: { size?: number } = {}): string {
   return svgDocument(size, `<g>${RING}</g>${KITE}`)
-}
-
-// The loading mark: the still mark with its ring turning. Shown while the main loop runs, on the desktop only.
-export function keepTrackLoadingSvg({ size = 16 }: { size?: number } = {}): string {
-  return svgDocument(size, `<g>${RING}${SPIN}</g>${KITE}`)
 }

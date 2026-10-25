@@ -6,6 +6,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test, type Engine } from 'claude-code/testing'
 import { RECORD_MAX_BYTES } from '../hooks/model'
+import { TURN_MAX_AGE_MS } from '../hooks/turn'
 import { TOOL_NAME_MAX, resetDesktopConfigCache } from '../hooks/register'
 
 const HOME = '/test-home'
@@ -63,10 +64,25 @@ type StubOptions = {
   agents?: { id: string; status: string }[]
   // The fakes read these at each call, so a test may change them between two polls.
   issues?: string
+  // The open milestones `gh api` answers (REST shape: open_issues and closed_issues count PRs too, pm1-8).
+  milestones?: string
+  // The issue counts GraphQL answers for the open milestones (issues only, no PRs); 'fail' is a refused query. Absent: no count answers,
+  // so every milestone keeps its REST counts, not exact.
+  milestoneCounts?: { number: number; open: number; closed: number }[] | 'fail'
   prTotal?: number
   // The open PRs the GraphQL call lists, and the branch each folder's `rev-parse --abbrev-ref HEAD` answers (default feature/disk).
   // A PR's `closes` are the closing references on the page, `closesTotal` the count GitHub holds (default: the page's).
-  openPrs?: { number: number; title: string; headRefName: string; closes?: number[]; closesTotal?: number }[]
+  // isCrossRepository marks a PR from a fork (gh3-2).
+  openPrs?: {
+    number: number
+    title: string
+    headRefName: string
+    closes?: number[]
+    // Issues of another repo the PR closes: its references name that repo, so they are no issue of this one (gh3-5).
+    closesOther?: number[]
+    closesTotal?: number
+    isCrossRepository?: boolean
+  }[]
   branches?: Record<string, string>
   // Git answers as git gives them: a tag named like a branch shortens it to heads/<name>; a detached or unborn HEAD by folder; log stdout.
   tags?: string[]
@@ -93,6 +109,8 @@ type StubOptions = {
   storeKeysDenies?: boolean
   // An open askaway question of this window's session, with no answer.
   question?: { id: string; desktop_session: string; title: string }
+  // The question folder's listing waits for this promise, so a test can end a session inside the band tick's read (state2-7).
+  questionGate?: Promise<void>
   // Files in the records folder that are not session records (Desktop's scheduled tasks list, deleted_<id> tombstones).
   strayFiles?: string[]
 }
@@ -159,11 +177,13 @@ function stubHost(on: On, options: StubOptions = {}): Host {
     ...(options.strayFiles ?? []).map(name => [`${RECORDS}/org/user/${name}`, '[{"id":"task-1"}]'] as const),
   ])
   const questionFolder = `${HOME}/.claude/state/askaway/q`
-  const questions: FsStub[] = options.question === undefined ? [] : [{ name: `${options.question.id}.json`, kind: 'file' }]
-  if (options.question !== undefined) files.set(`${questionFolder}/${options.question.id}.json`, JSON.stringify(options.question))
+  // The question is read at each call, so a test may ask one after the first poll (the band tick reads the folder).
+  const questionEntries = (): FsStub[] => (options.question === undefined ? [] : [{ name: `${options.question.id}.json`, kind: 'file' }])
+  const questionPath = (): string | undefined =>
+    options.question === undefined ? undefined : `${questionFolder}/${options.question.id}.json`
   const folders = new Map<string, FsStub[]>([
     // The askaway question folder exists; it holds the test's question, if any (a missing folder is no question, SPEC 3.6).
-    [questionFolder, questions],
+    [questionFolder, []],
     [RECORDS, [{ name: 'org', kind: 'dir' }]],
     [`${RECORDS}/org`, [{ name: 'user', kind: 'dir' }]],
     [
@@ -226,9 +246,11 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   const configEntries = (): FsStub[] =>
     options.desktopConfig === undefined ? [] : [{ name: DESKTOP_CONFIG_NAME, kind: 'file' }]
   // A folder no test names is a deny, not an empty listing: the module sees a rejection, and the output shows whether it mattered.
-  on('fs.list', (_$, event) => {
+  on('fs.list', async (_$, event) => {
     host.listed.push(event.path)
-    const entries = event.path === DESKTOP_CONFIG_DIR ? configEntries() : folders.get(event.path)
+    if (event.path === questionFolder) await options.questionGate
+    const entries =
+      event.path === DESKTOP_CONFIG_DIR ? configEntries() : event.path === questionFolder ? questionEntries() : folders.get(event.path)
     if (entries === undefined || options.unlistable?.includes(event.path) === true) {
       return refuse(`fs.list refused: ${event.path}`)
     }
@@ -239,7 +261,8 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   on('fs.read', (_$, event) => {
     host.reads += 1
     host.readPaths.push(event.path)
-    const content = event.path === DESKTOP_CONFIG_PATH ? options.desktopConfig : files.get(event.path)
+    const content =
+      event.path === DESKTOP_CONFIG_PATH ? options.desktopConfig : event.path === questionPath() ? JSON.stringify(options.question) : files.get(event.path)
     if (content === undefined || options.unreadable?.includes(event.path) === true) return refuse(`fs.read refused: ${event.path}`)
     return { value: content }
   })
@@ -283,26 +306,45 @@ const processOutput = (stdout: string, exitCode = 0, stderr = '') => ({
   isStderrTruncated: false,
 })
 
+// The GraphQL answer to MILESTONE_QUERY: the counts the test gives, or the refusal gh prints for a failed query.
+function milestoneCountsOf(options: StubOptions): ProcessOutput {
+  if (options.milestoneCounts === 'fail') return processOutput('', 1, 'GraphQL: Something went wrong while executing your query')
+  const nodes = (options.milestoneCounts ?? []).map(({ number, open, closed }) => ({
+    number,
+    open: { totalCount: open },
+    closed: { totalCount: closed },
+  }))
+  return processOutput(JSON.stringify({ data: { repository: { milestones: { nodes } } } }))
+}
+
 // The result of a gh call under the mode the test chose; undefined for a call no test expects. `gh api` answers the milestones.
 async function ghAnswerOf(argv: readonly string[], options: StubOptions): Promise<ProcessOutput | undefined> {
   if (options.gate !== undefined) await options.gate
   if (typeof options.gh === 'object') return processOutput('', options.gh.exitCode, options.gh.stderr)
   if (options.gh === 'unreadable') return processOutput('<html>not JSON</html>')
   if (argv.includes('view')) return processOutput(ISSUE_VIEW_JSON)
+  if (argv.some(arg => arg.includes('milestones('))) return milestoneCountsOf(options)
   if (argv.includes('graphql')) {
-    const nodes = (options.openPrs ?? []).map(({ closes = [], closesTotal, ...pr }) => ({
+    const nodes = (options.openPrs ?? []).map(({ closes = [], closesOther = [], closesTotal, isCrossRepository = false, ...pr }) => ({
       ...pr,
       state: 'OPEN',
       url: `https://github.com/acme/app/pull/${pr.number}`,
       createdAt: '2026-10-20T10:00:00Z',
       reviewDecision: null,
-      closingIssuesReferences: { totalCount: closesTotal ?? closes.length, nodes: closes.map(number => ({ number })) },
+      isCrossRepository,
+      closingIssuesReferences: {
+        totalCount: closesTotal ?? closes.length + closesOther.length,
+        nodes: [
+          ...closes.map(number => ({ number, repository: { nameWithOwner: 'acme/app' } })),
+          ...closesOther.map(number => ({ number, repository: { nameWithOwner: 'acme/other' } })),
+        ],
+      },
       commits: { nodes: [] },
     }))
     return processOutput(JSON.stringify({ data: { repository: { pullRequests: { totalCount: options.prTotal ?? nodes.length, nodes } } } }))
   }
   if (argv.includes('list')) return processOutput(options.issues ?? '[]')
-  if (argv[1] === 'api') return processOutput('[]')
+  if (argv[1] === 'api') return processOutput(options.milestones ?? '[]')
   return undefined
 }
 
@@ -419,9 +461,9 @@ test('the poll runs at open and on each minute while the pane is open', async ($
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const atOpen = ghCalls(host)
-  expect(atOpen).toBe(3)
+  expect(atOpen).toBe(4)
   await host.clock.advance(POLL_MS)
-  expect(ghCalls(host)).toBe(atOpen + 3)
+  expect(ghCalls(host)).toBe(atOpen + 4)
   await expectClean(host, $)
 })
 
@@ -430,7 +472,7 @@ test('gh missing keeps the sessions and draws its line', async ($: Engine, on) =
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   const drawn = await drawnPane($)
   expect(drawn).toContain('gh not found: showing sessions only')
   expect(drawn).toContain('Fix disk full')
@@ -494,22 +536,90 @@ test('/keeptrack lang stores the choice and draws the pane in it; auto removes t
   expect(host.store.has('lang')).toBe(false)
 })
 
-test('a window that maps to an issue asks gh for it in a fourth call', async ($: Engine, on) => {
+test('a window that maps to an issue asks gh for it in a fifth call', async ($: Engine, on) => {
   const host = stubHost(on)
   host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(ghCalls(host)).toBe(4)
+  expect(ghCalls(host)).toBe(5)
   expect(host.argvs.filter(argv => argv.includes('view'))).toEqual([ISSUE_VIEW_ARGV])
 })
 
-test('a window that maps to no issue makes no fourth gh call', async ($: Engine, on) => {
+test('a window that maps to no issue makes no fifth gh call', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
+  expect(host.argvs.some(argv => argv.includes('view'))).toBe(false)
+})
+
+test('pm1-8: a milestone counts its issues from GraphQL, not from REST, which counts the PRs too', async ($: Engine, on) => {
+  const issues = JSON.stringify([
+    {
+      number: 1,
+      title: 'Open one',
+      updatedAt: '2026-10-20T16:00:00Z',
+      url: 'https://github.com/acme/app/issues/1',
+      milestone: { number: 23 },
+      labels: [],
+    },
+  ])
+  // REST counts five open and five closed, the PRs of the milestone included: the pane must not read them.
+  const milestones = JSON.stringify([{ number: 23, title: 'Milestone B', open_issues: 5, closed_issues: 5, due_on: null }])
+  // GraphQL counts one open and one closed issue, no PR: the pane reads these.
+  const host = stubHost(on, { issues, milestones, milestoneCounts: [{ number: 23, open: 1, closed: 1 }] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain('1 of 2 issues closed')
+})
+
+test('pm1-8: more than 500 open issues flag the list partial, and the milestone totals still come from GraphQL', async ($: Engine, on) => {
+  const milestones = JSON.stringify([{ number: 23, title: 'Milestone B', open_issues: 0, closed_issues: 0, due_on: null }])
+  // The list is cut at 500 rows; the milestone's 600 open issues are counted by GraphQL, not by the cut list.
+  const host = stubHost(on, { issues: issueList(501), milestones, milestoneCounts: [{ number: 23, open: 600, closed: 4 }] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain('list is partial (first 500)')
+  expect(drawn).toContain('4 of 604 issues closed')
+  expect(drawn).not.toContain('all closed')
+})
+
+test('pm1-8: when the milestone totals query fails, the milestone keeps its REST counts and the failed call is logged', async ($: Engine, on) => {
+  const milestones = JSON.stringify([{ number: 23, title: 'Milestone B', open_issues: 5, closed_issues: 5, due_on: null }])
+  const host = stubHost(on, { milestones, milestoneCounts: 'fail' })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain('5 of 10 issues closed')
+  expect(host.logs).toContain('keeptrack: gh api call failed')
+})
+
+test('pm1-9: all closed is drawn only from exact counts, never from a REST zero or a failed totals query', async ($: Engine, on) => {
+  const milestones = JSON.stringify([{ number: 23, title: 'Milestone B', open_issues: 0, closed_issues: 2, due_on: null }])
+  const options: StubOptions = { milestones, milestoneCounts: 'fail' }
+  const host = stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(await drawnPane($)).not.toContain('all closed')
+  options.milestoneCounts = [{ number: 23, open: 0, closed: 2 }]
+  await host.clock.advance(POLL_MS)
+  expect(await drawnPane($)).toContain('all closed')
+})
+
+test('gh3-5: a PR that closes an issue of another repo maps no issue here: no view of that number', async ($: Engine, on) => {
+  const host = stubHost(on, {
+    openPrs: [{ number: 40, title: 'Closes elsewhere', headRefName: 'feature/disk', closesOther: [12] }],
+  })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(ghCalls(host)).toBe(4)
   expect(host.argvs.some(argv => argv.includes('view'))).toBe(false)
 })
 
@@ -517,22 +627,74 @@ test('the closed pane polls on the band cadence: once at session start, then eve
   const host = stubHost(on)
   await $.session.start(SESSION)
   await host.clock.settle()
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   await host.clock.advance(POLL_MS * 2)
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   await host.clock.advance(BAND_POLL_MS - POLL_MS * 2)
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
   await host.clock.advance(BAND_POLL_MS)
-  expect(ghCalls(host)).toBe(9)
+  expect(ghCalls(host)).toBe(12)
+})
+
+test('state2-3: a session.start during a poll in flight polls for the new session once that poll settles', async ($: Engine, on) => {
+  let release: () => void = () => undefined
+  const gate = new Promise<void>(resolve => {
+    release = resolve
+  })
+  const options: StubOptions = {}
+  const host = stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  options.gate = gate
+  await host.clock.advance(POLL_MS)
+  options.gate = undefined
+  options.issues = JSON.stringify([
+    { number: 8, title: 'Newer issue', updatedAt: '2026-10-20T16:00:00Z', url: 'https://github.com/acme/app/issues/8', milestone: null, labels: [] },
+  ])
+  await $.session.start(SESSION)
+  release()
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain('Newer issue')
+})
+
+test('state2-7: a session.start during the waiting read drops that read, so the replaced session writes no flag', async ($: Engine, on) => {
+  let release: () => void = () => undefined
+  const gate = new Promise<void>(resolve => {
+    release = resolve
+  })
+  const options: StubOptions = {}
+  const host = stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  options.question = { id: 'q-3', desktop_session: SESSION_ID, title: 'Pick a branch' }
+  options.questionGate = gate
+  await host.clock.advance(BAND_TICK_MS)
+  await $.session.start(SESSION)
+  release()
+  await host.clock.settle()
+  expect(await bandDrawn($)).not.toContain('waiting for you')
+})
+
+test('state2-3: a new session polls at once, though the last poll is within the closed cadence', async ($: Engine, on) => {
+  const host = stubHost(on)
+  await $.session.start(SESSION)
+  await host.clock.settle()
+  expect(ghCalls(host)).toBe(4)
+  await host.clock.advance(BAND_TICK_MS)
+  await $.session.start(SESSION)
+  await host.clock.settle()
+  expect(ghCalls(host)).toBe(8)
 })
 
 test('KEEPTRACK_BAND_POLL_MS sets the closed cadence', async ($: Engine, on) => {
   const host = stubHost(on, { env: { KEEPTRACK_BAND_POLL_MS: '120000' } })
   await $.session.start(SESSION)
   await host.clock.settle()
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   await host.clock.advance(POLL_MS * 2)
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
 })
 
 // Stands in for the person's close: a second plugin closes the pane with $.ui.close, which the engine raises as ui.close.
@@ -553,29 +715,29 @@ test('B1: closing the pane stops its timer, so no poll runs while it is closed',
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   await host.clock.advance(POLL_MS)
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
   await $.command.run({ command: 'close-pane', args: '', ...COMMAND_CONTEXT })
   await host.clock.advance(POLL_MS * 2)
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
 })
 
 test('an open pane moves the timer to the pane cadence of one minute, and the band cadence returns on close', { plugins: [closer] }, async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
   await host.clock.settle()
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   await host.clock.advance(POLL_MS)
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
   await host.clock.advance(POLL_MS * 4)
-  expect(ghCalls(host)).toBe(18)
+  expect(ghCalls(host)).toBe(24)
   await $.command.run({ command: 'close-pane', args: '', ...COMMAND_CONTEXT })
   await host.clock.advance(POLL_MS * 4)
-  expect(ghCalls(host)).toBe(18)
+  expect(ghCalls(host)).toBe(24)
   await host.clock.advance(BAND_POLL_MS)
-  expect(ghCalls(host)).toBe(21)
+  expect(ghCalls(host)).toBe(28)
 })
 
 test('no overlapping polls: a tick during a slow poll starts nothing', async ($: Engine, on) => {
@@ -589,26 +751,26 @@ test('no overlapping polls: a tick during a slow poll starts nothing', async ($:
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   // The gate holds for less than the poll deadline (F07), so the poll is still running at the next tick, and that tick starts nothing.
   await host.clock.advance(30_000)
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   release()
   await host.clock.settle()
   await host.clock.advance(POLL_MS)
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
 })
 
 test('W5: a pane the engine does not place starts once a render places it', async ($: Engine, on) => {
   const host = stubHost(on, { placed: false })
   await $.session.start(SESSION)
   await host.clock.settle()
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   host.placed = true
   await drawnPane($)
   await host.clock.settle()
   await host.clock.advance(POLL_MS)
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
 })
 
 test('W3: a git call that failed is asked again on the next poll, not kept as a definite no-remote', async ($: Engine, on) => {
@@ -685,6 +847,50 @@ test('a git failure that is not a not-a-repository answer still gives git-failed
   expect(await bandDrawn($)).toContain('data error')
 })
 
+test('ux4-2: a first poll with no repo context draws the failure line, not Loading', async ($: Engine, on) => {
+  const host = stubHost(on, { repoDenies: true })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain('Could not read the repo: state unknown')
+  expect(drawn).not.toContain('Loading the repo...')
+})
+
+test('pm1-9: an open issue of a closed milestone is drawn under that milestone title, marked closed', async ($: Engine, on) => {
+  const issues = JSON.stringify([
+    {
+      number: 3,
+      title: 'Issue of a closed milestone',
+      updatedAt: '2026-10-20T16:00:00Z',
+      url: 'https://github.com/acme/app/issues/3',
+      milestone: { number: 50, title: 'Milestone Old' },
+      labels: [],
+      state: 'OPEN',
+    },
+  ])
+  const host = stubHost(on, { issues })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain('Milestone Old · closed')
+  expect(drawn).toContain('Issue of a closed milestone')
+  expect(drawn).not.toContain('No milestone / issue')
+})
+
+test('the override prune keeps the override of a session in another repo, since its record is still in the folder', async ($: Engine, on) => {
+  const other = recordOf('local_7f3a0500', { title: 'Other repo session', cwd: '/work/other', gitAnchors: [{ commonDir: OTHER_COMMON_DIR }] })
+  const host = stubHost(on, { records: [OWN_RECORD, other], remotes: { [OTHER_COMMON_DIR]: OTHER_REMOTE } })
+  host.store.set('override:local_7f3a0500', { issue: 9, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(host.store.has('override:local_7f3a0500')).toBe(true)
+  // The other repo's session is listed by its own window, not this one.
+  expect(await drawnPane($)).not.toContain('Other repo session')
+})
+
 test('gh takes owner and name as strings (-f, W2)', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
@@ -727,7 +933,7 @@ test('S4: a remote on another host with the same owner and name is not this repo
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   // The poll ran: the GitHub root asked gh for its three lists, and git was asked once for each other record's origin.
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   expect(remoteAsks(host, OTHER_COMMON_DIR)).toBe(1)
   expect(remoteAsks(host, SIBLING_COMMON_DIR)).toBe(1)
   const drawn = await drawnPane($)
@@ -752,7 +958,7 @@ test('S1: at most 2000 Desktop files are read per poll', async ($: Engine, on) =
   await host.clock.settle()
   expect(host.reads).toBeLessThan(2001)
   // One poll ran, and it read exactly the cap (DESKTOP_SCAN_MAX): no fewer files than the cap allows.
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   expect(host.reads).toBe(2000)
 })
 
@@ -986,7 +1192,7 @@ test('P2: the Desktop config is read once while its mtime holds, and again when 
   expect(isInGroup(cut, 'g-2', FORK_ID)).toBe(true)
   await host.clock.advance(POLL_MS)
   // The second poll ran, and the unchanged config was not read again.
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
   expect(configReads(host)).toBe(1)
   // The fork is filed back with its parent's Group, under a new mtime.
   options.desktopConfig = desktopConfigOf({ [`code:${SESSION_ID}`]: 'g-1', [`code:${FORK_ID}`]: 'g-1' })
@@ -1145,7 +1351,7 @@ test('a repo whose only remote is named github is read from it: the poll runs an
   const host = stubHost(on, { noOrigin: { name: 'github', url: 'git@github-claude-global:acme/app.git' } })
   await $.session.start(SESSION)
   await host.clock.settle()
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   expect(await drawnPane($)).not.toContain('no GitHub remote for this repo')
 })
@@ -1155,9 +1361,36 @@ test('a band draw starts the poll when no session.start ran in this module insta
   const band = await $.ui.mount({ plugin: 'keeptrack-repo-pane', surface: 'terminal', component: 'AbovePrompt', props: {} as never })
   await band.unmount()
   await host.clock.settle()
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   await host.clock.advance(BAND_POLL_MS)
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
+})
+
+test('state2-2: a new session drops the previous session\'s turn, so the band reads Idle', async ($: Engine, on) => {
+  const host = stubHost(on)
+  await $.session.start(SESSION)
+  await $.turn.start({ text: 'work', turnId: 't1' })
+  expect(await bandDrawn($)).toContain('Running')
+  await $.session.start(SESSION)
+  await host.clock.settle()
+  expect(await bandDrawn($)).toContain('Idle')
+})
+
+test('state2-2: a tool call with no turn start infers a running turn', async ($: Engine, on) => {
+  stubHost(on)
+  await $.session.start(SESSION)
+  await $.tool.call({ tool: 'Bash' })
+  expect(await bandDrawn($)).toContain('Running')
+})
+
+test('state2-2: a turn past TURN_MAX_AGE_MS with no end event reads Idle on the band tick', async ($: Engine, on) => {
+  const host = stubHost(on)
+  await $.session.start(SESSION)
+  await $.turn.start({ text: 'work', turnId: 't1' })
+  await host.clock.advance(TURN_MAX_AGE_MS - BAND_TICK_MS)
+  expect(await bandDrawn($)).toContain('Running')
+  await host.clock.advance(2 * BAND_TICK_MS)
+  expect(await bandDrawn($)).toContain('Idle')
 })
 
 test('the band redraws each minute while idle, so the time since the last turn moves', async ($: Engine, on) => {
@@ -1255,7 +1488,7 @@ test('F07: a poll whose call never settles fails at its deadline, keeps the last
   await host.clock.settle()
   options.gate = NEVER()
   await host.clock.advance(POLL_MS)
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
   await host.clock.advance(POLL_DEADLINE_MS)
   expect(host.logs).toContain('keeptrack: poll failed (PollDeadline)')
   expect(await drawnPane($)).toContain('Fix disk full')
@@ -1305,10 +1538,24 @@ test('a snapshot whose only error is no-remote draws no data error in the band',
 })
 
 test('the band says waiting for you while this window has an open askaway question', async ($: Engine, on) => {
-  stubHost(on, { question: { id: 'q-1', desktop_session: SESSION_ID, title: 'Pick a branch' } })
+  const host = stubHost(on, { question: { id: 'q-1', desktop_session: SESSION_ID, title: 'Pick a branch' } })
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  // The band tick owns the waiting flag (state2-7): it reads the question folder on its own tick.
+  await host.clock.advance(BAND_TICK_MS)
   expect(await bandDrawn($)).toContain('waiting for you')
+})
+
+test('state2-1: a question asked while the pane is closed shows on the next band tick, with no poll', async ($: Engine, on) => {
+  const options: StubOptions = {}
+  const host = stubHost(on, options)
+  await $.session.start(SESSION)
+  await host.clock.settle()
+  expect(await bandDrawn($)).not.toContain('waiting for you')
+  options.question = { id: 'q-2', desktop_session: SESSION_ID, title: 'Pick a branch' }
+  await host.clock.advance(BAND_TICK_MS)
+  expect(await bandDrawn($)).toContain('waiting for you')
+  expect(ghCalls(host)).toBe(4)
 })
 
 test('F07: a poll that throws before its snapshot write logs the failure name, not silence', async ($: Engine, on) => {
@@ -1327,10 +1574,10 @@ test('F14: a poll that failed at its deadline clears the polling flag, so the ne
   await host.clock.settle()
   options.gate = NEVER()
   await host.clock.advance(POLL_MS)
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
   await host.clock.advance(POLL_DEADLINE_MS)
   await host.clock.advance(POLL_MS)
-  expect(ghCalls(host)).toBe(9)
+  expect(ghCalls(host)).toBe(12)
 })
 
 // A render polls when a full cadence has passed since the last poll began (resumePolling), so after a deadline it retries too.
@@ -1343,20 +1590,20 @@ test('F14: after a poll failed at its deadline, a render a full cadence after th
   await host.clock.advance(10_000)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   options.gate = NEVER()
   // At 60 s a render starts the poll that hangs; the tick at 70 s starts nothing beside it, and its deadline falls at 90 s.
   await host.clock.advance(50_000)
   await drawnPane($)
   await host.clock.advance(POLL_DEADLINE_MS)
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
   expect(host.logs).toContain('keeptrack: poll failed (PollDeadline)')
   await host.clock.advance(30_000)
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
   // At 120 s, before the tick at 130 s, a render finds a full cadence since the failed poll began and polls again.
   await drawnPane($)
   await host.clock.advance(0)
-  expect(ghCalls(host)).toBe(9)
+  expect(ghCalls(host)).toBe(12)
 })
 
 test('F11: a running tool name is drawn without control characters and within its length cap', async ($: Engine, on) => {
@@ -1501,15 +1748,15 @@ test('R2-03: a failing poll keeps the cadence, so renders between two polls do n
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(ghCalls(host)).toBe(3)
+  expect(ghCalls(host)).toBe(4)
   options.storeKeysDenies = true
   await host.clock.advance(POLL_MS)
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
   for (let draw = 0; draw < 3; draw += 1) {
     await drawnPane($)
     await host.clock.settle()
   }
-  expect(ghCalls(host)).toBe(6)
+  expect(ghCalls(host)).toBe(8)
 })
 
 const LATE_ISSUE = {
@@ -1590,10 +1837,10 @@ test('a poll past its deadline is abandoned, and at most two abandoned polls run
   options.gate = gate
   // Two stuck polls make 6 gh calls; the polls after them are skipped with a log line, however long the hang lasts.
   await host.clock.advance(20 * POLL_MS)
-  expect(ghCalls(host)).toBe(9)
+  expect(ghCalls(host)).toBe(12)
   expect(host.logs.some(line => line.startsWith('keeptrack: poll skipped ('))).toBe(true)
   await host.clock.advance(20 * POLL_MS)
-  expect(ghCalls(host)).toBe(9)
+  expect(ghCalls(host)).toBe(12)
   release()
   await host.clock.settle()
   await host.clock.advance(POLL_MS)
@@ -1636,6 +1883,35 @@ test('DL7: a session with an open PR is drawn even when it is older than the 64 
   await host.clock.settle()
   expect(await drawnPane($)).toContain('Old PR session')
 })
+
+test('gh3-2: the PR list asks GraphQL for isCrossRepository', async ($: Engine, on) => {
+  const host = stubHost(on)
+  await $.session.start(SESSION)
+  await host.clock.settle()
+  expect(host.argvs.some(argv => argv.some(part => part.includes('isCrossRepository')))).toBe(true)
+})
+
+for (const [name, fork, drawn] of [
+  ['a same-repo PR keeps an older session of its branch drawn', false, true],
+  ['a fork PR on the same branch name does not keep an older session drawn', true, false],
+] as const) {
+  test(`gh3-2: ${name}`, async ($: Engine, on) => {
+    // As DL7: 64 newer candidates push the old session past the cap, so only an open PR of its branch keeps it.
+    const newer = Array.from({ length: 64 }, (_, index) =>
+      recordOf(`local_${String(index).padStart(8, '0')}`, { lastActivityAt: index + 10 }),
+    )
+    const old = recordOf('local_00000999', { title: 'Old PR session', lastActivityAt: 1, cwd: '/work/old' })
+    const host = stubHost(on, {
+      records: [OWN_RECORD, ...newer, old],
+      branches: { '/work/old': 'feature/old' },
+      openPrs: [{ number: 77, title: 'Old PR', headRefName: 'feature/old', isCrossRepository: fork }],
+    })
+    await $.session.start(SESSION)
+    await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+    await host.clock.settle()
+    expect((await drawnPane($)).includes('Old PR session')).toBe(drawn)
+  })
+}
 
 const issueList = (count: number): string =>
   JSON.stringify(
@@ -1765,7 +2041,7 @@ test('DL9: a PR closing more issues than the page holds links no issue, since it
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(prQueryOf(host)).toContain('closingIssuesReferences(first: 50) { totalCount nodes { number } }')
+  expect(prQueryOf(host)).toContain('closingIssuesReferences(first: 50) { totalCount nodes { number repository { nameWithOwner } } }')
   expect(viewedIssues(host)).toEqual([])
 })
 

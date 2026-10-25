@@ -1,4 +1,4 @@
-// The KeepTrack pane: the header, the sessions on this machine by group (Askaway's tree: a bold label, a Desktop Group's name,
+// The KeepTrack pane: the header, the sessions by group (Askaway's tree: a bold label, a Desktop Group's name,
 // else Recents, then its tops as titled rows with their derived sessions under them; this window's group first, the window
 // highlighted with its issue details, its timeline and its GitHub link), the issues without a session by milestone, and the
 // footer. It draws one Snapshot the register hands in and reads or writes no state. Nothing folds: every row, every detail and
@@ -27,6 +27,8 @@ type Ui = Elements[RenderSurface]
 
 export type PaneContext = {
   snapshot: Snapshot | null
+  // True once the first poll settled with no snapshot to show (ux4-2): the pane draws the failure line instead of Loading.
+  loadFailed?: boolean
   lang: Lang
   surface: string
 }
@@ -59,6 +61,8 @@ const BODY_INDENT = 4
 const GROUP_INDENT = 1
 const TITLE_SEPARATOR = ' · '
 const MINUTE_MS = 60_000
+// The date part of a GitHub due date (YYYY-MM-DD, then the time when GitHub sends one).
+const DATE_LENGTH = 10
 const MINUTES_PER_HOUR = 60
 const HOURS_PER_DAY = 24
 // The drawn stand-in for a value the snapshot does not carry (no repo, no next step).
@@ -68,7 +72,7 @@ const NO_VALUE = '—'
 const GITHUB_PAGE_URL = /^https:\/\/github\.com\/[^\s()<>[\]"']+$/
 // Markdown punctuation that a title could carry; escaped before it goes into a link label.
 const MARKDOWN_PUNCTUATION = /[\\`*_[\]()<>!|~&:.@]/g
-const TIMELINE_GLYPH: Readonly<Record<TimelineEvent['kind'], string>> = { commit: '●', pr: '↗', session: '▪' }
+const TIMELINE_GLYPH: Readonly<Record<TimelineEvent['kind'], string>> = { commit: '●', pr: '↗', session: '◇' }
 const STATE_KEY: Readonly<Record<SessionNode['state'], MessageKey>> = {
   working: 'state.working',
   idle: 'state.idle',
@@ -119,9 +123,16 @@ export function renderPane(elements: Ui, context: PaneContext): RenderElement {
   return (
     <Box key="keeptrack-repo-pane" flexDirection="column" gap={1}>
       {renderHeader(view, snapshot)}
-      {snapshot === null ? <Text key="loading">{t(view.lang, 'pane.loading')}</Text> : renderSnapshot(view, snapshot)}
+      {snapshot === null ? renderUnsettled(view, context.loadFailed === true) : renderSnapshot(view, snapshot)}
     </Box>
   )
+}
+
+// The pane before any snapshot: Loading while the first poll runs, the failure line once that poll settled with nothing to show (ux4-2).
+function renderUnsettled(view: View, loadFailed: boolean): RenderElement {
+  const { Text } = view.ui
+  if (loadFailed) return <Text key="load-failed">{t(view.lang, 'pane.loadFailed')}</Text>
+  return <Text key="loading">{t(view.lang, 'pane.loading')}</Text>
 }
 
 // The header: the logo and the bold heading on the left; the counter and the KeepGlide mark on the right (askaway's header).
@@ -130,7 +141,7 @@ function renderHeader(view: View, snapshot: Snapshot | null): RenderElement {
   return (
     <Box key="header" flexDirection="row" flexWrap="wrap" justifyContent="space-between" alignItems="center" gap={1}>
       <Box key="brand" flexDirection="row" alignItems="center" gap={1}>
-        {renderKeepTrackLogo(view.ui, view.desktop, t(view.lang, 'pane.heading'))}
+        {renderKeepTrackLogo(view.ui, view.desktop, '')}
         <Text key="heading" bold>{t(view.lang, 'pane.heading')}</Text>
       </Box>
       <Box key="header-end" flexDirection="row" alignItems="center" gap={1}>
@@ -141,14 +152,14 @@ function renderHeader(view: View, snapshot: Snapshot | null): RenderElement {
   )
 }
 
+// The header counter: the open issues always; with no session listed, "nothing in progress" follows them (pm1-3, ux4-4).
 function counterText(view: View, snapshot: Snapshot): string {
   const sessions = countSessions(snapshot.sessions)
-  return sessions === 0
-    ? t(view.lang, 'counter.none')
-    : t(view.lang, 'counter.line', {
-        issues: t(view.lang, 'counter.issues', { count: snapshot.openIssueCount }),
-        sessions: t(view.lang, 'counter.sessions', { count: sessions }),
-      })
+  const line = t(view.lang, 'counter.line', {
+    issues: t(view.lang, 'counter.issues', { count: snapshot.openIssueCount }),
+    sessions: t(view.lang, 'counter.sessions', { count: sessions }),
+  })
+  return sessions === 0 ? `${line}${TITLE_SEPARATOR}${t(view.lang, 'counter.none')}` : line
 }
 
 function countSessions(nodes: readonly SessionNode[]): number {
@@ -161,7 +172,7 @@ function renderSnapshot(view: View, snapshot: Snapshot): RenderElement[] {
   const issues = snapshot.mode === 'github' ? [renderIssuesSection(view, snapshot)] : []
   return [
     ...renderErrors(view, snapshot),
-    renderSessionsSection(view, snapshot),
+    ...renderSessionGroups(view, snapshot),
     ...issues,
     renderFooter(view, snapshot),
   ]
@@ -187,9 +198,9 @@ function renderSection(view: View, key: string, heading: string, rows: RenderEle
   )
 }
 
-function renderSessionsSection(view: View, snapshot: Snapshot): RenderElement {
-  const rows = groupsOf(snapshot.sessions).map(run => renderGroup(view, run))
-  return renderSection(view, 'sessions', t(view.lang, 'group.sessions'), rows)
+// No heading over the session groups: each group's bold label already names its rows. With no session listed, no element at all.
+function renderSessionGroups(view: View, snapshot: Snapshot): RenderElement[] {
+  return groupsOf(snapshot.sessions).map(run => renderGroup(view, run))
 }
 
 // The tops in consecutive runs of one group key each. A top without a group is drawn under Recents.
@@ -285,13 +296,14 @@ function renderOtherSession(view: View, node: SessionNode, place: RowPlace): Ren
   )
 }
 
-// The title line (branch glyph, state glyph, title) and the breadcrumb under it.
+// The title line (branch glyph, state glyph and its word, title) and the breadcrumb under it. The glyph is a visual cue; the
+// word beside it carries the state on every row, not only this window's (ux4-1).
 function renderSessionHead(view: View, node: SessionNode, place: RowPlace): RenderElement {
   const { Box, Text } = view.ui
   return (
     <Box key={`head-${node.id}`} flexDirection="row" gap={1}>
       <Text key="branch">{place.branch}</Text>
-      <Text key="state">{STATE_GLYPH[node.state]}</Text>
+      <Text key="state">{`${STATE_GLYPH[node.state]} ${t(view.lang, STATE_KEY[node.state])}`}</Text>
       <Box key="title-block" flexDirection="column" flexGrow={1}>
         {renderSessionTitle(view, node, node.isThisWindow)}
         {renderCrumb(view, node, place)}
@@ -387,7 +399,7 @@ function detailLinesOf(view: View, node: SessionNode, issue: IssueDetails): Deta
     { key: 'checks', label: t(lang, 'detail.checks'), value: issue.checks ?? t(lang, 'detail.noCi') },
     { key: 'comment', label: t(lang, 'detail.lastComment'), value: commentTextOf(lang, issue.lastComment, now) },
     { key: 'blocked', label: t(lang, 'detail.blockedBy'), value: issue.blockedBy ?? t(lang, 'detail.nothing') },
-    { key: 'next', label: t(lang, 'detail.nextStep'), value: NO_VALUE },
+    { key: 'next', label: t(lang, 'detail.nextStep'), value: t(lang, 'detail.noNextStep') },
     {
       key: 'started',
       label: t(lang, 'detail.started'),
@@ -469,22 +481,38 @@ function timelineText(lang: Lang, node: SessionNode, event: TimelineEvent): stri
   return t(lang, SESSION_EVENT_KEY[node.kind], { title: event.text })
 }
 
+// A milestone's title is followed by its closed and total issues (pm1-1); the total is the open plus the closed issues.
 function renderIssueGroup(view: View, group: IssueGroup): RenderElement[] {
   const { lang } = view
   const { Text } = view.ui
-  const groupKey = group.milestone === null ? 'none' : String(group.milestone.number)
-  const label = group.milestone === null ? t(lang, 'group.noMilestone') : titleLabel(group.milestone.title)
-  if (group.issues.length > 0) {
-    return [
-      <Text key={`milestone-${groupKey}`} bold>{label}</Text>,
-      ...group.issues.map(issue => renderIssue(view, issue)),
-    ]
+  const { milestone, closedTitle, issues } = group
+  const groupKey = milestone === null ? 'none' : String(milestone.number)
+  const label = milestone === null ? t(lang, 'group.noMilestone') : titleLabel(milestone.title)
+  const issueRows = issues.map(issue => renderIssue(view, issue))
+  // The issues of a closed milestone sit under its title, marked closed. Its counts are not read, so there is no progress line (pm1-9).
+  if (closedTitle !== null) {
+    const closedLabel = t(lang, 'milestone.closed', { label: titleLabel(closedTitle) })
+    return [<Text key={`milestone-closed-${closedTitle}`} bold>{closedLabel}</Text>, ...issueRows]
   }
-  // An open milestone with no open issue left is one line; one whose issues all sit on sessions has nothing to list.
-  if (group.milestone !== null && group.milestone.openIssues === 0) {
-    return [<Text key={`milestone-${groupKey}`}>{t(lang, 'milestone.allClosed', { label })}</Text>]
+  if (milestone === null) {
+    return issues.length > 0 ? [<Text key={`milestone-${groupKey}`} bold>{label}</Text>, ...issueRows] : []
   }
-  return []
+  // The progress line carries the due date when GitHub sets one (its date part; pm1-4). The count is the total: the noun counts issues.
+  const total = milestone.openIssues + milestone.closedIssues
+  const due = milestone.dueOn === null ? '' : `${TITLE_SEPARATOR}${t(lang, 'milestone.due', { date: milestone.dueOn.slice(0, DATE_LENGTH) })}`
+  const progress = (
+    <Text key={`progress-${groupKey}`}>
+      {`${t(lang, 'milestone.progress', { closed: milestone.closedIssues, total, count: total })}${due}`}
+    </Text>
+  )
+  if (issues.length > 0) return [<Text key={`milestone-${groupKey}`} bold>{label}</Text>, progress, ...issueRows]
+  // An open milestone with no open issue left is one line. One whose open issues all sit on sessions says how many are open,
+  // so its remaining work stays visible in the pane (pm1-2); that claim is drawn only when the issue list backs it (rev-g1-5).
+  let title = label
+  // "All closed" is drawn only from exact counts: REST's zero (PRs included) or a partial answer never says the milestone is done.
+  if (milestone.countsExact && milestone.openIssues === 0) title = t(lang, 'milestone.allClosed', { label })
+  else if (group.claimsLinked) title = t(lang, 'milestone.allLinked', { label, count: milestone.openIssues })
+  return [<Text key={`milestone-${groupKey}`}>{title}</Text>, progress]
 }
 
 // The milestone label: its title up to the first " · " (repo-work-pane-design-spec.md section 3.1).
@@ -518,8 +546,8 @@ function renderIssueLine(view: View, issue: Issue): RenderElement {
 function renderFooter(view: View, snapshot: Snapshot): RenderElement {
   const { Text } = view.ui
   const repo = snapshot.repo === null ? NO_VALUE : `${snapshot.repo.owner}/${snapshot.repo.name}`
-  const minutes = Math.max(0, Math.floor((view.now - snapshot.fetchedAt) / MINUTE_MS))
-  return <Text key="footer">{t(view.lang, 'footer.updated', { minutes, repo })}</Text>
+  const age = ageText(view.lang, snapshot.fetchedAt, view.now)
+  return <Text key="footer">{t(view.lang, 'footer.updated', { age, repo })}</Text>
 }
 
 // Markdown punctuation in a title is escaped, so no title can become markup or a second link.

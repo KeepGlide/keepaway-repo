@@ -4,7 +4,7 @@
 import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import { KEEPGLIDE_ALT, keepglideSvg } from './keepglide'
-import { LOGO_GLYPH, keepTrackLoadingSvg, keepTrackSvg } from './logo'
+import { LOGO_GLYPH, keepTrackSvg } from './logo'
 
 type Ui = Elements[RenderSurface]
 
@@ -25,20 +25,12 @@ export function renderKeepTrackLogo(ui: Ui, desktop: boolean, alt: string): Rend
   return <Text key="logo" bold>{LOGO_GLYPH}</Text>
 }
 
-// The reduced-motion choice of the person, read from the page when there is one (the engine may draw without a window).
-function prefersReducedMotion(): boolean {
-  const scope = globalThis as { matchMedia?: (query: string) => { matches: boolean } }
-  return scope.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
-}
-
-// The band's leading mark: on the desktop the product mark, turning while the main loop runs and still when idle or when the
-// person asks for reduced motion; on the terminal its text glyph, ▶ running and ○ idle.
+// The band's leading mark: on the desktop the still product mark, in every state (it never turns: a turning loop has no pause,
+// WCAG 2.2.2, ux4-13); on the terminal its text glyph, ▶ running and ○ idle.
 export function renderKeepTrackMark(ui: Ui, desktop: boolean, running: boolean): RenderElement {
   if (desktop && 'Svg' in ui) {
     const { Svg } = ui
-    const turning = running && !prefersReducedMotion()
-    const source = turning ? keepTrackLoadingSvg({ size: LOGO_SIZE }) : keepTrackSvg({ size: LOGO_SIZE })
-    return <Svg key="mark" source={source} alt="" width={LOGO_SIZE} height={LOGO_SIZE} />
+    return <Svg key="mark" source={keepTrackSvg({ size: LOGO_SIZE })} alt="" width={LOGO_SIZE} height={LOGO_SIZE} />
   }
   const { Text } = ui
   return <Text key="mark" bold>{running ? RUNNING_GLYPH : IDLE_GLYPH}</Text>

@@ -203,7 +203,8 @@ const BRANCH_CASES: [string, number | null][] = [
   ['0-issue-5', 5],
   ['106-fix-issue-97', 106],
   ['fix/2026-10-22-issue-123', 123],
-  ['fix/999999-big', 999999],
+  ['fix/99999-big', 99999],
+  ['fix/999999-big', null],
   ['fix/disk-full-write-sites', null],
   ['reissue-97', null],
   ['issue-97x', null],
@@ -805,7 +806,7 @@ test('P1: a Desktop Group with the reserved id recents is skipped: its session s
 })
 
 test('groupIssues on the sample shape: three milestones, the linked issues left out, the no-milestone group last', () => {
-  const groups = groupIssues(SAMPLE_MILESTONES, SAMPLE_ISSUES, SAMPLE_LINKED)
+  const groups = groupIssues(SAMPLE_MILESTONES, SAMPLE_ISSUES, SAMPLE_LINKED, false)
   expect(shapeOf(groups)).toEqual([
     [23, [105, 108, 107]],
     [22, [90]],
@@ -815,7 +816,7 @@ test('groupIssues on the sample shape: three milestones, the linked issues left 
 })
 
 test('groupIssues: an open milestone with no open issue gives a one-line group with its milestone set', () => {
-  const groups = groupIssues(SAMPLE_MILESTONES, SAMPLE_ISSUES, new Set([90]))
+  const groups = groupIssues(SAMPLE_MILESTONES, SAMPLE_ISSUES, new Set([90]), false)
   const oneLine = groups.find(group => group.milestone?.number === 22)
   expect(oneLine?.issues).toEqual([])
   expect(oneLine?.milestone?.openIssues).toBe(1)
@@ -824,15 +825,33 @@ test('groupIssues: an open milestone with no open issue gives a one-line group w
 
 test('groupIssues: no no-milestone group when every unlinked issue has a milestone', () => {
   const withMilestone = SAMPLE_ISSUES.filter(issue => issue.milestone !== null)
-  const groups = groupIssues(SAMPLE_MILESTONES, withMilestone, SAMPLE_LINKED)
+  const groups = groupIssues(SAMPLE_MILESTONES, withMilestone, SAMPLE_LINKED, false)
   expect(groups.map(group => group.milestone?.number ?? null)).toEqual([23, 22, 21])
 })
 
-test('groupIssues: an issue whose milestone is not in the open list joins the no-milestone group', () => {
-  const stray = { ...SAMPLE_ISSUES[0], number: 200, milestone: 99 } as (typeof SAMPLE_ISSUES)[number]
-  const groups = groupIssues(SAMPLE_MILESTONES, [...SAMPLE_ISSUES, stray], SAMPLE_LINKED)
+test('pm1-9: the issues of a closed milestone form their own group, titled by the issue milestone, after the open groups', () => {
+  const closed = { ...SAMPLE_ISSUES[0], number: 200, milestone: 99, milestoneTitle: 'Closed milestone' }
+  const groups = groupIssues(SAMPLE_MILESTONES, [...SAMPLE_ISSUES, closed], SAMPLE_LINKED, false)
+  expect(groups.map(group => group.closedTitle ?? group.milestone?.number ?? null)).toEqual([23, 22, 21, 'Closed milestone', null])
+  expect(groups[3]?.milestone).toBeNull()
+  expect(groups[3]?.issues.map(issue => issue.number)).toEqual([200])
+})
+
+test('pm1-9: an issue whose milestone is not open and has no title joins the no-milestone group', () => {
+  const untitled = { ...SAMPLE_ISSUES[0], number: 200, milestone: 99, milestoneTitle: null }
+  const groups = groupIssues(SAMPLE_MILESTONES, [...SAMPLE_ISSUES, untitled], SAMPLE_LINKED, false)
   // Issue 200 is updated at the newest time of the sample, so it leads the no-milestone group.
   expect(shapeOf(groups).at(-1)).toEqual([null, [200, 15]])
+})
+
+test('rev-g1-5: the one-line claim needs a complete list whose open issues of the milestone are all in it', () => {
+  const claimOf = (milestones: typeof SAMPLE_MILESTONES, issuesPartial: boolean): boolean | undefined =>
+    groupIssues(milestones, SAMPLE_ISSUES, new Set([90]), issuesPartial).find(group => group.milestone?.number === 22)?.claimsLinked
+  expect(claimOf(SAMPLE_MILESTONES, false)).toBe(true)
+  expect(claimOf(SAMPLE_MILESTONES, true)).toBe(false)
+  // The milestone counts two open issues but the list holds one: the count is not backed by the list.
+  const counted = SAMPLE_MILESTONES.map(milestone => (milestone.number === 22 ? { ...milestone, openIssues: 2 } : milestone))
+  expect(claimOf(counted, false)).toBe(false)
 })
 
 test('timelineOf: events come newest first, with the session creation last', () => {
