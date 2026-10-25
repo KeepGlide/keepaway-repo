@@ -12,6 +12,9 @@ export type Issue = {
   number: number; title: string; milestone: number | null; milestoneTitle: string | null; labels: string[]; updatedAt: string; url: string
 }
 
+// The priority an issue's labels name (model.ts priorityOf): P0 is critical, P3 low. Drawn as a tag on the issue row.
+export type Priority = 'P0' | 'P1' | 'P2' | 'P3'
+
 export type PullRequest = {
   number: number; title: string; state: 'OPEN' | 'MERGED' | 'CLOSED'; headRefName: string; url: string; createdAt: string
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
@@ -67,7 +70,6 @@ export type IssueDetails = {
   lastCommit: { at: number; subject: string } | null
   checks: string | null
   lastComment: { author: string; at: number; body: string } | null
-  blockedBy: string | null
   startedAt: number
 }
 
@@ -106,7 +108,7 @@ declare module 'claude-code' {
       turn: { startedAt: number | null; endedAt: number | null; tool: string | null; endedTurnStart?: number | null }
       // The agents that have not ended (pending, running or waiting), as $.agent.list() counted them, and when their run began.
       agentRun: { count: number; since: number | null }
-      // Whether this window's session has an open askaway question, refreshed by the band tick (hooks/register.tsx).
+      // Whether this window's session waits for the person (the engine asked about a tool call), set by the tool.check hook (hooks/register.tsx).
       waiting: boolean
       // Whether the first poll settled with no snapshot to show (no repo context): the pane draws the failure line, not Loading (ux4-2).
       loadFailed: boolean

@@ -107,14 +107,10 @@ type StubOptions = {
   // Each `$.agent.list()` call takes the next hold, if any, after it has read the agents, so the test sets its read order.
   agentHolds?: Promise<void>[]
   storeKeysDenies?: boolean
-  // An open askaway question of this window's session, with no answer.
-  question?: { id: string; desktop_session: string; title: string }
-  // Files listed before the question in its folder (st-3: a folder past the scan cap).
-  questionFillers?: number
+  // The engine's verdict on a tool check (tool.check) when a test gives one: ask puts the call to the person.
+  permission?: 'allow' | 'ask' | 'deny'
   // The `gh issue view` calls wait for this promise, so a test can change the override while a poll is at its window issue (st-5).
   viewGate?: Promise<void>
-  // The question folder's listing waits for this promise, so a test can end a session inside the band tick's read (state2-7).
-  questionGate?: Promise<void>
   // Files in the records folder that are not session records (Desktop's scheduled tasks list, deleted_<id> tombstones).
   strayFiles?: string[]
 }
@@ -180,17 +176,7 @@ function stubHost(on: On, options: StubOptions = {}): Host {
     ...records.map(record => [recordPath(String(record.sessionId)), JSON.stringify(record)] as const),
     ...(options.strayFiles ?? []).map(name => [`${RECORDS}/org/user/${name}`, '[{"id":"task-1"}]'] as const),
   ])
-  const questionFolder = `${HOME}/.claude/state/askaway/q`
-  // The question is read at each call, so a test may ask one after the first poll (the band tick reads the folder).
-  const questionEntries = (): FsStub[] => [
-    ...Array.from({ length: options.questionFillers ?? 0 }, (_, index): FsStub => ({ name: `filler-${index}.json`, kind: 'file' })),
-    ...(options.question === undefined ? [] : [{ name: `${options.question.id}.json`, kind: 'file' } as FsStub]),
-  ]
-  const questionPath = (): string | undefined =>
-    options.question === undefined ? undefined : `${questionFolder}/${options.question.id}.json`
   const folders = new Map<string, FsStub[]>([
-    // The askaway question folder exists; it holds the test's question, if any (a missing folder is no question, SPEC 3.6).
-    [questionFolder, []],
     [RECORDS, [{ name: 'org', kind: 'dir' }]],
     [`${RECORDS}/org`, [{ name: 'user', kind: 'dir' }]],
     [
@@ -234,6 +220,7 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   // The engine's own answers under the plugins' turn and tool hooks (the kit has no default for them).
   on('turn.start', (_$, event) => ({ turnId: event.turnId }))
   on('tool.call', () => ({ result: undefined }))
+  on('tool.check', () => ({ decision: options.permission ?? 'allow' }))
   on('ui.invalidate', (_$, event) => {
     if (event.event === 'ui.render') host.redraws += 1
     return { value: undefined }
@@ -255,9 +242,7 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   // A folder no test names is a deny, not an empty listing: the module sees a rejection, and the output shows whether it mattered.
   on('fs.list', async (_$, event) => {
     host.listed.push(event.path)
-    if (event.path === questionFolder) await options.questionGate
-    const entries =
-      event.path === DESKTOP_CONFIG_DIR ? configEntries() : event.path === questionFolder ? questionEntries() : folders.get(event.path)
+    const entries = event.path === DESKTOP_CONFIG_DIR ? configEntries() : folders.get(event.path)
     if (entries === undefined || options.unlistable?.includes(event.path) === true) {
       return refuse(`fs.list refused: ${event.path}`)
     }
@@ -269,7 +254,7 @@ function stubHost(on: On, options: StubOptions = {}): Host {
     host.reads += 1
     host.readPaths.push(event.path)
     const content =
-      event.path === DESKTOP_CONFIG_PATH ? options.desktopConfig : event.path === questionPath() ? JSON.stringify(options.question) : files.get(event.path)
+      event.path === DESKTOP_CONFIG_PATH ? options.desktopConfig : files.get(event.path)
     if (content === undefined || options.unreadable?.includes(event.path) === true) return refuse(`fs.read refused: ${event.path}`)
     return { value: content }
   })
@@ -681,25 +666,6 @@ test('state2-3: a session.start during a poll in flight polls for the new sessio
   expect(await drawnPane($)).not.toContain('Old issue')
 })
 
-test('state2-7: a session.start during the waiting read drops that read, so the replaced session writes no flag', async ($: Engine, on) => {
-  let release: () => void = () => undefined
-  const gate = new Promise<void>(resolve => {
-    release = resolve
-  })
-  const options: StubOptions = {}
-  const host = stubHost(on, options)
-  await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
-  await host.clock.settle()
-  options.question = { id: 'q-3', desktop_session: SESSION_ID, title: 'Pick a branch' }
-  options.questionGate = gate
-  await host.clock.advance(BAND_TICK_MS)
-  await $.session.start(SESSION)
-  release()
-  await host.clock.settle()
-  expect(await bandDrawn($)).not.toContain('waiting for you')
-})
-
 test('state2-3: a new session polls at once, though the last poll is within the closed cadence', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
@@ -732,31 +698,6 @@ test('st-1: a session.start clears the window issue the band reads, before its p
   await $.session.start(SESSION)
   await host.clock.settle()
   expect(await bandDrawn($)).not.toContain(`#${ISSUE}`)
-})
-
-test('st-2: a question folder that cannot be listed keeps the waiting flag as it was', async ($: Engine, on) => {
-  const options: StubOptions = { question: { id: 'q-4', desktop_session: SESSION_ID, title: 'Pick a branch' } }
-  const host = stubHost(on, options)
-  await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
-  await host.clock.advance(BAND_TICK_MS)
-  expect(await bandDrawn($)).toContain('waiting for you')
-  options.unlistable = [`${HOME}/.claude/state/askaway/q`]
-  await host.clock.advance(BAND_TICK_MS)
-  expect(await bandDrawn($)).toContain('waiting for you')
-})
-
-test('st-3: a question folder past the 2000-file scan cap keeps the waiting flag, since the question may lie past the cut', async ($: Engine, on) => {
-  const options: StubOptions = { question: { id: 'q-5', desktop_session: SESSION_ID, title: 'Pick a branch' } }
-  const host = stubHost(on, options)
-  await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
-  await host.clock.advance(BAND_TICK_MS)
-  expect(await bandDrawn($)).toContain('waiting for you')
-  // 2000 files are listed before the question, so the question is the 2001st and past the cut.
-  options.questionFillers = 2000
-  await host.clock.advance(BAND_TICK_MS)
-  expect(await bandDrawn($)).toContain('waiting for you')
 })
 
 test('st-4: an agent read that began under the previous session writes no count into the new one', async ($: Engine, on) => {
@@ -1323,7 +1264,7 @@ test('P2: a live parent of another repo is a context ancestor too: the spawn is 
   await expectClean(host, $)
 })
 
-// The Desktop sidebar Groups, as claude_desktop_config.json files them (preferences.epitaxyPrefs, Askaway's shape).
+// The Desktop sidebar Groups, as claude_desktop_config.json files them (preferences.epitaxyPrefs, the Desktop's own shape).
 const DESKTOP_GROUPS = [
   { id: 'g-1', name: 'Alpha group' },
   { id: 'g-2', name: 'Beta group' },
@@ -1717,13 +1658,37 @@ test('a snapshot whose only error is no-remote draws no data error in the band',
   expect(await bandDrawn($)).not.toContain('data error')
 })
 
-test('the band says waiting for you while this window has an open askaway question', async ($: Engine, on) => {
-  const host = stubHost(on, { question: { id: 'q-1', desktop_session: SESSION_ID, title: 'Pick a branch' } })
+test('waiting: the band says waiting for you while the engine asks the person about a tool call, and clears when the call runs', async ($: Engine, on) => {
+  const options: StubOptions = { permission: 'ask' }
+  stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.turn.start({ text: 'work', turnId: 't1' })
+  await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })
+  expect(await bandDrawn($)).toContain('waiting for you')
+  await $.tool.call({ tool: 'Bash' })
+  expect(await bandDrawn($)).not.toContain('waiting for you')
+})
+
+test('waiting: a verdict other than ask clears the flag, so an answered question does not stay waiting', async ($: Engine, on) => {
+  const options: StubOptions = { permission: 'ask' }
+  stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.turn.start({ text: 'work', turnId: 't1' })
+  await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })
+  expect(await bandDrawn($)).toContain('waiting for you')
+  options.permission = 'allow'
+  await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })
+  expect(await bandDrawn($)).not.toContain('waiting for you')
+})
+
+test('waiting: no Askaway folder is read, so an Askaway question cannot light the band', async ($: Engine, on) => {
+  const host = stubHost(on, {})
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
-  // The band tick owns the waiting flag (state2-7): it reads the question folder on its own tick.
-  await host.clock.advance(BAND_TICK_MS)
-  expect(await bandDrawn($)).toContain('waiting for you')
+  await host.clock.settle()
+  expect(host.listed.some(path => path.includes('askaway'))).toBe(false)
+  expect(host.readPaths.some(path => path.includes('askaway'))).toBe(false)
+  expect(await bandDrawn($)).not.toContain('waiting for you')
 })
 
 // ux-8: a gh that is missing or not signed in draws its pane line, and no data error in the band (the pane already says which).
@@ -1741,18 +1706,6 @@ for (const [error, gh, line] of UNFLAGGED_GH_CASES) {
     expect(await bandDrawn($)).not.toContain('data error')
   })
 }
-
-test('state2-1: a question asked while the pane is closed shows on the next band tick, with no poll', async ($: Engine, on) => {
-  const options: StubOptions = {}
-  const host = stubHost(on, options)
-  await $.session.start(SESSION)
-  await host.clock.settle()
-  expect(await bandDrawn($)).not.toContain('waiting for you')
-  options.question = { id: 'q-2', desktop_session: SESSION_ID, title: 'Pick a branch' }
-  await host.clock.advance(BAND_TICK_MS)
-  expect(await bandDrawn($)).toContain('waiting for you')
-  expect(ghCalls(host)).toBe(4)
-})
 
 test('F07: a poll that throws before its snapshot write logs the failure name, not silence', async ($: Engine, on) => {
   const host = stubHost(on, { storeKeysDenies: true })

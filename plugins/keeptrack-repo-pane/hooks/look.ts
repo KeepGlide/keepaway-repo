@@ -1,4 +1,4 @@
-import type { SessionNode } from '../types'
+import type { Priority, SessionNode } from '../types'
 
 // The pane's look: theme keys and glyphs only, no colour value. The pane takes the engine's own text colours and
 // background; the one fill it draws is the details block of this window's row, which takes the engine's user-message
@@ -14,3 +14,6 @@ export const STATE_GLYPH: Readonly<Record<SessionNode['state'], string>> = { wor
 
 // The branch glyphs of the derived rows: a child that is not the last one, and the last child.
 export const BRANCH_GLYPH = { middle: '├', last: '└' } as const
+
+// The priorities whose issue row draws bold. The look has no colour for it: bold is the emphasis the pane already uses for titles.
+export const EMPHASISED_PRIORITIES: readonly Priority[] = ['P0', 'P1']

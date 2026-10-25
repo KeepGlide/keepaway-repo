@@ -94,7 +94,6 @@ export const SAMPLE_THIS_ISSUE: IssueDetails = {
   lastCommit: { at: NOW - 12 * MINUTE, subject: 'fix(store): map ENOSPC at backup_receipt writes' },
   checks: null,
   lastComment: { author: 'dev-one', at: NOW - HOUR, body: 'keep *this* [markup](x) as text' },
-  blockedBy: null,
   startedAt: NOW - 3 * HOUR,
 }
 

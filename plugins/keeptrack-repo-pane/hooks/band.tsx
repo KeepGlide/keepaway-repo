@@ -38,7 +38,7 @@ export type BandView = {
   // The agents that have not ended (`$.agent.list()` active count, as the register last read it), and when their run began.
   agents: number
   agentsSince?: number | null
-  // This window's session has an open askaway question: the band reads that it waits for the user.
+  // This window's session waits for the person (the engine asked about a tool call): the band reads that it waits.
   waiting?: boolean
   // The snapshot holds errors: the band flags the repo data as incomplete.
   error?: boolean
@@ -49,7 +49,7 @@ export type BandView = {
 // One word of the band's line: its text, and the action icon drawn before it (none for a plain word).
 export type BandWord = { icon: ActionIconKey | null; text: string }
 
-// Askaway's band takes the digit 1, so this band takes 2; both can show above the same prompt.
+// Another mod's band may take the digit 1, so this band takes 2; both can show above the same prompt.
 const BAND_HOTKEY = '2'
 const SEPARATOR = ' · '
 // A milestone title longer than this is cut in the band so the line keeps its place; the pane shows the whole title.

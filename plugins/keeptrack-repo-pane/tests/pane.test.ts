@@ -150,14 +150,13 @@ test('this window is the first session, in one highlighted block with its detail
 test('the details of this window follow the breadcrumb, in the order of the mock, then the timeline and the GitHub link', () => {
   const block = nodesOf(drawDesktop()).find(node => node.props.backgroundColor === DETAILS_FILL)
   const blockTexts = drawnTexts(block)
-  const labels = ['State:', 'Branch:', 'PR:', 'Last commit:', 'Checks:', 'Last comment:', 'Blocked by:', 'Next step:', 'Started:']
+  const labels = ['State:', 'Branch:', 'PR:', 'Last commit:', 'Checks:', 'Last comment:', 'Next step:', 'Started:']
   const positions = labels.map(label => blockTexts.indexOf(label))
   expect(positions.every(position => position > -1)).toBe(true)
   expect([...positions].sort((a, b) => a - b)).toEqual(positions)
   expect(blockTexts.indexOf('#106 · Milestone B') < (positions[0] ?? -1)).toBe(true)
   expect(blockTexts).toContain('no PR')
   expect(blockTexts).toContain('no CI')
-  expect(blockTexts).toContain('nothing')
   expect(blockTexts).toContain('no next step')
   expect(blockTexts.some(text => /^dev-one · .+ ago · keep \*this\* \[markup\]\(x\) as text$/.test(text))).toBe(true)
   expect(blockTexts.indexOf('▪ Open #106 on GitHub ↗')).toBe(blockTexts.length - 1)
@@ -236,11 +235,10 @@ test('an issue whose details are not fetched keeps its link and draws no details
   expect(blockTexts).toContain('▪ Open #106 on GitHub ↗')
 })
 
-test('a last comment or a blocker is drawn as plain Text, never as Markdown', () => {
-  const block = nodesOf(drawDesktop({ snapshot: snapshotWith({ thisIssue: { ...SAMPLE_THIS_ISSUE, blockedBy: 'Keep [x](y)?' } }) }))
+test('a last comment is drawn as plain Text, never as Markdown', () => {
+  const block = nodesOf(drawDesktop({ snapshot: snapshotWith() }))
     .find(node => node.props.backgroundColor === DETAILS_FILL)
   const plainTexts = nodesOf(block).filter(node => node.tag === 'Text').map(node => textOf(node.props.children))
-  expect(plainTexts).toContain('Keep [x](y)?')
   expect(plainTexts.some(text => /^dev-one · .+ ago · keep \*this\* \[markup\]\(x\) as text$/.test(text))).toBe(true)
   expect(nodesOf(block).filter(node => node.tag === 'Markdown').every(node => !String(node.props.text).includes('keep'))).toBe(true)
 })
@@ -593,15 +591,15 @@ test('the records line names one unreadable record in the singular, in both lang
   expect(drawnTexts(drawDesktop({ snapshot, lang: 'pt' }))).toContain('1 registro de sessão não pôde ser lido')
 })
 
-test('issue groups: open milestones by number, a milestone with no open issue as one line, no milestone last', () => {
+test('issue groups: open milestones by due date, then by number, a milestone with no open issue as one line, no milestone last', () => {
   const texts = drawnTexts(drawDesktop())
   const at = (text: string): number => texts.indexOf(text)
   expect(at('Milestone B')).toBeGreaterThan(-1)
   expect(at('Milestone A')).toBeGreaterThan(-1)
   expect(at('Milestone Z · all closed · ready to close')).toBeGreaterThan(-1)
   expect(at('Milestone Z')).toBe(-1)
-  expect(at('Milestone B') < at('Milestone A')).toBe(true)
-  expect(at('Milestone A') < at('Milestone Z · all closed · ready to close')).toBe(true)
+  expect(at('Milestone A') < at('Milestone B')).toBe(true)
+  expect(at('Milestone B') < at('Milestone Z · all closed · ready to close')).toBe(true)
   expect(at('Milestone Z · all closed · ready to close') < at('No milestone / issue')).toBe(true)
 })
 
@@ -852,4 +850,35 @@ test('the pane never draws "on this machine", in either language (sp-6)', () => 
     const texts = trees.flatMap(tree => drawnTexts(tree))
     expect(texts.some(text => /on this machine|neste computador/i.test(text))).toBe(false)
   }
+})
+
+// A snapshot whose one open issue (the first sample issue) carries these labels, drawn in no milestone group.
+const snapshotWithLabels = (labels: string[]): Snapshot => {
+  const issues = SAMPLE_ISSUES.slice(0, 1).map(issue => ({ ...issue, labels }))
+  return snapshotWith({ issueGroups: [{ milestone: null, closedTitle: null, issues, claimsLinked: false }] })
+}
+
+// The issue row of a drawn tree: the element keyed `line-<issue number>` (the only element whose key starts with `line-`).
+const issueLineOf = (tree: unknown): Drawn | undefined => nodesOf(tree).find(node => String(node.props.key ?? '').startsWith('line-'))
+
+test('the issue row leads with its priority tag: P0 and P1 are bold, P2 and an unlabelled row are not (terminal surface)', () => {
+  const high = issueLineOf(drawTerminal({ snapshot: snapshotWithLabels(['priority: high']) }))
+  expect(textOf(high?.props.children)).toMatch(/^P1 #\d+ /)
+  expect(high?.props.bold).toBe(true)
+  const critical = issueLineOf(drawTerminal({ snapshot: snapshotWithLabels(['P0']) }))
+  expect(textOf(critical?.props.children)).toMatch(/^P0 #\d+ /)
+  expect(critical?.props.bold).toBe(true)
+  const medium = issueLineOf(drawTerminal({ snapshot: snapshotWithLabels(['priority/medium']) }))
+  expect(textOf(medium?.props.children)).toMatch(/^P2 #\d+ /)
+  expect(medium?.props.bold).toBe(false)
+  const plain = issueLineOf(drawTerminal({ snapshot: snapshotWithLabels([]) }))
+  expect(textOf(plain?.props.children)).toMatch(/^#\d+ /)
+  expect(plain?.props.bold).toBe(false)
+})
+
+test('the issue row on the desktop draws its tag inside the link, bold for P0 and P1 only', () => {
+  const high = issueLineOf(drawDesktop({ snapshot: snapshotWithLabels(['prio-high']) }))
+  expect(String(high?.props.text)).toMatch(/^\*\*▪ \[P1 #\d+ /)
+  const low = issueLineOf(drawDesktop({ snapshot: snapshotWithLabels(['priority: low']) }))
+  expect(String(low?.props.text)).toMatch(/^▪ \[P3 #\d+ /)
 })

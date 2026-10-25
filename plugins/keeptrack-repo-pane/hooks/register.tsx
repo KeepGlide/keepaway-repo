@@ -69,7 +69,7 @@ const GH_OUTPUT_MAX_BYTES = 4 * 1024 * 1024
 const ISSUE_NUMBER_MAX = 999_999
 // The longest running tool name the band keeps (the main loop's tool, F11).
 export const TOOL_NAME_MAX = 64
-// The most Desktop files read per poll (askaway's DESKTOP_SCAN_MAX), the most candidate sessions git is asked about, and
+// The most Desktop files read per poll (DESKTOP_SCAN_MAX), the most candidate sessions git is asked about, and
 // the most git calls in flight at once.
 const DESKTOP_SCAN_MAX = 2000
 const CANDIDATE_MAX = 64
@@ -87,8 +87,6 @@ const OVERRIDE_PREFIX = 'override:'
 const LANG_KEY = 'lang'
 // The depth of the Desktop records folder: root/<org>/<user>/<session>.json (checked on the local records).
 const RECORD_FOLDER_DEPTH = 2
-// A question id is used in a path under the askaway folder, so it must be a plain name.
-const QUESTION_ID = /^[A-Za-z0-9_.-]{1,128}$/
 // The open issues: the rows of the pane, and each row's milestone (its number and title, for the closed-milestone groups).
 const ISSUE_FIELDS = 'number,title,milestone,labels,updatedAt,url'
 // The open PRs with the issues they close and the last commit's checks (repo-work-pane-design-spec.md D4). gh 2.45 has no such JSON field.
@@ -132,7 +130,7 @@ const loadFailedAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'loadFailed' }
 const langAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'lang' } as const, 'en' as Lang)
 // The main loop's turn, written by turn.start, tool.call, turn.complete and turn.abort: the band's status line reads it.
 const turnAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'turn' } as const, IDLE_TURN)
-// Whether this window's session has an open askaway question, read by the band tick (refreshWaiting), so a question shows within one tick.
+// Whether this window's session waits for the person: the engine asked about a tool call (tool.check answered ask) and the call has not run.
 const waitingAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'waiting' } as const, false)
 // The agents that have not ended, from $.agent.list(), and since when the current run of them began (readAgents).
 type AgentRun = { count: number; since: number | null }
@@ -146,7 +144,6 @@ type Repo = Remote
 type Entry = { path: string; size: number; mtimeMs: number }
 // A file's projected value, kept while its size and mtime stay the same.
 type Cached<T> = { size: number; mtimeMs: number; value: T }
-type QuestionRef = { id: string; session: string; title: string }
 type Timer = ReturnType<EngineInterface['clock']['every']>
 type Commit = { at: number; subject: string }
 type IssueComment = { author: string; at: number; body: string }
@@ -185,7 +182,6 @@ let bandTicks = 0
 let toolRedrawAt = Number.NEGATIVE_INFINITY
 let toolRedrawPending = false
 let recordCache = new Map<string, Cached<ProjectedRecord | null>>()
-let questionCache = new Map<string, Cached<QuestionRef | null>>()
 const remoteCache = new Map<string, Repo | null>()
 const commonDirCache = new Map<string, string>()
 let githubMemory: GithubMemory | null = null
@@ -263,7 +259,7 @@ function heldFor(surface: RenderSurface, requestId: string): HeldButtons {
   return table
 }
 
-// ---- Desktop records and the askaway folder (read only) ----
+// ---- Desktop records (read only) ----
 
 // The records root: KEEPTRACK_DESKTOP_SESSIONS when set (tests), else the Desktop folder under HOME.
 async function recordsRootOf($: EngineInterface): Promise<string | undefined> {
@@ -273,14 +269,7 @@ async function recordsRootOf($: EngineInterface): Promise<string | undefined> {
   return home ? `${home}/.config/Claude/claude-code-sessions` : undefined
 }
 
-async function askawayFolderOf($: EngineInterface): Promise<string | undefined> {
-  const custom = await $.env.get('ASKAWAY_HOME')
-  if (custom) return custom
-  const home = await $.env.get('HOME')
-  return home ? `${home}/.claude/state/askaway` : undefined
-}
-
-// The Desktop config (claude_desktop_config.json) and its sidebar Groups, read as Askaway reads them: only when its mtime
+// The Desktop config (claude_desktop_config.json) and its sidebar Groups, read for the group names and the session assignments only, when its mtime
 // changes (the folder listing gives it). A file that is not there names no Group, and every session sits under Recents. A file over
 // DESKTOP_CONFIG_MAX_BYTES, one that cannot be read or parsed, or a folder whose listing fails keeps the last Groups read.
 // No outcome is logged or toasted: a missing or odd config is normal, and the file also holds MCP settings. The cache is
@@ -418,35 +407,6 @@ async function scanRecords($: EngineInterface, root: string | undefined): Promis
     unreadable: values.filter(item => item === null).length,
     complete: !listing.failed && sized.length === listing.files.length && values.every(isPresent),
   }
-}
-
-// The open askaway question of each Desktop session, by session id: its title (repo-work-pane-design-spec.md D5, D7). A question is open when
-// its q/<id>.json has no a/<id>.json yet; desktop_session holds the local_ session id. A missing folder is no question.
-// null when the answer is unknown: the folder did not list, or it holds more files than DESKTOP_SCAN_MAX, so a question may lie past
-// the cut (st-2, st-3).
-async function blockersOf($: EngineInterface): Promise<Map<string, string> | null> {
-  const blockers = new Map<string, string>()
-  const folder = await askawayFolderOf($)
-  if (folder === undefined) return blockers
-  const listing = await filesUnder($, `${folder}/q`, 0, isJsonName)
-  const sized = listing.files.filter(file => file.size <= RECORD_MAX_BYTES)
-  if (listing.failed || sized.length > DESKTOP_SCAN_MAX) return null
-  const { values, kept } = await cachedValues($, sized, questionCache, questionRefOf)
-  questionCache = kept
-  for (const question of values) {
-    if (question === null || blockers.has(question.session)) continue
-    const answered = await $.fs.exists(`${folder}/a/${question.id}.json`).catch(() => true)
-    if (!answered) blockers.set(question.session, question.title)
-  }
-  return blockers
-}
-
-function questionRefOf(value: unknown): QuestionRef | null {
-  const id = textOf(childOf(value, 'id'))
-  const session = textOf(childOf(value, 'desktop_session'))
-  const title = plain(textOf(childOf(value, 'title')) ?? '', TEXT_MAX)
-  if (id === null || !QUESTION_ID.test(id) || session === null || !isSessionLinkId(session)) return null
-  return { id, session, title }
 }
 
 // An override's time is live when it is a time from 0 up to now and no older than OVERRIDE_TTL_MS (SPEC 13); any other value is expired.
@@ -702,7 +662,8 @@ type TreeInputs = {
   thisId: string | null
   prsByBranch: ReadonlyMap<string, PullRequest>
   overrides: ReadonlyMap<string, number>
-  blockers: ReadonlyMap<string, string>
+  // Whether this window's session waits for the person; only its own record can wait.
+  ownWaiting: boolean
   issueFacts: ReadonlyMap<number, IssueFacts>
   // The records up the candidates' parent chains that are not listed, and the Desktop sidebar Groups.
   ancestors: readonly ProjectedRecord[]
@@ -716,7 +677,7 @@ function inputOf(entry: Candidate, inputs: TreeInputs, commits: ReadonlyMap<stri
     branch,
     pr: branch === null ? null : (inputs.prsByBranch.get(branch) ?? null),
     override: inputs.overrides.get(record.sessionId) ?? null,
-    waiting: inputs.blockers.has(record.sessionId),
+    waiting: inputs.ownWaiting && record.cliSessionId === inputs.thisId,
     commits: commits.get(record.sessionId) ?? [],
   }
 }
@@ -762,9 +723,8 @@ type SessionsOutcome = {
   nodes: SessionNode[]
   gitFailed: boolean
   unreadable: number
-  // The commits of each kept session (newest first) and the open askaway question of each waiting session.
+  // The commits of each kept session, newest first.
   commits: ReadonlyMap<string, Commit[]>
-  blockers: ReadonlyMap<string, string>
 }
 
 // The session tree of this repo (repo-work-pane-design-spec.md 2.1 steps 2 to 5). The first tree decides which sessions are kept, so the
@@ -783,13 +743,13 @@ async function sessionsOf(
   if (scan.complete && isNewest(seq)) await pruneOverrides($, new Set(scan.records.map(record => record.sessionId)))
   const members = await memberRecordsOf($, scan.records, context, thisId)
   const candidates = admittedOf(await withBranches($, members.records), new Set(github.prs.map(pr => pr.headRefName)), thisId)
-  const blockers = await blockersOf($)
+  const ownWaiting = await read($, waitingAtom)
   const inputs: TreeInputs = {
     now,
     thisId,
     prsByBranch: pullRequestsByBranch(github.prs),
     overrides: await overridesOf($, now),
-    blockers,
+    ownWaiting,
     issueFacts: issueFactsOf(github.milestones, github.issues),
     ancestors: ancestorsOf(candidates.map(entry => entry.record), scan.records),
     desktopGroups: await readDesktopGroups($),
@@ -801,7 +761,6 @@ async function sessionsOf(
     gitFailed: members.membershipFailed || candidates.some(entry => entry.gitFailed),
     unreadable: scan.unreadable,
     commits,
-    blockers,
   }
 }
 
@@ -1032,12 +991,11 @@ function issueViewOf(text: string): IssueView | null {
   }
 }
 
-// What the pane shows of this window's issue beside the issue view: its branch, its open PR, its last commit, its blocker.
+// What the pane shows of this window's issue beside the issue view: its branch, its open PR and its last commit.
 type WindowFacts = {
   node: SessionNode
   pr: PullRequest | null
   lastCommit: Commit | null
-  blockedBy: string | null
 }
 
 function detailsOf(view: IssueView, facts: WindowFacts): IssueDetails {
@@ -1056,7 +1014,6 @@ function detailsOf(view: IssueView, facts: WindowFacts): IssueDetails {
     lastCommit: facts.lastCommit,
     checks: null,
     lastComment: view.lastComment,
-    blockedBy: facts.blockedBy,
     startedAt: facts.node.createdAt,
   }
 }
@@ -1090,7 +1047,7 @@ async function windowIssueFor(
   if (node === undefined || repo === null || root === null) return NO_WINDOW_ISSUE
   const pr = node.branch === null ? null : (github.prs.find(candidate => candidate.headRefName === node.branch) ?? null)
   const lastCommit = sessions.commits.get(node.id)?.[0] ?? null
-  return windowIssueOf($, root, repo, { node, pr, lastCommit, blockedBy: sessions.blockers.get(node.id) ?? null })
+  return windowIssueOf($, root, repo, { node, pr, lastCommit })
 }
 
 type GithubPart = {
@@ -1243,7 +1200,6 @@ async function buildSnapshot($: EngineInterface, seq: number, epoch: number): Pr
 }
 
 // Writes the poll's snapshot, unless a newer poll has written (R2-04); a poll with no repo context yet writes no snapshot.
-// The band's waiting flag is not written here: the band tick (refreshWaiting) owns it, so two writers never race on it (state2-7).
 async function refresh($: EngineInterface, seq: number, epoch: number): Promise<void> {
   const snapshot = await buildSnapshot($, seq, epoch)
   // A poll that began under an earlier session writes nothing: the session it read is gone (state2-6).
@@ -1400,14 +1356,13 @@ function startBandTick($: EngineInterface): void {
   bandTick = $.clock.every(BAND_TICK_MS, () => report($, tickBand($)))
 }
 
-// The band's tick: it re-reads the agents and the question folder, ends a turn that lost its end, redraws on every tick while any
+// The band's tick: it re-reads the agents, ends a turn that lost its end, redraws on every tick while any
 // agent runs, and otherwise on the cadence of bandRedrawDue. A count that changed is drawn at once, so the band shows Idle as soon
 // as the last agent ends.
 async function tickBand($: EngineInterface): Promise<void> {
   bandTicks += 1
   const before = await read($, agentRunAtom)
   await readAgents($).catch((error: unknown) => logLine($, `agent list failed (${failureNameOf(error)})`))
-  await refreshWaiting($).catch((error: unknown) => logLine($, `question check failed (${failureNameOf(error)})`))
   await endStaleTurn($)
   const after = await read($, agentRunAtom)
   if (after.count !== before.count || after.count > 0 || bandRedrawDue(await read($, turnAtom), bandTicks)) {
@@ -1518,23 +1473,6 @@ function bandErrorOf(snapshot: Snapshot | null): boolean {
   return snapshot?.errors.some(error => !UNFLAGGED_BAND_ERRORS.includes(error)) === true
 }
 
-// The band's waiting flag, refreshed by the band tick: this window's session has an open askaway question. The tick reads the question
-// folder for it, so a question shows within one BAND_TICK_MS, not at the poll's cadence (the closed pane polls every BAND_POLL_MS).
-async function refreshWaiting($: EngineInterface): Promise<void> {
-  // A read that ends after a session.start writes nothing: the flag belongs to the session that the start replaced (state2-7).
-  const epoch = sessionEpoch
-  const snapshot = await read($, snapshotAtom)
-  const own = snapshot === null ? undefined : flattenNodes(snapshot.sessions).find(node => node.isThisWindow)
-  const blockers = own === undefined ? new Map<string, string>() : await blockersOf($)
-  const current = await read($, waitingAtom)
-  // An unknown answer (blockersOf null) keeps the flag as it is (st-2, st-3).
-  if (epoch !== sessionEpoch || blockers === null) return
-  const waiting = own !== undefined && blockers.has(own.id)
-  if (waiting === current) return
-  await update($, waitingAtom, () => waiting)
-  $.ui.invalidate('ui.render')
-}
-
 // A turn past TURN_MAX_AGE_MS has lost its end event (a restart, a reload): it ends here, so the band does not count it forever.
 // The band redraws at once when the end changes the turn, so the Running line does not wait for the next odd tick (state2-8, rev-g1-9).
 async function endStaleTurn($: EngineInterface): Promise<void> {
@@ -1618,6 +1556,21 @@ async function runCommand($: EngineInterface, args: string): Promise<void> {
   return toastUsage($)
 }
 
+// The band's waiting flag: this window's session waits for the person while the engine has put a tool call to them (tool.check
+// answers ask). It clears when the call runs, when a turn starts or ends, and when a session starts. A write from a session that was
+// replaced in flight writes nothing (state2-7).
+async function setWaiting($: EngineInterface, waiting: boolean, epoch: number): Promise<void> {
+  if (epoch !== sessionEpoch) return
+  try {
+    if ((await read($, waitingAtom)) === waiting) return
+    await update($, waitingAtom, () => waiting)
+  } catch (error: unknown) {
+    logLine($, `waiting flag failed (${failureNameOf(error)})`)
+    return
+  }
+  $.ui.invalidate('ui.render')
+}
+
 export const register: Register = on => {
   // A new session drops the old timer and registers the command in the session's language.
   on('session.start', async ($, e, next) => {
@@ -1662,7 +1615,7 @@ export const register: Register = on => {
   })
 
   // The band row above the prompt, on the desktop and the terminal, drawn from its atoms alone. A render starts no work: the band's
-  // repo text comes from the poll on the window's timer (POLL_MS open, BAND_POLL_MS closed), its turn and waiting flag from the band tick
+  // repo text comes from the poll on the window's timer (POLL_MS open, BAND_POLL_MS closed), its turn from the band tick, its waiting flag from the tool.check hook
   // (SPEC section 18).
   on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
     // A draw that finds the timers missing (a reloaded instance) starts them through the clock, as the pane's draw does.
@@ -1694,19 +1647,30 @@ export const register: Register = on => {
   // unchanged (SPEC section 18).
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) await beginTurn($)
+    if (e.agentId === undefined) await setWaiting($, false, sessionEpoch)
     report($, refreshAgents($))
     return next(e)
   })
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) await finishTurn($)
+    if (e.agentId === undefined) await setWaiting($, false, sessionEpoch)
     report($, refreshAgents($))
     return next(e)
   })
   on('turn.abort', async ($, e, next) => {
     if (e.agentId === undefined) await finishTurn($)
+    if (e.agentId === undefined) await setWaiting($, false, sessionEpoch)
     return next(e)
   })
+  // The engine asks the person about a tool call (decision ask): this window waits until the call runs, or a verdict clears the ask.
+  on('tool.check', async ($, e, next) => {
+    const epoch = sessionEpoch
+    const verdict = await next(e)
+    await setWaiting($, verdict.decision === 'ask', epoch)
+    return verdict
+  })
   on('tool.call', async ($, e, next) => {
+    await setWaiting($, false, sessionEpoch)
     // The main loop's call names the band's tool; a subagent's call only redraws the band (at most once per second).
     if (e.agentId === undefined) await noteTool($, e.tool)
     else await redrawForTool($)

@@ -8,6 +8,7 @@ import type {
   IssueGroup,
   IssueRef,
   Milestone,
+  Priority,
   ProjectedRecord,
   PullRequest,
   SessionGroup,
@@ -491,8 +492,56 @@ function newestFirst(issues: readonly Issue[]): Issue[] {
   return [...issues].sort((a, b) => time(b) - time(a))
 }
 
-// The issue groups of the pane (repo-work-pane-design-spec.md D4): one group per open milestone, by number descending, each with its issues
-// that no session shows (`linked`). An open milestone with no such issue is a one-line group (issues empty): if its openIssues is above 0,
+// The priority tags by the label text in lower case: P0 to P3, and the word of a `priority` label (critical is P0, high P1,
+// medium P2, low P3).
+const PRIORITY_TAGS: Readonly<Record<string, Priority>> = {
+  p0: 'P0', p1: 'P1', p2: 'P2', p3: 'P3', critical: 'P0', high: 'P1', medium: 'P2', low: 'P3',
+}
+// The priorities from the highest to the lowest.
+const PRIORITIES: readonly Priority[] = ['P0', 'P1', 'P2', 'P3']
+// A label that names a priority, case-insensitive: `P0` to `P3`, or `priority` (or `prio`) then a separator (`:`, `/`, `-`, a space or
+// none) and the word.
+const PRIORITY_LABEL = /^(?:(p[0-3])|prio(?:rity)?\s*[:/_-]?\s*(critical|high|medium|low))$/i
+
+// The priority the labels name, the highest one when several do; null when no label names one (an unlabelled issue).
+export function priorityOf(labels: readonly string[]): Priority | null {
+  const tags = labels.flatMap(label => {
+    const match = PRIORITY_LABEL.exec(label.trim())
+    const tag: Priority | undefined = match === null ? undefined : PRIORITY_TAGS[(match[1] ?? match[2] ?? '').toLowerCase()]
+    return tag === undefined ? [] : [tag]
+  })
+  return PRIORITIES.find(priority => tags.includes(priority)) ?? null
+}
+
+// The order of the issues inside one group: priority first (P0 first, unlabelled last), then newest first. The sort is stable,
+// so the newest-first order holds inside each priority.
+function issueOrder(issues: readonly Issue[]): Issue[] {
+  const rank = (issue: Issue): number => {
+    const priority = priorityOf(issue.labels)
+    return priority === null ? PRIORITIES.length : PRIORITIES.indexOf(priority)
+  }
+  return [...newestFirst(issues)].sort((a, b) => rank(a) - rank(b))
+}
+
+// The due date of a milestone in epoch ms, null when GitHub sets none (or the date does not parse).
+function dueTimeOf(milestone: Milestone): number | null {
+  const time = Date.parse(milestone.dueOn ?? '')
+  return Number.isNaN(time) ? null : time
+}
+
+// The order of the open milestone groups: the dated ones by due date, earliest first (an overdue one leads), then the undated ones.
+// Ties, and the undated ones among themselves, go by number, newest first.
+function byDueDate(a: Milestone, b: Milestone): number {
+  const dueA = dueTimeOf(a)
+  const dueB = dueTimeOf(b)
+  if (dueA === null && dueB === null) return b.number - a.number
+  if (dueA === null) return 1
+  if (dueB === null) return -1
+  return dueA - dueB || b.number - a.number
+}
+
+// The issue groups of the pane (repo-work-pane-design-spec.md D4): one group per open milestone, by due date (byDueDate), each with its issues
+// that no session shows (`linked`), by priority then newest first (issueOrder). An open milestone with no such issue is a one-line group (issues empty): if its openIssues is above 0,
 // its title shows that count of open issues, all in sessions, but only when the list is complete (`issuesPartial` false) and holds every
 // open issue the milestone counts (claimsLinked, rev-g1-5). The issues of a closed milestone form one group per milestone, titled by the
 // issue's own milestone field and marked closed (pm1-9). Issues without a milestone form the last group, shown only when it has issues.
@@ -500,15 +549,15 @@ export function groupIssues(milestones: Milestone[], issues: Issue[], linked: Re
   const unlinked = issues.filter(issue => !linked.has(issue.number))
   const listed = new Set(milestones.map(milestone => milestone.number))
   const groups: IssueGroup[] = [...milestones]
-    .sort((a, b) => b.number - a.number)
+    .sort(byDueDate)
     .map(milestone => ({
       milestone,
       closedTitle: null,
-      issues: newestFirst(unlinked.filter(issue => issue.milestone === milestone.number)),
+      issues: issueOrder(unlinked.filter(issue => issue.milestone === milestone.number)),
       claimsLinked: !issuesPartial && issues.filter(issue => issue.milestone === milestone.number).length === milestone.openIssues,
     }))
   groups.push(...closedGroupsOf(listed, unlinked))
-  const loose = newestFirst(
+  const loose = issueOrder(
     unlinked.filter(issue => issue.milestone === null || (!listed.has(issue.milestone) && issue.milestoneTitle === null)),
   )
   if (loose.length > 0) groups.push({ milestone: null, closedTitle: null, issues: loose, claimsLinked: false })
@@ -528,7 +577,7 @@ function closedGroupsOf(listed: ReadonlySet<number>, unlinked: readonly Issue[])
     .map(([number, title]) => ({
       milestone: null,
       closedTitle: title,
-      issues: newestFirst(unlinked.filter(issue => issue.milestone === number)),
+      issues: issueOrder(unlinked.filter(issue => issue.milestone === number)),
       claimsLinked: false,
     }))
 }
@@ -558,7 +607,7 @@ export function timelineOf(
   return events.sort((a, b) => b.at - a.at).slice(0, limit)
 }
 
-// The state of a session (repo-work-pane-design-spec.md D7): waiting when an open askaway question names it; else working when its last
+// The state of a session (repo-work-pane-design-spec.md D7): waiting when this window's session waits for the person; else working when its last
 // activity is at most WORKING_WINDOW_MS old; else idle. A future activity counts as working.
 export function stateOf(lastActivityAt: number, now: number, waiting: boolean): SessionNode['state'] {
   if (waiting) return 'waiting'
@@ -626,7 +675,7 @@ export function projectRecord(raw: unknown): ProjectedRecord | null {
   }
 }
 
-// The Desktop sidebar groups, read from the Desktop config (claude_desktop_config.json), as Askaway reads them: each group's name
+// The Desktop sidebar groups, read from the Desktop config (claude_desktop_config.json), each group's name
 // by its id, and the group each Desktop session (local_<id>) is filed under. A config of any other shape names none.
 export type DesktopGroups = { names: ReadonlyMap<string, string>; assignments: ReadonlyMap<string, string> }
 export const NO_DESKTOP_GROUPS: DesktopGroups = { names: new Map(), assignments: new Map() }

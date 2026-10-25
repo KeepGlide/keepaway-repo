@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import type { IssueRef, SessionNode } from '../types'
+import type { Issue, IssueRef, Milestone, SessionNode } from '../types'
 import {
   FIELD_MAX_LENGTH,
   LABEL_MAX,
@@ -19,6 +19,7 @@ import {
   parseDesktopGroups,
   parseRemote,
   plain,
+  priorityOf,
   projectRecord,
   stateOf,
   timelineOf,
@@ -809,8 +810,8 @@ test('P1: a Desktop Group with the reserved id recents is skipped: its session s
 test('groupIssues on the sample shape: three milestones, the linked issues left out, the no-milestone group last', () => {
   const groups = groupIssues(SAMPLE_MILESTONES, SAMPLE_ISSUES, SAMPLE_LINKED, false)
   expect(shapeOf(groups)).toEqual([
-    [23, [105, 108, 107]],
     [22, [90]],
+    [23, [105, 108, 107]],
     [21, []],
     [null, [15]],
   ])
@@ -827,13 +828,13 @@ test('groupIssues: an open milestone with no open issue gives a one-line group w
 test('groupIssues: no no-milestone group when every unlinked issue has a milestone', () => {
   const withMilestone = SAMPLE_ISSUES.filter(issue => issue.milestone !== null)
   const groups = groupIssues(SAMPLE_MILESTONES, withMilestone, SAMPLE_LINKED, false)
-  expect(groups.map(group => group.milestone?.number ?? null)).toEqual([23, 22, 21])
+  expect(groups.map(group => group.milestone?.number ?? null)).toEqual([22, 23, 21])
 })
 
 test('pm1-9: the issues of a closed milestone form their own group, titled by the issue milestone, after the open groups', () => {
   const closed = { ...SAMPLE_ISSUES[0], number: 200, milestone: 99, milestoneTitle: 'Closed milestone' }
   const groups = groupIssues(SAMPLE_MILESTONES, [...SAMPLE_ISSUES, closed], SAMPLE_LINKED, false)
-  expect(groups.map(group => group.closedTitle ?? group.milestone?.number ?? null)).toEqual([23, 22, 21, 'Closed milestone', null])
+  expect(groups.map(group => group.closedTitle ?? group.milestone?.number ?? null)).toEqual([22, 23, 21, 'Closed milestone', null])
   expect(groups[3]?.milestone).toBeNull()
   expect(groups[3]?.issues.map(issue => issue.number)).toEqual([200])
 })
@@ -1002,4 +1003,104 @@ test('projectRecord rejects an oversized text field: over the limit is null, at 
 
 test('the record size limit is 2 MiB', () => {
   expect(RECORD_MAX_BYTES).toBe(2 * 1024 * 1024)
+})
+
+// An issue of milestone 23 with the given labels and update time, for the priority and order tests.
+const priorityIssue = (number: number, labels: string[], updatedAt: string): Issue => ({
+  number,
+  title: 'Synthetic issue ' + String(number),
+  milestone: 23,
+  milestoneTitle: 'Milestone B',
+  labels,
+  updatedAt,
+  url: 'https://github.com/synthetic-owner/synthetic-repo/issues/' + String(number),
+})
+
+const dueMilestone = (number: number, dueOn: string | null): Milestone => ({
+  number,
+  title: 'Milestone ' + String(number),
+  openIssues: 0,
+  closedIssues: 0,
+  dueOn,
+  countsExact: true,
+})
+
+test('priorityOf: P0 to P3 and the critical, high, medium and low words map to P0 to P3', () => {
+  expect(['P0', 'P1', 'P2', 'P3'].map(label => priorityOf([label]))).toEqual(['P0', 'P1', 'P2', 'P3'])
+  expect(['critical', 'high', 'medium', 'low'].map(word => priorityOf(['priority: ' + word]))).toEqual(['P0', 'P1', 'P2', 'P3'])
+})
+
+test('priorityOf: case-insensitive, and the priority/, priority- and prio variants are read', () => {
+  expect(priorityOf(['p1'])).toBe('P1')
+  expect(priorityOf(['PRIORITY: CRITICAL'])).toBe('P0')
+  expect(priorityOf(['priority/high'])).toBe('P1')
+  expect(priorityOf(['priority-medium'])).toBe('P2')
+  expect(priorityOf(['Priority:low'])).toBe('P3')
+  expect(priorityOf(['prio: high'])).toBe('P1')
+  expect(priorityOf(['prio-low'])).toBe('P3')
+  expect(priorityOf([' P2 '])).toBe('P2')
+})
+
+test('priorityOf: no label, an unrelated label or an unknown level gives null', () => {
+  expect(priorityOf([])).toBeNull()
+  expect(priorityOf(['type:bug', 'bug', 'good first issue'])).toBeNull()
+  expect(priorityOf(['P4', 'priority: urgent', 'priorityhigh-ish', 'prio'])).toBeNull()
+})
+
+test('priorityOf: several priority labels give the highest one', () => {
+  expect(priorityOf(['P3', 'priority: high'])).toBe('P1')
+  expect(priorityOf(['priority: low', 'P0', 'prio: medium'])).toBe('P0')
+})
+
+test('groupIssues: inside a group the issues sort by priority, P0 first and unlabelled last, then newest first', () => {
+  const issues = [
+    priorityIssue(1, [], '2026-10-09T00:00:00Z'),
+    priorityIssue(2, ['P2'], '2026-10-08T00:00:00Z'),
+    priorityIssue(3, ['priority: critical'], '2026-10-01T00:00:00Z'),
+    priorityIssue(4, ['priority/high'], '2026-10-05T00:00:00Z'),
+    priorityIssue(5, ['P1'], '2026-10-07T00:00:00Z'),
+    priorityIssue(6, ['priority: low'], '2026-10-06T00:00:00Z'),
+  ]
+  const group = groupIssues([dueMilestone(23, null)], issues, new Set(), false)[0]
+  expect(group?.issues.map(issue => issue.number)).toEqual([3, 5, 4, 2, 6, 1])
+})
+
+test('groupIssues: the no-milestone and closed-milestone groups sort by priority too', () => {
+  const loose = [priorityIssue(7, [], '2026-10-09T00:00:00Z'), priorityIssue(8, ['P0'], '2026-10-01T00:00:00Z')].map(issue => ({
+    ...issue,
+    milestone: null,
+    milestoneTitle: null,
+  }))
+  const closed = [priorityIssue(9, ['P2'], '2026-10-09T00:00:00Z'), priorityIssue(10, ['P0'], '2026-10-01T00:00:00Z')].map(issue => ({
+    ...issue,
+    milestone: 40,
+    milestoneTitle: 'Old',
+  }))
+  const groups = groupIssues([], [...loose, ...closed], new Set(), false)
+  expect(groups.map(group => group.issues.map(issue => issue.number))).toEqual([[10, 9], [8, 7]])
+})
+
+test('groupIssues: open milestones by due date, earliest first, then by number; undated ones after them by number', () => {
+  const milestones = [
+    dueMilestone(21, null),
+    dueMilestone(22, '2026-10-31T07:00:00Z'),
+    dueMilestone(23, null),
+    dueMilestone(24, '2026-10-05T07:00:00Z'),
+    dueMilestone(26, '2026-10-31T07:00:00Z'),
+  ]
+  const order = groupIssues(milestones, [], new Set(), false).map(group => group.milestone?.number)
+  // 24 is overdue, 26 and 22 share a date (the higher number first), then the undated 23 and 21.
+  expect(order).toEqual([24, 26, 22, 23, 21])
+})
+
+test('groupIssues: a milestone whose due date does not parse is taken as undated', () => {
+  const milestones = [dueMilestone(31, 'not a date'), dueMilestone(30, '2026-11-01T00:00:00Z'), dueMilestone(32, null)]
+  expect(groupIssues(milestones, [], new Set(), false).map(group => group.milestone?.number)).toEqual([30, 32, 31])
+})
+
+test('groupIssues: closed-milestone groups stay after the open ones, by number descending', () => {
+  const closed = priorityIssue(9, [], '2026-10-09T00:00:00Z')
+  const open = dueMilestone(22, '2026-10-31T07:00:00Z')
+  const groups = groupIssues([open], [{ ...closed, milestone: 40, milestoneTitle: 'Old' }], new Set(), false)
+  expect(groups.map(group => group.milestone?.number ?? group.closedTitle)).toEqual([22, 'Old'])
 })

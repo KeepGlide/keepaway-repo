@@ -19,8 +19,8 @@ import type {
   TimelineEvent,
 } from '../types'
 import { t, type Lang, type MessageKey } from './i18n'
-import { RECENTS_GROUP, TEXT_MAX, TIMELINE_LIMIT, isSessionLinkId, plain } from './model'
-import { BRANCH_GLYPH, DETAILS_FILL, LINK_MARK, STATE_GLYPH } from './look'
+import { RECENTS_GROUP, TEXT_MAX, TIMELINE_LIMIT, isSessionLinkId, plain, priorityOf } from './model'
+import { BRANCH_GLYPH, DETAILS_FILL, EMPHASISED_PRIORITIES, LINK_MARK, STATE_GLYPH } from './look'
 import { KEEPGLIDE_HEADER_SIZE, renderKeepGlide, renderKeepTrackLogo } from './logo-element'
 
 type Ui = Elements[RenderSurface]
@@ -425,7 +425,6 @@ function detailLinesOf(view: View, node: SessionNode, issue: IssueDetails): Deta
     { key: 'commit', label: t(lang, 'detail.lastCommit'), value: commitTextOf(lang, issue.lastCommit, now) },
     { key: 'checks', label: t(lang, 'detail.checks'), value: issue.checks ?? t(lang, 'detail.noCi') },
     { key: 'comment', label: t(lang, 'detail.lastComment'), value: commentTextOf(lang, issue.lastComment, now) },
-    { key: 'blocked', label: t(lang, 'detail.blockedBy'), value: issue.blockedBy ?? t(lang, 'detail.nothing') },
     { key: 'next', label: t(lang, 'detail.nextStep'), value: t(lang, 'detail.noNextStep') },
     {
       key: 'started',
@@ -568,15 +567,19 @@ function renderIssue(view: View, issue: Issue): RenderElement {
 
 // An issue row is a link to its GitHub page on the desktop, which opens it; the terminal and any address that is not a
 // plain https one draw the row as plain Text.
+// The priority tag ("P1") leads the row's text; P0 and P1 rows are drawn bold (EMPHASISED_PRIORITIES).
 function renderIssueLine(view: View, issue: Issue): RenderElement {
   const { ui } = view
-  const label = `#${issue.number} ${issue.title}`
+  const priority = priorityOf(issue.labels)
+  const label = `${priority === null ? '' : `${priority} `}#${issue.number} ${issue.title}`
+  const emphasised = priority !== null && EMPHASISED_PRIORITIES.includes(priority)
   if (view.desktop && 'Markdown' in ui && GITHUB_PAGE_URL.test(issue.url)) {
     const { Markdown } = ui
-    return <Markdown key={`line-${issue.number}`} text={`${LINK_MARK} [${escapeMarkdown(label)}](${issue.url})`} />
+    const link = `${LINK_MARK} [${escapeMarkdown(label)}](${issue.url})`
+    return <Markdown key={`line-${issue.number}`} text={emphasised ? `**${link}**` : link} />
   }
   const { Text } = ui
-  return <Text key={`line-${issue.number}`}>{label}</Text>
+  return <Text key={`line-${issue.number}`} bold={emphasised}>{label}</Text>
 }
 
 function renderFooter(view: View, snapshot: Snapshot): RenderElement {

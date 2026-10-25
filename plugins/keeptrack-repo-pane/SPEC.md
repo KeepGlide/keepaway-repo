@@ -67,8 +67,7 @@ where it differs from that record (section 9).
    4. Candidates: this window's record always; any other record whose git common dir has an origin that names this repo (match by host, owner and name, case-insensitive; the newest 63 others by activity, plus every other one among the newest 256 records by activity whose branch has an open PR; section 16). An archived record is never a candidate, except this window's own (section 9). The records up the parent chains of the candidates that are not candidates themselves, in any state (archived, of another repo, past the 64 cap), are context ancestors (`ancestorsOf`): they link and group the tree only, and are never listed, never counted, never asked of git and never read beyond the scan. A record with no `gitAnchors` derives its common dir with
       `git rev-parse --path-format=absolute --git-common-dir` in its cwd. A common dir that git reports as not a repository (exit 128, not-a-repository stderr) is a definite non-member: the record is left out and sets no `git-failed`.
    5. Branch of each member of the newest 4 × 64 others (the scan window; membership is checked there too): `git symbolic-ref --quiet HEAD` in its cwd, `refs/heads/` removed (detached HEAD gives no branch; section 4). The open-PR admission of step 4 needs these reads.
-   6. Open askaway questions: `ASKAWAY_HOME` (or `~/.claude/state/askaway`), `q/*.json` with no `a/<id>.json` yet; the question's
-      `desktop_session` names the session, its `title` is the blocker text. A missing folder is no question.
+   6. Waiting: nothing is read here, and no Askaway file is read anywhere. This window's flag comes from the engine's `tool.check` verdict (`ask`), see section 11 (the band) and the hook note in section 3.
    7. Overrides: store keys `override:<sessionId>`.
    8. Tree (`buildTree`), Askaway's shape: group, then each top session, then its derived sessions.
       - Listing (`keptIds`): this window at any state, the live members (not archived, and active within 72 h or with an open
@@ -171,7 +170,6 @@ When this window's node has an issue, one gh call (section 4, call 4) fills `Iss
 - `checks`: always null in v1; the pane draws `no CI`.
 - `lastComment`: the newest comment (`newestCommentOf`), body previewed to 200 characters; or null. Only the newest comment of
   the issue is kept.
-- `blockedBy`: the title of the open askaway question of this window, or null.
 - `startedAt`: the record's `createdAt`.
 
 A failed call keeps no details (`thisIssue` null), sets `stale`, and adds the error line for its failure. No call, and no
@@ -285,8 +283,7 @@ Inside one highlighted block (the engine's user-message background, `DETAILS_FIL
 1. Title row: the session title as a link to `#local_<id>` on the desktop (plain text on the terminal), `← this window`.
 2. Breadcrumb (section 10).
 3. Detail lines `Heading: text` (only when `thisIssue` is drawn): State, Branch, PR, Last commit, Checks, Last comment,
-   Blocked by, Next step, Started. Each heading is bold; each line is a separate row. "Blocked by" is `nothing` when no open
-   question names the session. "Next step" reads `no next step` (pt-BR `nenhum registrado`) while no value exists, which is
+   Next step, Started. Each heading is bold; each line is a separate row. "Next step" reads `no next step` (pt-BR `nenhum registrado`) while no value exists, which is
    always so far, since no snapshot field feeds it. "Started" is `hh:mm · <age>`, or `YYYY-MM-DD hh:mm · <age>` once the start is over a day old (ux-9).
 4. Timeline (section 10).
 5. The GitHub link as the last line: on the desktop `▪ Open #n on GitHub ↗`, a Markdown link to a https://github.com page (the arrow marks that it opens); on the terminal `▪ Open #n on GitHub`, plain text without the arrow (ux-7).
@@ -308,6 +305,8 @@ whose open issues all sit on sessions draws one line instead of its issues, `<ti
 `No milestone / issue` (pt-BR `Sem milestone / issue`). The issues of a closed milestone are not in that group: they are grouped
 under the closed milestone's title, marked `<title> · closed` (pt-BR `<title> · fechado`) with no progress line, the title read from
 each issue's own milestone field (pm1-9).
+
+Open milestone groups sort by due date, earliest first (an overdue one leads), then by number, newest first. A milestone with no due date, or one whose date does not parse, comes after the dated ones, by number, newest first. Inside every group the issues sort by priority, P0 first and unlabelled last, then newest first (a stable sort, so the newest-first order holds within a priority). A priority comes from the issue's labels, case-insensitive: `P0` to `P3`, or `priority: critical|high|medium|low` with the `priority/…`, `priority-…` and `prio…` variants, read as P0 to P3 (critical is P0, low is P3); when several labels name one, the highest wins (`priorityOf`, `hooks/model.ts`). The row draws the tag before its number (`P1 #12 title`); P0 and P1 rows draw bold (`EMPHASISED_PRIORITIES`, `hooks/look.ts`). The session line does not carry the tag: its breadcrumb reads IssueFacts, which would have to widen for it.
 
 The pane's footer reads `Updated <age> · gh · <owner/name>` (pt-BR `Atualizado <age> · gh · <owner/name>`). The age uses the same
 scale as the rows: `just now` (pt-BR `agora`) under one minute, then `N min ago` (`há N min`), `N h ago` (`há N h`) or `N d ago`
@@ -339,9 +338,8 @@ scale as the rows: `just now` (pt-BR `agora`) under one minute, then `N min ago`
 
 ## 14. Environment overrides (tests)
 
-- `HOME`: the records root (`$HOME/.config/Claude/claude-code-sessions`) and the askaway folder (`$HOME/.claude/state/askaway`).
+- `HOME`: the records root (`$HOME/.config/Claude/claude-code-sessions`).
 - `KEEPTRACK_DESKTOP_SESSIONS`: the records root (tests).
-- `ASKAWAY_HOME`: the askaway state folder.
 - `KEEPTRACK_POLL_MS`: the poll interval while the pane is open, at least 1000 ms (tests); an invalid value falls back to the default 60000 (sp-5, tested).
 - `KEEPTRACK_BAND_POLL_MS`: the poll interval while the pane is closed, at least 1000 ms (tests). The default is 300000.
 
@@ -430,7 +428,7 @@ Done in the Claude Desktop with the mod installed, not by the build:
   idle 💤, thinking 💭, waiting ⏳, MCP 🔌, shell 💻 (`Bash`), read 📖 (`Read`), edit ✏️ (`Edit`, `Write`, `MultiEdit`, `NotebookEdit`),
   search 🔎 (`Grep`, `Glob`), web 🌐 (`WebFetch`, `WebSearch`), agent 🤖 (`Agent`, and the agent count), any other tool 🔧,
   milestone 🎯, issue 📌, no issue 📭, no GitHub remote 🚫, error ⚠️. The register passes two flags: `waiting`, when this window's session is waiting for the user (its node in the session tree reads
-  `waiting`, from an open askaway question; the status line starts with `waiting for you`, pt-BR `esperando você`); and `error`, when the
+  `waiting`: set when the engine's tool check answers `ask` (the engine puts a tool call to the person), cleared when that call runs, when a turn starts or ends, and when a session starts; the status line starts with `waiting for you`, pt-BR `esperando você`); and `error`, when the
   snapshot holds an error other than `no-remote`, `gh-missing` or `gh-auth` (the band does not flag those three, which the repo line already names) (the repo context line ends with `data error`, pt-BR `erro nos dados`).
 - Status line (`bandStatusWords`, `hooks/band.tsx`), from the main loop only (turn events without an `agentId`), as words, each with
   its icon:
@@ -463,14 +461,13 @@ Done in the Claude Desktop with the mod installed, not by the build:
   `openIssues` plus `closedIssues` (section 4, row 3: GraphQL counts, exact; REST's fallback counts PRs too and is not exact). The milestone part is the title of the issue's milestone, open or closed (pm1-9); it is omitted when no title is known, never drawn as `no milestone` (ux-1). `no issue`
   when the window maps to no issue; `no GitHub remote` when the window has no remote; nothing before the first poll. `#<n>` alone when
   the issue's details are missing (its milestone is then unknown); `no milestone · #<n>` when the details are known and the issue has no milestone (ux-1).
-- Button: `Open` (`Abrir`) while the pane is closed, `Show` (`Mostrar`) while it is open; hotkey `2` (askaway's band keeps `1`). Its press
+- Button: `Open` (`Abrir`) while the pane is closed, `Show` (`Mostrar`) while it is open; hotkey `2` (digit `1` is left to another mod's band). Its press
   runs the same code as `/keeptrack open`: it opens and focuses the pane, and resumes the timer at the pane's cadence. On the desktop
   the KeepGlide mark (`renderKeepGlide`, 18 px) sits immediately before the button; the terminal draws no picture.
 - The press handle survives a redraw (`hooks/held.ts`), so the first click after a focus move still lands.
 - Redraws: each turn, tool and agent change invalidates `ui.render`. tool.call redraws are at most one per second; a call inside
   that second is drawn at its end. The repo data comes from the snapshot the timer keeps fresh (section 3): every minute while the
-  pane is open, every 5 minutes while it is closed. The band's tick (`BAND_TICK_MS`, 30 s) re-reads the agents, refreshes the `waiting` flag from this window's open askaway questions
-  (so a question shows within one tick, not at the poll's cadence); an unknown answer, when the question folder did not list or holds more than 2000 files, keeps the flag as it is (st-2, st-3), ends a turn that has run past `TURN_MAX_AGE_MS`, and invalidates `ui.render`
+  pane is open, every 5 minutes while it is closed. The band's tick (`BAND_TICK_MS`, 30 s) re-reads the agents, ends a turn that has run past `TURN_MAX_AGE_MS`, and invalidates `ui.render`
   on every tick while an agent runs, and otherwise by `bandRedrawDue`: on every tick while a turn runs, and on every second tick (each
   minute) while idle; a change in the agent count is drawn at once. A subagent's tool.call redraws the band (at most once per second,
   `redrawForTool`); the main loop's tool.call names its tool.
