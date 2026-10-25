@@ -320,15 +320,15 @@ Limitações conhecidas, como o código se comporta hoje:
 
 | Categoria | Testes |
 |---|---|
-| Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo, projeção de registros (`tests/model.test.ts`) | 83 |
-| Módulo de hooks: consulta, comando do painel, temporizadores e fechamento (`tests/register.test.ts`) | 117 |
-| Faixa: linha de status, estados e botão Open (`tests/band.test.ts`) | 38 |
-| Painel: desenho do snapshot (`tests/pane.test.ts`) | 53 |
+| Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo, projeção de registros (`tests/model.test.ts`) | 84 |
+| Módulo de hooks: consulta, comando do painel, temporizadores e fechamento (`tests/register.test.ts`) | 131 |
+| Faixa: linha de status, estados e botão Open (`tests/band.test.ts`) | 39 |
+| Painel: desenho do snapshot (`tests/pane.test.ts`) | 60 |
 | Idioma: dicionários em inglês e português do Brasil (`tests/i18n.test.ts`) | 10 |
 | Transições de turno da faixa (`tests/turn.test.ts`) | 8 |
-| **Total** | **309** |
+| **Total** | **332** |
 
-Contagens de `claude plugin test plugins/keeptrack-repo-pane` na árvore de trabalho, ainda não publicada: 309 aprovados, 0 falhas, 6 arquivos.
+Contagens de `claude plugin test plugins/keeptrack-repo-pane` na árvore de trabalho, ainda não publicada: 332 aprovados, 0 falhas, 6 arquivos.
 
 ## 🔧 Desenvolvimento
 

@@ -24,6 +24,11 @@ Commit hashes name the change in `git log`.
 - The sessions section draws nothing when no session is listed (`hooks/pane.tsx`).
 - The issue list reads open issues only, and the milestone totals come from one GraphQL call per poll, issues only, with REST's counts as the fallback (`hooks/register.tsx`, `types/index.d.ts`).
 - The issues of a closed milestone are grouped under that milestone's title and marked as closed, not under "No milestone / issue" (`hooks/pane.tsx`, `hooks/model.ts`).
+- Partial-list lines name the list that was cut: issues or PRs (`hooks/register.tsx`, `hooks/pane.tsx`).
+- Inexact (REST) milestone progress reads "items" instead of "issues", since REST counts the PRs too (`hooks/pane.tsx`, `hooks/i18n.ts`).
+- The pt-BR "all closed" line reads "pronto para fechar" (`hooks/i18n.ts`).
+- The link arrow (↗) marks only a link that opens; the terminal line has no arrow (`hooks/pane.tsx`, `hooks/band.tsx`).
+- "Started" shows the date once the session is more than a day old (`hooks/pane.tsx`).
 
 ### Fixed
 - More than 500 open issues no longer undercount: the milestone totals are exact, and the list flags partial (`hooks/register.tsx`).
@@ -40,6 +45,18 @@ Commit hashes name the change in `git log`.
 - A first poll that settles with no repo context draws `Could not read the repo: state unknown` (pt-BR `Não foi possível ler o repo: estado desconhecido`) instead of `Loading the repo...` forever (`hooks/pane.tsx`, `hooks/register.tsx`, `hooks/i18n.ts`).
 - The issues of a closed milestone take that milestone's title from the issue's own milestone field, so the group title and its label agree (`hooks/model.ts`, `hooks/register.tsx`, `types/index.d.ts`).
 - The "N open, all in sessions" line is drawn only when the issue list is complete and holds every open issue the milestone counts; otherwise the milestone shows its title and progress only (`hooks/model.ts`, `hooks/pane.tsx`).
+- The trail and the band name the title of a closed milestone, and say "no milestone" only for an issue that has none; an issue whose milestone title is unknown omits the part (`hooks/pane.tsx`, `hooks/band.tsx`, `hooks/model.ts`, `types/index.d.ts`).
+- The header counter of a no-GitHub window counts sessions only (`hooks/pane.tsx`).
+- The header counter reads `500+` open issues when the issue list is cut (`hooks/pane.tsx`).
+- A session switch clears the window issue and the repo context, so no old repo is inherited on a failed repo read (`hooks/register.tsx`).
+- The waiting flag is kept on an unknown answer: the question folder did not list, or holds more than 2000 files (`hooks/register.tsx`).
+- A session.start or a `/keeptrack issue` during an in-flight poll, or while abandoned polls fill every slot, is polled again once one settles (`hooks/register.tsx`).
+- Agent reads begun under the previous session write nothing (`hooks/register.tsx`).
+- The band no longer reports a data error for a missing or unsigned gh, or for no GitHub remote (`hooks/register.tsx`).
+
+### Tests
+- Stronger band and register assertions: exact band lines for the no-milestone and unknown-milestone cases, and the "items" wording (`tests/band.test.ts`, `tests/register.test.ts`, `tests/pane.test.ts`, `tests/model.test.ts`).
+- An invalid `KEEPTRACK_POLL_MS` falls back to the default cadence, and a valid one sets it (sp-5, `tests/register.test.ts`).
 
 ## [0.2.0-beta.8] - 2026-10-22
 

@@ -320,15 +320,15 @@ Known limitations, as the code does them today:
 
 | Category | Tests |
 |---|---|
-| Rules: remote parsing, session tree, issue groups, timelines, record projection (`tests/model.test.ts`) | 83 |
-| Hooks module: poll, pane command, timers and close (`tests/register.test.ts`) | 117 |
-| Band: status line, states and Open button (`tests/band.test.ts`) | 38 |
-| Pane: snapshot drawing (`tests/pane.test.ts`) | 53 |
+| Rules: remote parsing, session tree, issue groups, timelines, record projection (`tests/model.test.ts`) | 84 |
+| Hooks module: poll, pane command, timers and close (`tests/register.test.ts`) | 131 |
+| Band: status line, states and Open button (`tests/band.test.ts`) | 39 |
+| Pane: snapshot drawing (`tests/pane.test.ts`) | 60 |
 | Language: English and pt-BR dictionaries (`tests/i18n.test.ts`) | 10 |
 | Turn transitions of the band (`tests/turn.test.ts`) | 8 |
-| **Total** | **309** |
+| **Total** | **332** |
 
-Counts from `claude plugin test plugins/keeptrack-repo-pane` on the working tree, unreleased: 309 pass, 0 fail, 6 files.
+Counts from `claude plugin test plugins/keeptrack-repo-pane` on the working tree, unreleased: 332 pass, 0 fail, 6 files.
 
 ## 🔧 Development
 
