@@ -163,13 +163,19 @@ type TreeOptions = {
   desktopGroups?: DesktopGroups
 }
 
-// The breadcrumb facts of each open issue: its page, and the title of its milestone when that milestone is open too.
+// The breadcrumb facts of each open issue: its page, and the title of its milestone. The issue carries that title whether its
+// milestone is open or closed (pm1-9); the open milestones' titles are the fallback. The title is null with no milestone or with an
+// unknown title; noMilestone tells those two apart.
 export function issueFactsOf(milestones: readonly Milestone[], issues: readonly Issue[]): Map<number, IssueFacts> {
   const titles = new Map(milestones.map(milestone => [milestone.number, milestone.title] as const))
   return new Map(
     issues.map(issue => [
       issue.number,
-      { url: issue.url, milestoneTitle: issue.milestone === null ? null : (titles.get(issue.milestone) ?? null) },
+      {
+        url: issue.url,
+        milestoneTitle: issue.milestone === null ? null : (issue.milestoneTitle ?? titles.get(issue.milestone) ?? null),
+        noMilestone: issue.milestone === null,
+      },
     ]),
   )
 }
@@ -425,6 +431,7 @@ function attach(record: SessionInput, depth: number, parentNode: SessionNode | n
     branch: record.branch,
     issue,
     milestoneTitle: facts?.milestoneTitle ?? null,
+    noMilestone: facts?.noMilestone ?? false,
     issueUrl: facts?.url ?? null,
     state: stateOf(lastActivityAt, context.now, record.waiting),
     timeline: timelineOf({

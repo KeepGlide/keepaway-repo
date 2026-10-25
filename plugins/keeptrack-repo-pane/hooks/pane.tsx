@@ -65,6 +65,15 @@ const MINUTE_MS = 60_000
 const DATE_LENGTH = 10
 const MINUTES_PER_HOUR = 60
 const HOURS_PER_DAY = 24
+const DAY_MS = HOURS_PER_DAY * MINUTES_PER_HOUR * MINUTE_MS
+// The limits register.tsx cuts the two GitHub lists at (ISSUE_LIMIT, PR_LIMIT). The snapshot carries the limit, not the list's name,
+// so the limit names the list; a limit it does not know keeps the generic partial line.
+const ISSUE_LIST_LIMIT = 500
+const PR_LIST_LIMIT = 100
+const TRUNCATED_KEY: ReadonlyMap<number, MessageKey> = new Map<number, MessageKey>([
+  [ISSUE_LIST_LIMIT, 'error.truncated.issues'],
+  [PR_LIST_LIMIT, 'error.truncated.prs'],
+])
 // The drawn stand-in for a value the snapshot does not carry (no repo, no next step).
 const NO_VALUE = '—'
 // A clickable issue or PR links only to a GitHub page over https: nothing a title or a URL carries can break out of the link,
@@ -152,14 +161,21 @@ function renderHeader(view: View, snapshot: Snapshot | null): RenderElement {
   )
 }
 
-// The header counter: the open issues always; with no session listed, "nothing in progress" follows them (pm1-3, ux4-4).
+// The header counter: the open issues in github mode (none is read without GitHub, so only the sessions count there), the open
+// issues marked "+" when their list is cut; with no session listed, "nothing in progress" follows (pm1-3, ux4-4, ux-3, ux-4).
 function counterText(view: View, snapshot: Snapshot): string {
   const sessions = countSessions(snapshot.sessions)
-  const line = t(view.lang, 'counter.line', {
-    issues: t(view.lang, 'counter.issues', { count: snapshot.openIssueCount }),
-    sessions: t(view.lang, 'counter.sessions', { count: sessions }),
-  })
+  const sessionsText = t(view.lang, 'counter.sessions', { count: sessions })
+  const line =
+    snapshot.mode === 'github'
+      ? t(view.lang, 'counter.line', { issues: issuesCountText(view, snapshot), sessions: sessionsText })
+      : sessionsText
   return sessions === 0 ? `${line}${TITLE_SEPARATOR}${t(view.lang, 'counter.none')}` : line
+}
+
+function issuesCountText(view: View, snapshot: Snapshot): string {
+  const cut = snapshot.truncatedLimits.includes(ISSUE_LIST_LIMIT)
+  return t(view.lang, 'counter.issues', { count: cut ? `${snapshot.openIssueCount}+` : snapshot.openIssueCount })
 }
 
 function countSessions(nodes: readonly SessionNode[]): number {
@@ -183,7 +199,9 @@ function renderErrors(view: View, snapshot: Snapshot): RenderElement[] {
   const lines = snapshot.errors
     .filter(error => error !== 'records-unreadable' || snapshot.unreadableCount > 0)
     .map(error => t(view.lang, ERROR_KEY[error], error === 'records-unreadable' ? { count: snapshot.unreadableCount } : {}))
-  for (const count of snapshot.truncatedLimits) lines.push(t(view.lang, 'error.truncated', { count }))
+  for (const limit of snapshot.truncatedLimits) {
+    lines.push(t(view.lang, TRUNCATED_KEY.get(limit) ?? 'error.truncated', { count: limit }))
+  }
   const { Text } = view.ui
   return lines.map((line, index) => <Text key={`error-${index}`}>{line}</Text>)
 }
@@ -248,7 +266,9 @@ function renderGroupLabel(view: View, group: SessionGroup): RenderElement {
 function renderIssuesSection(view: View, snapshot: Snapshot): RenderElement {
   const rows = snapshot.issueGroups.flatMap(group => renderIssueGroup(view, group))
   const { Text } = view.ui
-  const body = rows.length > 0 ? rows : [<Text key="issues-none">{t(view.lang, 'issues.none')}</Text>]
+  // No group is built when every open issue sits on a session: then the header counts them, so the line says they are in sessions (ux-2).
+  const emptyKey = snapshot.openIssueCount > 0 ? 'issues.allLinked' : 'issues.none'
+  const body = rows.length > 0 ? rows : [<Text key="issues-none">{t(view.lang, emptyKey)}</Text>]
   return renderSection(view, 'issues', t(view.lang, 'group.issues'), body)
 }
 
@@ -327,16 +347,23 @@ function renderSessionTitle(view: View, node: SessionNode, isThis: boolean): Ren
   return <Text key={`title-${node.id}`} bold={isThis}>{isThis ? `${node.title} ${marker}` : node.title}</Text>
 }
 
-// The breadcrumb parts: the issue, the milestone (or "no milestone"), then a derived session's origin (none for a root).
+// The milestone part of a crumb: "no milestone" for an issue that has none, its title otherwise, and omitted when the title is unknown
+// (a closed milestone still has its title; an unknown one is never claimed as "no milestone", ux-1).
+function milestonePartOf(lang: Lang, node: SessionNode): string[] {
+  if (node.noMilestone) return [t(lang, 'crumb.noMilestone')]
+  return node.milestoneTitle === null ? [] : [titleLabel(node.milestoneTitle)]
+}
+
+// The breadcrumb parts: the issue, the milestone part, then a derived session's origin (none for a root).
 function crumbPartsOf(lang: Lang, node: SessionNode, place: RowPlace): string[] {
   const issue = node.issue === null ? t(lang, 'crumb.noIssue') : `#${node.issue.number}`
-  const milestone = node.milestoneTitle === null ? t(lang, 'crumb.noMilestone') : titleLabel(node.milestoneTitle)
-  if (node.kind === 'root') return [issue, milestone]
+  const milestone = milestonePartOf(lang, node)
+  if (node.kind === 'root') return [issue, ...milestone]
   const origin =
     place.parentIssue === null
       ? t(lang, 'crumb.derived')
       : t(lang, 'crumb.derivedFrom', { number: place.parentIssue.number })
-  return [issue, milestone, origin]
+  return [issue, ...milestone, origin]
 }
 
 // The breadcrumb: "#n · milestone · origin". On the desktop #n links to the issue page when the address is a plain https one.
@@ -403,9 +430,15 @@ function detailLinesOf(view: View, node: SessionNode, issue: IssueDetails): Deta
     {
       key: 'started',
       label: t(lang, 'detail.started'),
-      value: `${clockOf(issue.startedAt)}${TITLE_SEPARATOR}${ageText(lang, issue.startedAt, now)}`,
+      value: startedTextOf(lang, issue.startedAt, now),
     },
   ]
+}
+
+// The start of the issue: its clock, with its date too once the start is over a day old, then its age (ux-9).
+function startedTextOf(lang: Lang, at: number, now: number): string {
+  const clock = now - at > DAY_MS ? `${dateOf(at)} ${clockOf(at)}` : clockOf(at)
+  return `${clock}${TITLE_SEPARATOR}${ageText(lang, at, now)}`
 }
 
 // The session state word, with the issue's state added when the issue is closed (an override may name one).
@@ -431,7 +464,8 @@ function commentTextOf(lang: Lang, comment: IssueDetails['lastComment'], now: nu
   return `${comment.author}${TITLE_SEPARATOR}${ageText(lang, comment.at, now)}${TITLE_SEPARATOR}${comment.body}`
 }
 
-// The GitHub link of this window's issue: a Markdown link to its https page on the desktop, plain text elsewhere.
+// The GitHub link of this window's issue: a Markdown link to its https page on the desktop, with the arrow that says it opens;
+// plain text elsewhere, without the arrow, since nothing opens there (ux-7).
 function renderGithubLink(view: View, number: number, url: string | null, indent: number): RenderElement {
   const { Box, Text } = view.ui
   const label = t(view.lang, 'link.github', { number })
@@ -439,7 +473,7 @@ function renderGithubLink(view: View, number: number, url: string | null, indent
     const { Markdown } = view.ui
     return (
       <Box key="github-link" paddingLeft={indent}>
-        <Markdown key="link" text={`${LINK_MARK} [${escapeMarkdown(label)}](${url})`} />
+        <Markdown key="link" text={`${LINK_MARK} [${escapeMarkdown(`${label} ↗`)}](${url})`} />
       </Box>
     )
   }
@@ -497,12 +531,14 @@ function renderIssueGroup(view: View, group: IssueGroup): RenderElement[] {
   if (milestone === null) {
     return issues.length > 0 ? [<Text key={`milestone-${groupKey}`} bold>{label}</Text>, ...issueRows] : []
   }
-  // The progress line carries the due date when GitHub sets one (its date part; pm1-4). The count is the total: the noun counts issues.
+  // The progress line carries the due date when GitHub sets one (its date part; pm1-4). The count is the total. Exact counts name
+  // issues; inexact ones are REST's, which count PRs too, so they take the neutral noun "items" (ux-5).
   const total = milestone.openIssues + milestone.closedIssues
   const due = milestone.dueOn === null ? '' : `${TITLE_SEPARATOR}${t(lang, 'milestone.due', { date: milestone.dueOn.slice(0, DATE_LENGTH) })}`
+  const progressKey = milestone.countsExact ? 'milestone.progress' : 'milestone.progressItems'
   const progress = (
     <Text key={`progress-${groupKey}`}>
-      {`${t(lang, 'milestone.progress', { closed: milestone.closedIssues, total, count: total })}${due}`}
+      {`${t(lang, progressKey, { closed: milestone.closedIssues, total, count: total })}${due}`}
     </Text>
   )
   if (issues.length > 0) return [<Text key={`milestone-${groupKey}`} bold>{label}</Text>, progress, ...issueRows]
@@ -560,6 +596,12 @@ const pad = (value: number): string => String(value).padStart(2, '0')
 function clockOf(at: number): string {
   const when = new Date(at)
   return `${pad(when.getHours())}:${pad(when.getMinutes())}`
+}
+
+// The local date as YYYY-MM-DD, the form of a GitHub due date.
+function dateOf(at: number): string {
+  const when = new Date(at)
+  return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}`
 }
 
 // "just now", "N min ago", "N h ago", "N d ago", in the language of the pane.

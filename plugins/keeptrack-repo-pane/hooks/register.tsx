@@ -422,12 +422,15 @@ async function scanRecords($: EngineInterface, root: string | undefined): Promis
 
 // The open askaway question of each Desktop session, by session id: its title (repo-work-pane-design-spec.md D5, D7). A question is open when
 // its q/<id>.json has no a/<id>.json yet; desktop_session holds the local_ session id. A missing folder is no question.
-async function blockersOf($: EngineInterface): Promise<Map<string, string>> {
+// null when the answer is unknown: the folder did not list, or it holds more files than DESKTOP_SCAN_MAX, so a question may lie past
+// the cut (st-2, st-3).
+async function blockersOf($: EngineInterface): Promise<Map<string, string> | null> {
   const blockers = new Map<string, string>()
   const folder = await askawayFolderOf($)
   if (folder === undefined) return blockers
   const listing = await filesUnder($, `${folder}/q`, 0, isJsonName)
-  const sized = listing.files.filter(file => file.size <= RECORD_MAX_BYTES).slice(0, DESKTOP_SCAN_MAX)
+  const sized = listing.files.filter(file => file.size <= RECORD_MAX_BYTES)
+  if (listing.failed || sized.length > DESKTOP_SCAN_MAX) return null
   const { values, kept } = await cachedValues($, sized, questionCache, questionRefOf)
   questionCache = kept
   for (const question of values) {
@@ -1203,12 +1206,13 @@ async function currentSessionIdOf($: EngineInterface): Promise<string | null> {
 
 // One poll: the repo, the gh data, the sessions and this window's issue, then the snapshot atom (repo-work-pane-design-spec.md 2.1).
 // null while the repo context has never been read (F02); refresh then marks the failure for the pane (ux4-2).
-async function buildSnapshot($: EngineInterface, seq: number): Promise<Snapshot | null> {
+async function buildSnapshot($: EngineInterface, seq: number, epoch: number): Promise<Snapshot | null> {
   const now = await $.clock.now()
   const read = await repoContextOf($)
   const context = read ?? lastRepoContext
   if (context === null) return null
-  if (isNewest(seq)) lastRepoContext = context
+  // A poll from an earlier session does not hand its repo to the new one (st-6).
+  if (isNewest(seq) && epoch === sessionEpoch) lastRepoContext = context
   const thisId = await currentSessionIdOf($)
   const github = await githubOf($, context, seq)
   const sessions = await sessionsOf($, context, github, now, thisId, seq)
@@ -1241,7 +1245,7 @@ async function buildSnapshot($: EngineInterface, seq: number): Promise<Snapshot 
 // Writes the poll's snapshot, unless a newer poll has written (R2-04); a poll with no repo context yet writes no snapshot.
 // The band's waiting flag is not written here: the band tick (refreshWaiting) owns it, so two writers never race on it (state2-7).
 async function refresh($: EngineInterface, seq: number, epoch: number): Promise<void> {
-  const snapshot = await buildSnapshot($, seq)
+  const snapshot = await buildSnapshot($, seq, epoch)
   // A poll that began under an earlier session writes nothing: the session it read is gone (state2-6).
   if (!isNewest(seq) || epoch !== sessionEpoch) return
   if (snapshot === null) return markLoadFailed($)
@@ -1262,8 +1266,13 @@ async function refreshWithin($: EngineInterface, seq: number, epoch: number): Pr
       reject(Object.assign(new Error('poll deadline'), { name: 'PollDeadline' }))
     })
     const settle = (): void => {
-      if (abandoned) abandonedPolls -= 1
-      else deadline.cancel()
+      if (!abandoned) {
+        deadline.cancel()
+        return
+      }
+      abandonedPolls -= 1
+      // A poll queued while the abandoned polls held every slot starts now that one has settled (st-8).
+      if (repollOnSettle) startPoll($)
     }
     refresh($, seq, epoch).then(
       () => {
@@ -1323,6 +1332,7 @@ async function failedPoll($: EngineInterface, seq: number, epoch: number, error:
 
 // One poll at a time: a tick that comes during a poll starts nothing (repo-work-pane-design-spec.md 2.5). After a deadline the flag is
 // free, so the next tick may start a poll beside the abandoned one, up to MAX_ABANDONED_POLLS of them; past that, the tick logs a skip.
+// A skipped poll keeps repollOnSettle: the queued poll starts once a slot frees (st-8). A poll that starts has answered the queue.
 function startPoll($: EngineInterface): void {
   if (polling) return
   if (abandonedPolls >= MAX_ABANDONED_POLLS) {
@@ -1330,6 +1340,7 @@ function startPoll($: EngineInterface): void {
     return
   }
   polling = true
+  repollOnSettle = false
   startedSeq += 1
   const seq = startedSeq
   const epoch = sessionEpoch
@@ -1339,12 +1350,15 @@ function startPoll($: EngineInterface): void {
       .catch((error: unknown) => failedPoll($, seq, epoch, error))
       .finally(() => {
         polling = false
-        if (repollOnSettle) {
-          repollOnSettle = false
-          startPoll($)
-        }
+        if (repollOnSettle) startPoll($)
       }),
   )
+}
+
+// A poll the session asks for: at once when none can start, else queued for the poll in flight or for a free slot (state2-3, st-5, st-8).
+function repollSoon($: EngineInterface): void {
+  if (polling || abandonedPolls >= MAX_ABANDONED_POLLS) repollOnSettle = true
+  else startPoll($)
 }
 
 // A poll interval from its environment value (a test override), or the fallback when unset, not an integer, or below MIN_POLL_MS.
@@ -1459,7 +1473,8 @@ async function setIssue($: EngineInterface, value: string): Promise<void> {
   const key = `${OVERRIDE_PREFIX}${sessionId}`
   if (issue === 'none') await $.store.delete(key)
   else await $.store.set(key, { issue, ts: await $.clock.now() })
-  if (await read($, openAtom)) startPoll($)
+  // A poll in flight may have read the old override: the new one is polled once it settles (st-5).
+  if (await read($, openAtom)) repollSoon($)
 }
 
 // /keeptrack lang en|pt-BR|auto: stores the choice (auto removes it) and switches the language at once.
@@ -1494,9 +1509,13 @@ function bandIssueOf(snapshot: Snapshot | null): BandIssue | null {
   }
 }
 
-// The band's error flag from the snapshot: an error other than no-remote (the repo line already names the missing remote).
+// The errors the band does not flag: the repo line names the missing remote, and the pane says that gh is missing or not signed in
+// (ux-8).
+const UNFLAGGED_BAND_ERRORS: readonly PaneError[] = ['no-remote', 'gh-missing', 'gh-auth']
+
+// The band's error flag from the snapshot: an error the band does not leave unflagged (UNFLAGGED_BAND_ERRORS).
 function bandErrorOf(snapshot: Snapshot | null): boolean {
-  return snapshot !== null && snapshot.errors.some(error => error !== 'no-remote')
+  return snapshot?.errors.some(error => !UNFLAGGED_BAND_ERRORS.includes(error)) === true
 }
 
 // The band's waiting flag, refreshed by the band tick: this window's session has an open askaway question. The tick reads the question
@@ -1506,9 +1525,12 @@ async function refreshWaiting($: EngineInterface): Promise<void> {
   const epoch = sessionEpoch
   const snapshot = await read($, snapshotAtom)
   const own = snapshot === null ? undefined : flattenNodes(snapshot.sessions).find(node => node.isThisWindow)
-  const waiting = own !== undefined && (await blockersOf($)).has(own.id)
+  const blockers = own === undefined ? new Map<string, string>() : await blockersOf($)
   const current = await read($, waitingAtom)
-  if (epoch !== sessionEpoch || waiting === current) return
+  // An unknown answer (blockersOf null) keeps the flag as it is (st-2, st-3).
+  if (epoch !== sessionEpoch || blockers === null) return
+  const waiting = own !== undefined && blockers.has(own.id)
+  if (waiting === current) return
   await update($, waitingAtom, () => waiting)
   $.ui.invalidate('ui.render')
 }
@@ -1569,9 +1591,11 @@ async function redrawForTool($: EngineInterface): Promise<void> {
 async function readAgents($: EngineInterface): Promise<void> {
   agentReadsStarted += 1
   const readNumber = agentReadsStarted
+  const epoch = sessionEpoch
   const agents = await $.agent.list()
   const now = await $.clock.now()
-  if (readNumber < agentReadsWritten) return
+  // A read that began under an earlier session writes nothing: its agents belong to that session (st-4).
+  if (readNumber < agentReadsWritten || epoch !== sessionEpoch) return
   agentReadsWritten = readNumber
   const count = agents.filter(agent => ACTIVE_AGENT_STATUSES.includes(agent.status)).length
   await update($, agentRunAtom, prev => ({ count, since: count === 0 ? null : prev.count > 0 ? prev.since : now }))
@@ -1603,17 +1627,20 @@ export const register: Register = on => {
     await registerCommand($, lang)
     stopTimer()
     startBandTick($)
-    // The turn, the waiting flag, the agent run and the session list belong to the previous session: they are dropped here, and a poll
-    // still in flight from it writes nothing (its epoch is old). The new session polls at once, since the last poll's time may be
-    // within the cadence.
+    // The turn, the window's issue, the waiting flag, the agent run and the session list belong to the previous session: they are
+    // dropped here, and a poll still in flight from it writes nothing (its epoch is old). The new session polls at once, since the
+    // last poll's time may be within the cadence.
     await update($, turnAtom, () => IDLE_TURN)
     await update($, waitingAtom, () => false)
     await update($, agentRunAtom, () => ({ count: 0, since: null }))
-    await update($, snapshotAtom, snapshot => (snapshot === null ? null : { ...snapshot, sessions: [] }))
+    await update($, snapshotAtom, snapshot =>
+      snapshot === null ? null : { ...snapshot, sessions: [], thisIssue: null, thisIssueNumber: null },
+    )
+    // The repo of the previous session is not carried over: a failed repo read in this session draws no old repo (st-6).
+    lastRepoContext = null
     await scheduleTimer($)
-    // A poll still in flight reads the previous session: the new session's poll starts when that one settles (state2-3).
-    if (polling) repollOnSettle = true
-    else startPoll($)
+    // A poll still in flight reads the previous session: the new session's poll starts when that one settles (state2-3, st-8).
+    repollSoon($)
     return next(e)
   })
 

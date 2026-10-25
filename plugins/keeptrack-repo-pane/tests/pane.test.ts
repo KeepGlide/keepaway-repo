@@ -143,7 +143,8 @@ test('this window is the first session, in one highlighted block with its detail
   expect(blockTexts).toContain('Last commit:')
   expect(blockTexts.some(text => /^fix\(store\): map ENOSPC at backup_receipt writes · .+ ago$/.test(text))).toBe(true)
   expect(blockTexts).toContain('Started:')
-  expect(blockTexts.some(text => /^\d\d:\d\d · .+ ago$/.test(text))).toBe(true)
+  // The fixture's start is over a day old, so the date comes with the clock (ux-9).
+  expect(blockTexts.some(text => /^\d{4}-\d\d-\d\d \d\d:\d\d · .+ ago$/.test(text))).toBe(true)
 })
 
 test('the details of this window follow the breadcrumb, in the order of the mock, then the timeline and the GitHub link', () => {
@@ -204,7 +205,9 @@ test('the GitHub link of this window is a Markdown https link on the desktop and
   expect(nodesOf(desktopBlock).some(node => node.tag === 'Markdown' && String(node.props.text) === '▪ [Open #106 on GitHub ↗](https://github.com/synthetic-owner/synthetic-repo/issues/106)')).toBe(true)
 
   const terminalTexts = drawnTexts(drawTerminal())
-  expect(terminalTexts).toContain('▪ Open #106 on GitHub ↗')
+  // Nothing opens on the terminal, so the line carries no arrow (ux-7).
+  expect(terminalTexts).toContain('▪ Open #106 on GitHub')
+  expect(terminalTexts).not.toContain('▪ Open #106 on GitHub ↗')
   expect(terminalTexts.some(text => text.includes('https://'))).toBe(false)
 })
 
@@ -212,7 +215,7 @@ test('the breadcrumb carries the issue, its milestone and the origin; a window w
   const texts = drawnTexts(drawDesktop())
   expect(texts).toContain('#106 · Milestone B')
   expect(texts).toContain('#106 · Milestone B · derived from #106')
-  expect(texts).toContain('no issue · no milestone · derived')
+  expect(texts).toContain('no issue · derived')
 
   const noIssue = buildTree(
     sampleSessions().map(record => (record.sessionId === THIS_WINDOW ? { ...record, override: null } : record)),
@@ -221,7 +224,7 @@ test('the breadcrumb carries the issue, its milestone and the origin; a window w
   const tree = drawDesktop({ snapshot: snapshotWith({ sessions: noIssue, thisIssue: null }) })
   const block = nodesOf(tree).find(node => node.props.backgroundColor === DETAILS_FILL)
   const blockTexts = drawnTexts(block)
-  expect(blockTexts).toContain('no issue · no milestone')
+  expect(blockTexts).toContain('no issue')
   expect(blockTexts).not.toContain('State:')
   expect(blockTexts.some(text => text.startsWith('▪ Open #'))).toBe(false)
 })
@@ -492,7 +495,9 @@ test('an issue or PR link goes only to a GitHub page; another https host is plai
   const offHost = { ...SAMPLE_THIS_ISSUE, url: 'https://example.invalid/issues/106' }
   const tree = drawDesktop({ snapshot: snapshotWith({ thisIssue: offHost }) })
   expect(nodesOf(tree).some(node => node.tag === 'Markdown' && String(node.props.text).includes('example.invalid'))).toBe(false)
-  expect(drawnTexts(tree)).toContain('▪ Open #106 on GitHub ↗')
+  // Another host opens nowhere, so its line is plain text without the arrow (ux-7).
+  expect(drawnTexts(tree)).toContain('▪ Open #106 on GitHub')
+  expect(drawnTexts(tree)).not.toContain('▪ Open #106 on GitHub ↗')
 })
 
 test('a GitHub URL with a character that breaks a markdown link is not drawn as a link (SE2)', () => {
@@ -609,7 +614,7 @@ test('a milestone title is followed by its closed and total issues, in both lang
   const pt = drawnTexts(drawDesktop({ lang: 'pt' }))
   expect(pt[at(pt, 'Milestone B') + 1]).toBe('10 de 16 issues fechadas')
   expect(pt[at(pt, 'Milestone A') + 1]).toBe('0 de 1 issue fechada · prazo 2026-10-31')
-  expect(pt[at(pt, 'Milestone Z · todas fechadas · pronta para fechar') + 1]).toBe('1 de 1 issue fechada')
+  expect(pt[at(pt, 'Milestone Z · todas fechadas · pronto para fechar') + 1]).toBe('1 de 1 issue fechada')
 })
 
 test('a milestone with one open issue on sessions reads its count in the singular, in both languages (ux4-16)', () => {
@@ -715,7 +720,7 @@ test('each pane error draws its line above the groups', () => {
   ]
   const texts = drawnTexts(drawDesktop({ snapshot: snapshotWith({ errors, truncated: true, truncatedLimits: [100], unreadableCount: 2 }) }))
   for (const line of lines) expect(texts).toContain(line)
-  expect(texts).toContain('list is partial (first 100)')
+  expect(texts).toContain('PRs list is partial (first 100)')
   // The groups open at their label: each error line sits above Recents, not merely above the first session row (rev-g1-6).
   const groupAt = texts.indexOf('Recents')
   expect(groupAt).toBeGreaterThan(-1)
@@ -766,14 +771,14 @@ test('a snapshot not yet read draws the loading line only', () => {
 
 test('F01: the partial-list line names the cap that was hit (100 PRs), not the open-issue count', () => {
   const texts = drawnTexts(drawDesktop({ snapshot: snapshotWith({ truncated: true, truncatedLimits: [100] }) }))
-  expect(texts).toContain('list is partial (first 100)')
-  expect(texts).not.toContain(`list is partial (first ${SAMPLE_ISSUES.length})`)
+  expect(texts).toContain('PRs list is partial (first 100)')
+  expect(texts.some(text => text.includes('issues list'))).toBe(false)
 })
 
 test('SP3-1: an issue list and a PR list both cut draw one partial-list line each, with its own limit', () => {
   const texts = drawnTexts(drawDesktop({ snapshot: snapshotWith({ truncated: true, truncatedLimits: [500, 100] }) }))
-  expect(texts).toContain('list is partial (first 500)')
-  expect(texts).toContain('list is partial (first 100)')
+  expect(texts).toContain('issues list is partial (first 500)')
+  expect(texts).toContain('PRs list is partial (first 100)')
 })
 
 test('F03: an unmapped gh failure draws its GitHub line and does not throw', () => {
@@ -786,4 +791,65 @@ test('F10: a branch name in the details is drawn as plain text, capped like a ti
   const texts = drawnTexts(drawDesktop({ snapshot: snapshotWith({ thisIssue: { ...SAMPLE_THIS_ISSUE, branch } }) }))
   expect(texts).toContain(`${branch.slice(0, TEXT_MAX - 1)}…`)
   expect(texts).not.toContain(branch)
+})
+
+// Review fixes of the trail, the counters, the progress wording, the links and the start time (ux-1 to ux-9, sp-6).
+test('the trail names the title of a closed milestone, says "no milestone" for an issue that has none, and omits the part when the title is unknown (ux-1)', () => {
+  const treeWith = (facts: ReadonlyMap<number, { url: string; milestoneTitle: string | null }>) =>
+    buildTree(sampleSessions(), { now: NOW, cutoffMs: 24 * HOUR, thisCliSessionId: 'cli-this', issueFacts: facts })
+  const retitled = new Map([...SAMPLE_ISSUE_FACTS].map(([number, facts]) => [number, { ...facts, milestoneTitle: 'Closed Milestone' }] as const))
+  expect(drawnTexts(drawDesktop({ snapshot: snapshotWith({ sessions: treeWith(retitled) }) }))).toContain('#106 · Closed Milestone')
+  const untitled = new Map([...SAMPLE_ISSUE_FACTS].map(([number, facts]) => [number, { ...facts, milestoneTitle: null }] as const))
+  const texts = drawnTexts(drawDesktop({ snapshot: snapshotWith({ sessions: treeWith(untitled) }) }))
+  expect(texts.some(text => text.includes('no milestone'))).toBe(false)
+  expect(texts.some(text => text.includes('#106 · Milestone B'))).toBe(false)
+  const bare = new Map([...SAMPLE_ISSUE_FACTS].map(([number, facts]) => [number, { ...facts, milestoneTitle: null, noMilestone: true }] as const))
+  expect(drawnTexts(drawDesktop({ snapshot: snapshotWith({ sessions: treeWith(bare) }) }))).toContain('#106 · no milestone')
+})
+
+test('with every open issue on a session and no group built, the issues line says they are in sessions (ux-2)', () => {
+  const allLinked = snapshotWith({ issueGroups: [] })
+  expect(drawnTexts(drawDesktop({ snapshot: allLinked }))).toContain('All open issues are in sessions')
+  expect(drawnTexts(drawDesktop({ snapshot: allLinked }))).not.toContain('No open issues')
+  expect(drawnTexts(drawDesktop({ snapshot: allLinked, lang: 'pt' }))).toContain('Todas as issues abertas estão em sessões')
+  expect(drawnTexts(drawDesktop({ snapshot: snapshotWith({ issueGroups: [], openIssueCount: 0 }) }))).toContain('No open issues')
+})
+
+test('in no-github mode the counter names only the sessions (ux-3)', () => {
+  const texts = drawnTexts(drawDesktop({ snapshot: snapshotWith({ mode: 'no-github', openIssueCount: 3 }) }))
+  expect(texts.some(text => text.includes('open issue'))).toBe(false)
+  expect(texts.some(text => /^\d+ sessions?$/.test(text))).toBe(true)
+})
+
+test('the open-issue count is marked "+" only when the issue list is cut (ux-4)', () => {
+  const cut = drawnTexts(drawDesktop({ snapshot: snapshotWith({ openIssueCount: 500, truncated: true, truncatedLimits: [500] }) }))
+  expect(cut.some(text => text.startsWith('500+ open issues · '))).toBe(true)
+  const whole = drawnTexts(drawDesktop({ snapshot: snapshotWith({ openIssueCount: 500 }) }))
+  expect(whole.some(text => text.startsWith('500 open issues · '))).toBe(true)
+})
+
+test('an inexact milestone count is counted in items, not issues, in both languages (ux-5)', () => {
+  const inexact = [{ number: 40, title: 'Milestone I', openIssues: 6, closedIssues: 4, dueOn: null, countsExact: false }]
+  const snapshot = snapshotWith({ milestones: inexact, issueGroups: groupIssues(inexact, SAMPLE_ISSUES, SAMPLE_LINKED, false) })
+  expect(drawnTexts(drawDesktop({ snapshot }))).toContain('4 of 10 items closed')
+  expect(drawnTexts(drawDesktop({ snapshot, lang: 'pt' }))).toContain('4 de 10 itens fechados')
+})
+
+test('the start of an issue carries its date with the clock once it is over a day old; a recent start keeps the clock alone (ux-9)', () => {
+  const startedLine = (startedAt: number): string | undefined => {
+    const block = nodesOf(drawDesktop({ snapshot: snapshotWith({ thisIssue: { ...SAMPLE_THIS_ISSUE, startedAt } }) })).find(
+      node => node.props.backgroundColor === DETAILS_FILL,
+    )
+    return drawnTexts(block).find(text => /^(\d{4}-\d\d-\d\d )?\d\d:\d\d · /.test(text))
+  }
+  expect(startedLine(Date.now() - 2 * 24 * HOUR)).toMatch(/^\d{4}-\d\d-\d\d \d\d:\d\d · 2 d ago$/)
+  expect(startedLine(Date.now() - 2 * HOUR)).toMatch(/^\d\d:\d\d · 2 h ago$/)
+})
+
+test('the pane never draws "on this machine", in either language (sp-6)', () => {
+  for (const lang of ['en', 'pt'] as const) {
+    const trees = [drawDesktop({ lang }), drawTerminal({ lang }), drawDesktop({ lang, snapshot: null })]
+    const texts = trees.flatMap(tree => drawnTexts(tree))
+    expect(texts.some(text => /on this machine|neste computador/i.test(text))).toBe(false)
+  }
 })

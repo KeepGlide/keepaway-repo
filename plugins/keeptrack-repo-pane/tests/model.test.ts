@@ -13,6 +13,7 @@ import {
   issueFromBranch,
   issueFromTitle,
   isGithubHost,
+  issueFactsOf,
   issueOfSession,
   mapLimited,
   parseDesktopGroups,
@@ -842,6 +843,16 @@ test('pm1-9: an issue whose milestone is not open and has no title joins the no-
   const groups = groupIssues(SAMPLE_MILESTONES, [...SAMPLE_ISSUES, untitled], SAMPLE_LINKED, false)
   // Issue 200 is updated at the newest time of the sample, so it leads the no-milestone group.
   expect(shapeOf(groups).at(-1)).toEqual([null, [200, 15]])
+})
+
+test('ux-1: the trail reads the title of an issue whose milestone is closed, and none for an issue with no milestone', () => {
+  const closed = { ...SAMPLE_ISSUES[0], number: 200, milestone: 99, milestoneTitle: 'Closed milestone' }
+  const bare = { ...SAMPLE_ISSUES[0], number: 201, milestone: null, milestoneTitle: null }
+  const facts = issueFactsOf(SAMPLE_MILESTONES, [closed, bare])
+  expect(facts.get(200)?.milestoneTitle).toBe('Closed milestone')
+  expect(facts.get(201)?.milestoneTitle).toBeNull()
+  expect(facts.get(201)?.noMilestone).toBe(true)
+  expect(facts.get(200)?.noMilestone).toBe(false)
 })
 
 test('rev-g1-5: the one-line claim needs a complete list whose open issues of the milestone are all in it', () => {

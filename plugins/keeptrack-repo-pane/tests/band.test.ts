@@ -168,7 +168,9 @@ test('the idle band drawn a minute after the turn ended reads 1 min ago, where a
 test('the repo context names the milestone with its progress and the issue', () => {
   expect(lineOf(bandContextWords(view()))).toBe('W16-hotfix 10/16 · #106')
   expect(lineOf(bandContextWords(view({ issue: { number: 106, milestoneTitle: 'W16-hotfix', progress: null } })))).toBe('W16-hotfix · #106')
+  // Details known, no milestone: the band says so (ux-1). Details missing: the milestone is unknown, so the word is omitted.
   expect(lineOf(bandContextWords(view({ issue: { number: 106, milestoneTitle: null, progress: null } })))).toBe('no milestone · #106')
+  expect(lineOf(bandContextWords(view({ issue: { number: 106, milestoneTitle: null, progress: null, detailsMissing: true } })))).toBe('#106')
   expect(lineOf(bandContextWords(view({ issue: null })))).toBe('no issue')
   expect(lineOf(bandContextWords(view({ repo: 'none', issue: null })))).toBe('no GitHub remote')
   expect(lineOf(bandContextWords(view({ lang: 'pt', issue: null })))).toBe('sem issue')
@@ -254,14 +256,46 @@ test('the context carries the milestone, issue, no-issue and no-remote icons', (
   expect(bandContextWords(view({ repo: 'none', issue: null }))).toEqual([{ icon: 'noRemote', text: 'no GitHub remote' }])
 })
 
-test('every action icon has an emoji for the terminal and an SVG for the desktop on the same grid', () => {
+// The emoji each action draws on the terminal, key by key (action-icons.ts): a key that draws another icon fails here (sp-7).
+const EXPECTED_EMOJI: Readonly<Record<ActionIconKey, string>> = {
+  idle: '💤',
+  thinking: '💭',
+  waiting: '⏳',
+  mcp: '🔌',
+  shell: '💻',
+  read: '📖',
+  edit: '✏️',
+  search: '🔎',
+  web: '🌐',
+  agent: '🤖',
+  tool: '🔧',
+  milestone: '🎯',
+  issue: '📌',
+  noIssue: '📭',
+  noRemote: '🚫',
+  error: '⚠️',
+}
+
+test('every action icon has its expected emoji for the terminal and an SVG for the desktop on the same grid', () => {
   for (const key of ALL_ICON_KEYS) {
-    expect(actionIconEmoji(key).length).toBeGreaterThan(0)
+    expect(actionIconEmoji(key)).toBe(EXPECTED_EMOJI[key])
     const svg = actionIconSvg(key, ACTION_ICON_SIZE)
     expect(svg).toContain('viewBox="0 0 24 24"')
     expect(svg).toContain('stroke="currentColor"')
     expect(svg).toContain(`width="${ACTION_ICON_SIZE}"`)
   }
+})
+
+test('the product mark is the same still mark in every state on the desktop (sp-6)', () => {
+  const states = [
+    view({ surface: 'desktop' }),
+    view({ surface: 'desktop', turn: RUNNING, agents: 2, agentsSince: NOW - 3 * MINUTE }),
+    view({ surface: 'desktop', repo: 'none', issue: null }),
+    view({ surface: 'desktop', error: true }),
+  ]
+  const marks = states.map(state => svgSourcesOf(renderBand(DESKTOP, state, () => {}, heldButtons()))[0])
+  expect(new Set(marks).size).toBe(1)
+  expect(marks[0]).not.toContain('animate')
 })
 
 test('on the desktop an action is drawn as its SVG; on the terminal the same action is its emoji text', () => {
@@ -340,9 +374,9 @@ for (const surface of ['desktop', 'terminal'] as const) {
     const host = stubHost(on)
     await $.session.start(SESSION)
     const band = await mountBand($, surface)
-    expect(await band.find({ type: 'Button', key: 'open' })).toBeDefined()
+    expect(await band.find({ type: 'Button', key: 'open' })).toBeTruthy()
     expect((await band.find({ type: 'Button', key: 'open' }))?.props.hotkey).toBe('2')
-    expect(await band.find({ type: 'Text', text: 'Idle' })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: 'Idle' })).toBeTruthy()
     await band.press({ key: 'open' })
     expect(host.opened).toEqual([{ id: PANE_ID, focus: true }])
     await host.clock.settle()
@@ -350,7 +384,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
 
     const again = await mountBand($, surface)
     expect((await again.find({ type: 'Button', key: 'open' }))?.props.label).toBe('Show')
-    expect(await again.find({ type: 'Text', text: 'no GitHub remote' })).toBeDefined()
+    expect(await again.find({ type: 'Text', text: 'no GitHub remote' })).toBeTruthy()
     await again.press({ key: 'open' })
     expect(host.opened).toHaveLength(2)
     expect(host.opened[1]).toEqual({ id: PANE_ID, focus: true })
@@ -368,8 +402,8 @@ test('the band reads in the stored language', async ($, on) => {
   await host.clock.settle()
   await band.unmount()
   const opened = await mountBand($, 'terminal')
-  expect(await opened.find({ type: 'Text', text: 'sem remote no GitHub' })).toBeDefined()
-  expect(await opened.find({ type: 'Text', text: 'Parada' })).toBeDefined()
+  expect(await opened.find({ type: 'Text', text: 'sem remote no GitHub' })).toBeTruthy()
+  expect(await opened.find({ type: 'Text', text: 'Parada' })).toBeTruthy()
   expect((await opened.find({ type: 'Button', key: 'open' }))?.props.label).toBe('Mostrar')
   await opened.unmount()
 })

@@ -31,9 +31,10 @@ export type IssueRef = { number: number; source: 'override' | 'pr' | 'branch' | 
 
 export type TimelineEvent = { at: number; kind: 'commit' | 'pr' | 'session'; text: string }
 
-// What the breadcrumb of a session row reads from its issue: the milestone title and the GitHub page, both from the open
-// issues list (null when the issue is not open, or its milestone is not open).
-export type IssueFacts = { url: string; milestoneTitle: string | null }
+// What the breadcrumb of a session row reads from its issue: the GitHub page and the milestone title, both from the open issues
+// list (an issue outside that list has no entry). noMilestone is true only when the issue has no milestone; a null title with
+// noMilestone false means the title is unknown, so the trail omits the part (ux-1).
+export type IssueFacts = { url: string; milestoneTitle: string | null; noMilestone: boolean }
 
 // The group a tree top is drawn under: a Desktop sidebar Group (the session's, else its family root's), else Recents.
 export type SessionGroup = {
@@ -45,7 +46,7 @@ export type SessionGroup = {
 export type SessionNode = {
   id: string; title: string; isThisWindow: boolean; kind: 'root' | 'fork' | 'spawn'; depth: number
   parentId: string | null; createdAt: number; branch: string | null; issue: IssueRef | null
-  milestoneTitle: string | null; issueUrl: string | null
+  milestoneTitle: string | null; noMilestone: boolean; issueUrl: string | null
   state: 'working' | 'idle' | 'waiting'; timeline: TimelineEvent[]; children: SessionNode[]
   group: SessionGroup | null   // set on every top of snapshot.sessions, null on derived nodes
 }
@@ -102,7 +103,7 @@ declare module 'claude-code' {
       lang: 'en' | 'pt'
       // The main loop's turn the band reads (hooks/turn.ts): when it started (null when none runs), when the last one ended, and
       // the tool the running turn last called.
-      turn: { startedAt: number | null; endedAt: number | null; tool: string | null }
+      turn: { startedAt: number | null; endedAt: number | null; tool: string | null; endedTurnStart?: number | null }
       // The agents that have not ended (pending, running or waiting), as $.agent.list() counted them, and when their run began.
       agentRun: { count: number; since: number | null }
       // Whether this window's session has an open askaway question, refreshed by the band tick (hooks/register.tsx).

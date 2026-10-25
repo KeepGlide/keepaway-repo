@@ -158,22 +158,24 @@ function shortTitleOf(title: string): string {
   return characters.length <= MILESTONE_TITLE_MAX ? title : `${characters.slice(0, MILESTONE_TITLE_MAX - 1).join('')}…`
 }
 
-// The milestone of this window's issue, with its progress when the snapshot has it: "W16-hotfix 10/16".
+// The milestone of this window's issue, with its progress when the snapshot has it: "W16-hotfix 10/16". The issue's details are
+// known here, so a null title means the issue has no milestone: "no milestone" (ux-1).
 function milestoneWordOf(lang: Lang, issue: BandIssue): BandWord {
-  if (issue.milestoneTitle === null) return word(t(lang, 'crumb.noMilestone'), 'milestone')
+  if (issue.milestoneTitle === null) return word(t(lang, 'crumb.noMilestone'), 'noMilestone')
   const title = shortTitleOf(issue.milestoneTitle)
   return word(issue.progress === null ? title : `${title} ${issue.progress.closed}/${issue.progress.total}`, 'milestone')
 }
 
 // The repo context as words: the milestone, then the issue ("W16-hotfix 10/16", "#106"); "#106" alone when the issue's details are
-// missing; "no issue"; "no GitHub remote". Null before the first poll.
+// missing (the milestone is then unknown); "no milestone" for an issue with none; "no issue"; "no GitHub remote". Null before the first poll.
 export function bandContextWords(view: BandView): BandWord[] | null {
   const { lang, repo, issue } = view
   if (repo === 'unknown') return null
   if (repo === 'none') return [word(t(lang, 'band.noRemote'), 'noRemote')]
   if (issue === null) return [word(t(lang, 'crumb.noIssue'), 'noIssue')]
   const number = word(`#${issue.number}`, 'issue')
-  return issue.detailsMissing === true ? [number] : [milestoneWordOf(lang, issue), number]
+  const milestone = issue.detailsMissing === true ? null : milestoneWordOf(lang, issue)
+  return milestone === null ? [number] : [milestone, number]
 }
 
 // The words as plain text, apart by the separator: the line as a terminal without icons reads it.
