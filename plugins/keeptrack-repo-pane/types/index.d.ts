@@ -103,6 +103,8 @@ declare module 'claude-code' {
       open: boolean
       // The language in use: the stored choice, else the environment's.
       lang: 'en' | 'pt'
+      // The host's UTC offset in minutes east of UTC, from `date +%z` (hooks/register.tsx); the pane draws clock times in it.
+      utcOffset: number
       // The main loop's turn the band reads (hooks/turn.ts): when it started (null when none runs), when the last one ended, and
       // the tool the running turn last called.
       turn: { startedAt: number | null; endedAt: number | null; tool: string | null; endedTurnStart?: number | null }

@@ -31,15 +31,18 @@ export type PaneContext = {
   loadFailed?: boolean
   lang: Lang
   surface: string
+  // The host's UTC offset in minutes east of UTC (register.tsx reads it with `date +%z`). Clock times and dates are drawn in it.
+  utcOffsetMinutes: number
 }
 
-// What every drawing function reads: the element table, the language, the clock of this draw, the surface, and this
-// window's issue details (null when not fetched).
+// What every drawing function reads: the element table, the language, the clock of this draw, the host's UTC offset, the surface,
+// and this window's issue details (null when not fetched).
 type View = {
   ui: Ui
   lang: Lang
   desktop: boolean
   now: number
+  utcOffsetMinutes: number
   thisIssue: IssueDetails | null
 }
 
@@ -126,6 +129,7 @@ export function renderPane(elements: Ui, context: PaneContext): RenderElement {
     lang: context.lang,
     desktop: context.surface === 'desktop',
     now: Date.now(),
+    utcOffsetMinutes: context.utcOffsetMinutes,
     thisIssue: snapshot?.thisIssue ?? null,
   }
   const { Box, Text } = elements
@@ -429,14 +433,14 @@ function detailLinesOf(view: View, node: SessionNode, issue: IssueDetails): Deta
     {
       key: 'started',
       label: t(lang, 'detail.started'),
-      value: startedTextOf(lang, issue.startedAt, now),
+      value: startedTextOf(lang, issue.startedAt, now, view.utcOffsetMinutes),
     },
   ]
 }
 
 // The start of the issue: its clock, with its date too once the start is over a day old, then its age (ux-9).
-function startedTextOf(lang: Lang, at: number, now: number): string {
-  const clock = now - at > DAY_MS ? `${dateOf(at)} ${clockOf(at)}` : clockOf(at)
+function startedTextOf(lang: Lang, at: number, now: number, utcOffsetMinutes: number): string {
+  const clock = now - at > DAY_MS ? `${dateOf(at, utcOffsetMinutes)} ${clockOf(at, utcOffsetMinutes)}` : clockOf(at, utcOffsetMinutes)
   return `${clock}${TITLE_SEPARATOR}${ageText(lang, at, now)}`
 }
 
@@ -491,7 +495,7 @@ function renderTimeline(view: View, node: SessionNode, indent: number): RenderEl
     <Box key={`timeline-${node.id}`} flexDirection="column" gap={1} paddingLeft={indent}>
       {events.map((event, index) => (
         <Box key={`event-${node.id}-${index}`} flexDirection="row" gap={1}>
-          <Text key="time">{clockOf(event.at)}</Text>
+          <Text key="time">{clockOf(event.at, view.utcOffsetMinutes)}</Text>
           <Text key="glyph">{TIMELINE_GLYPH[event.kind]}</Text>
           <Box key="text" flexGrow={1}>
             <Text>{timelineText(view.lang, node, event)}</Text>
@@ -530,7 +534,8 @@ function renderIssueGroup(view: View, group: IssueGroup): RenderElement[] {
   if (milestone === null) {
     return issues.length > 0 ? [<Text key={`milestone-${groupKey}`} bold>{label}</Text>, ...issueRows] : []
   }
-  // The progress line carries the due date when GitHub sets one (its date part; pm1-4). The count is the total. Exact counts name
+  // The progress line carries the due date when GitHub sets one (its date part; pm1-4). The due date is a calendar date, so it is
+  // drawn from its own UTC date and never shifted into the host's zone. The count is the total. Exact counts name
   // issues; inexact ones are REST's, which count PRs too, so they take the neutral noun "items" (ux-5).
   const total = milestone.openIssues + milestone.closedIssues
   const due = milestone.dueOn === null ? '' : `${TITLE_SEPARATOR}${t(lang, 'milestone.due', { date: milestone.dueOn.slice(0, DATE_LENGTH) })}`
@@ -596,15 +601,21 @@ function escapeMarkdown(text: string): string {
 
 const pad = (value: number): string => String(value).padStart(2, '0')
 
-function clockOf(at: number): string {
-  const when = new Date(at)
-  return `${pad(when.getHours())}:${pad(when.getMinutes())}`
+// The instant shifted into the host's zone, read through the UTC getters: the runtime's own zone never decides the digits.
+function hostWallClockOf(at: number, utcOffsetMinutes: number): Date {
+  return new Date(at + utcOffsetMinutes * MINUTE_MS)
 }
 
-// The local date as YYYY-MM-DD, the form of a GitHub due date.
-function dateOf(at: number): string {
-  const when = new Date(at)
-  return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}`
+// The host's clock as HH:MM.
+export function clockOf(at: number, utcOffsetMinutes: number): string {
+  const when = hostWallClockOf(at, utcOffsetMinutes)
+  return `${pad(when.getUTCHours())}:${pad(when.getUTCMinutes())}`
+}
+
+// The host's date as YYYY-MM-DD, the form of a GitHub due date.
+export function dateOf(at: number, utcOffsetMinutes: number): string {
+  const when = hostWallClockOf(at, utcOffsetMinutes)
+  return `${when.getUTCFullYear()}-${pad(when.getUTCMonth() + 1)}-${pad(when.getUTCDate())}`
 }
 
 // "just now", "N min ago", "N h ago", "N d ago", in the language of the pane.

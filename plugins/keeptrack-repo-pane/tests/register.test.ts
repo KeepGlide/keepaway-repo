@@ -113,6 +113,9 @@ type StubOptions = {
   viewGate?: Promise<void>
   // Files in the records folder that are not session records (Desktop's scheduled tasks list, deleted_<id> tombstones).
   strayFiles?: string[]
+  // The answer of `date +%z`, the host's UTC offset; `dateMissing` makes the host refuse the call (no date binary).
+  utcOffset?: string
+  dateMissing?: boolean
 }
 type Host = {
   argvs: string[][]
@@ -263,6 +266,10 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   on('process.run', async (_$, event) => {
     const argv = [...event.argv]
     host.argvs.push(argv)
+    if (argv[0] === 'date') {
+      if (options.dateMissing === true) return refuse('Executable not found in $PATH: "date"')
+      return valueOr(argv, processOutput(options.utcOffset ?? '+0000\n'))
+    }
     if (argv[0] === 'gh' && (options.gh === 'missing' || options.gh === 'timeout')) return refuse(REJECTION_OF[options.gh])
     if (argv[0] === 'gh') {
       const answer = await ghAnswerOf(argv, options)
@@ -2301,4 +2308,28 @@ test('F: a pane with two sessions under Recents, two open issues and two issue b
   }
   const keys = markdowns.map(node => node.props?.key)
   expect(new Set(keys).size).toBe(keys.length)
+})
+
+// The clock the pane draws for the session record at epoch 0 (the fixture's createdAt), in a zone with this UTC offset.
+const clockAtEpochZeroIn = (utcOffsetMinutes: number): string => new Date(utcOffsetMinutes * 60_000).toISOString().slice(11, 16)
+
+test('the host UTC offset comes from date +%z at session.start and on each poll; a refused or unreadable answer falls back to the runtime offset', async ($: Engine, on) => {
+  const runtimeOffset = -new Date().getTimezoneOffset()
+  const options: StubOptions = { utcOffset: '-0300\n' }
+  const host = stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(host.argvs).toContainEqual(['date', '+%z'])
+  expect(await drawnPane($)).toContain(clockAtEpochZeroIn(-180))
+  options.utcOffset = '+0530\n'
+  await host.clock.advance(POLL_MS)
+  expect(await drawnPane($)).toContain(clockAtEpochZeroIn(330))
+  options.utcOffset = 'UTC\n'
+  await host.clock.advance(POLL_MS)
+  expect(await drawnPane($)).toContain(clockAtEpochZeroIn(runtimeOffset))
+  options.utcOffset = '-0300\n'
+  options.dateMissing = true
+  await host.clock.advance(POLL_MS)
+  expect(await drawnPane($)).toContain(clockAtEpochZeroIn(runtimeOffset))
 })

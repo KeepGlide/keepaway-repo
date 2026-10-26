@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { renderPane, type PaneContext } from '../hooks/pane'
+import { clockOf, dateOf, renderPane, type PaneContext } from '../hooks/pane'
 import { TEXT_MAX, buildTree, groupIssues, type DesktopGroups } from '../hooks/model'
 import { t } from '../hooks/i18n'
 import { DETAILS_FILL, STATE_GLYPH } from '../hooks/look'
@@ -116,7 +116,7 @@ function snapshotWith(overrides: Partial<Snapshot> = {}): Snapshot {
 }
 
 function contextWith(surface: string, overrides: Partial<PaneContext> = {}): PaneContext {
-  return { snapshot: snapshotWith(), lang: 'en', surface, ...overrides }
+  return { snapshot: snapshotWith(), lang: 'en', surface, utcOffsetMinutes: 0, ...overrides }
 }
 
 const drawDesktop = (overrides: Partial<PaneContext> = {}) =>
@@ -881,4 +881,33 @@ test('the issue row on the desktop draws its tag inside the link, bold for P0 an
   expect(String(high?.props.text)).toMatch(/^\*\*▪ \[P1 #\d+ /)
   const low = issueLineOf(drawDesktop({ snapshot: snapshotWithLabels(['priority: low']) }))
   expect(String(low?.props.text)).toMatch(/^▪ \[P3 #\d+ /)
+})
+
+test('clock times and dates are drawn in the host zone: the offset shifts the instant before the UTC getters read it', () => {
+  const at = Date.parse('2025-10-26T16:06:00Z')
+  expect(clockOf(at, -180)).toBe('13:06')
+  expect(clockOf(at, 0)).toBe('16:06')
+  expect(clockOf(at, 330)).toBe('21:36')
+  expect(dateOf(Date.parse('2025-10-31T02:30:00Z'), -180)).toBe('2025-10-30')
+  expect(dateOf(Date.parse('2025-10-31T02:30:00Z'), 0)).toBe('2025-10-31')
+  expect(dateOf(Date.parse('2025-10-31T23:30:00Z'), 60)).toBe('2025-11-01')
+})
+
+test('the started line draws the host clock, with the host date once the start is over a day old', () => {
+  const startedAt = Date.parse('2025-10-26T16:06:00Z')
+  const startedLine = (utcOffsetMinutes: number): string | undefined => {
+    const snapshot = snapshotWith({ thisIssue: { ...SAMPLE_THIS_ISSUE, startedAt } })
+    const block = nodesOf(drawDesktop({ snapshot, utcOffsetMinutes })).find(node => node.props.backgroundColor === DETAILS_FILL)
+    return drawnTexts(block).find(text => /^(\d{4}-\d\d-\d\d )?\d\d:\d\d · /.test(text))
+  }
+  expect(startedLine(-180)).toMatch(/^2025-10-26 13:06 · /)
+  expect(startedLine(0)).toMatch(/^2025-10-26 16:06 · /)
+})
+
+test('a GitHub due date is a calendar date: it is drawn from its UTC date, never shifted into the host zone', () => {
+  const milestone = { number: 22, title: 'Milestone D', openIssues: 1, closedIssues: 0, dueOn: '2025-10-31T00:00:00Z', countsExact: true }
+  const snapshot = snapshotWith({ issueGroups: [{ milestone, closedTitle: null, issues: [], claimsLinked: true }] })
+  const texts = drawnTexts(drawDesktop({ snapshot, utcOffsetMinutes: -180 }))
+  expect(texts.some(text => text.includes('2025-10-31'))).toBe(true)
+  expect(texts.some(text => text.includes('2025-10-30'))).toBe(false)
 })

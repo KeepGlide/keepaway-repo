@@ -523,6 +523,21 @@ function issueOrder(issues: readonly Issue[]): Issue[] {
   return [...newestFirst(issues)].sort((a, b) => rank(a) - rank(b))
 }
 
+// A UTC offset as `date +%z` prints it (±HHMM), in minutes east of UTC; null for anything else (no sign, a minute past 59, an
+// hour past 14, which no zone reaches).
+const UTC_OFFSET_PATTERN = /^([+-])(\d{2})(\d{2})$/
+const UTC_OFFSET_MAX_HOURS = 14
+const MINUTES_PER_OFFSET_HOUR = 60
+export function parseUtcOffset(text: string): number | null {
+  const match = UTC_OFFSET_PATTERN.exec(text.trim())
+  if (match === null) return null
+  const hours = Number(match[2])
+  const minutes = Number(match[3])
+  if (hours > UTC_OFFSET_MAX_HOURS || minutes >= MINUTES_PER_OFFSET_HOUR) return null
+  const east = hours * MINUTES_PER_OFFSET_HOUR + minutes
+  return match[1] === '-' ? -east : east
+}
+
 // The due date of a milestone in epoch ms, null when GitHub sets none (or the date does not parse).
 function dueTimeOf(milestone: Milestone): number | null {
   const time = Date.parse(milestone.dueOn ?? '')

@@ -36,6 +36,7 @@ Commit hashes name the change in `git log`.
 - "Started" shows the date once the session is more than a day old (`hooks/pane.tsx`).
 
 ### Fixed
+- Clock times are drawn in the host's zone, not the mod runtime's: the Started line and the timeline times followed the runtime's offset, not the host's. The host's UTC offset is read with `date +%z` at session.start and on each poll; a missing `date` or a bad answer falls back to the runtime's offset (`hooks/register.tsx` `readUtcOffset`, `hooks/pane.tsx` `clockOf`/`dateOf`, `hooks/model.ts` `parseUtcOffset`). GitHub due dates stay calendar dates, never shifted.
 - More than 500 open issues no longer undercount: the milestone totals are exact, and the list flags partial (`hooks/register.tsx`).
 - "All closed" is drawn only from exact milestone counts, never from a REST zero or a failed totals call (`hooks/pane.tsx`).
 - A session.start during a poll in flight polls for the new session once that poll settles (`hooks/register.tsx`).
@@ -62,6 +63,7 @@ Commit hashes name the change in `git log`.
 ### Tests
 - Stronger band and register assertions: exact band lines for the no-milestone and unknown-milestone cases, and the "items" wording (`tests/band.test.ts`, `tests/register.test.ts`, `tests/pane.test.ts`, `tests/model.test.ts`).
 - An invalid `KEEPTRACK_POLL_MS` falls back to the default cadence, and a valid one sets it (sp-5, `tests/register.test.ts`).
+- Clock tests with a fixed host offset: `parseUtcOffset` (`tests/model.test.ts`), `clockOf`/`dateOf` across midnight, the Started line, the due date as a calendar date (`tests/pane.test.ts`), and the offset read at session.start, on each poll and after a refused `date` (`tests/register.test.ts`).
 
 ## [0.2.0-beta.8] - 2026-10-22
 

@@ -139,6 +139,8 @@ Budget: four gh calls per minute while the pane is open, plus the fifth call (`g
 is closed: four gh calls every 5 minutes (`KEEPTRACK_BAND_POLL_MS`), plus the fifth call when mapped, so at most 5 gh calls per 5
 minutes per window, and one poll at session start (and one more when a session.start or a `/keeptrack issue` landed during a poll in flight, or while abandoned polls filled every slot). Git is local.
 
+Host clock (`date +%z`, `readUtcOffset` in `hooks/register.tsx`): the host's UTC offset is read through the process API, `$.process.run(['date', '+%z'], { timeoutMs: 2000 })`, once at session.start and once per poll, before the poll's other calls. The answer is `±HHMM` and `parseUtcOffset` (`hooks/model.ts`) turns it into minutes east of UTC. The offset is written to the `utcOffset` atom, and the pane reads it with its other inputs. Any failure falls back to the runtime's own offset (`-new Date().getTimezoneOffset()`): no `date` binary (Windows), a timeout, a non-zero exit, or an answer that is not `±HHMM`. A DST change reaches the pane at the next poll. This is the only host call that is not gh or git.
+
 ## 5. Session to issue (first match wins, no merging)
 
 1. Override: the store key `override:<sessionId>`, set by `/keeptrack issue <n>` in this window only.
@@ -285,6 +287,7 @@ Inside one highlighted block (the engine's user-message background, `DETAILS_FIL
 3. Detail lines `Heading: text` (only when `thisIssue` is drawn): State, Branch, PR, Last commit, Checks, Last comment,
    Next step, Started. Each heading is bold; each line is a separate row. "Next step" reads `no next step` (pt-BR `nenhum registrado`) while no value exists, which is
    always so far, since no snapshot field feeds it. "Started" is `hh:mm · <age>`, or `YYYY-MM-DD hh:mm · <age>` once the start is over a day old (ux-9).
+   Every clock time (Started and the timeline times, section 10) is the host's wall clock: `clockOf` and `dateOf` in `hooks/pane.tsx` shift the instant by the host's UTC offset (the `date +%z` read of section 4) and read the UTC getters, so the runtime's own zone never decides the digits. Ages (`N min ago`) are offset-free and unchanged.
 4. Timeline (section 10).
 5. The GitHub link as the last line: on the desktop `▪ Open #n on GitHub ↗`, a Markdown link to a https://github.com page (the arrow marks that it opens); on the terminal `▪ Open #n on GitHub`, plain text without the arrow (ux-7).
 
@@ -298,7 +301,7 @@ nothing when no session is listed: no heading, no label, no empty row.
 Below the sessions, the open issues that no session works on are drawn by milestone. Each milestone group is bold, with its title
 up to the first ` · `, then a progress line `<closed> of <total> issues closed` (pt-BR `<closed> de <total> issues fechadas`, the
 singular `issue closed` or `issue fechada` when the total is 1). When GitHub gives the milestone a due date, the line ends with
-` · due YYYY-MM-DD` (pt-BR `prazo YYYY-MM-DD`). The totals come from GraphQL (section 4, row 3); only a failed call leaves REST's counts, and those are not exact. An open milestone
+` · due YYYY-MM-DD` (pt-BR `prazo YYYY-MM-DD`). The date is a calendar date: it is the UTC date of GitHub's `dueOn` (`2025-10-31T00:00:00Z` draws `2025-10-31` in every zone), never shifted into the host's zone. The totals come from GraphQL (section 4, row 3); only a failed call leaves REST's counts, and those are not exact. An open milestone
 whose open issues all sit on sessions draws one line instead of its issues, `<title> · N open, all in sessions` (pt-BR
 `<title> · N abertas, todas em sessões`), then the progress line. That claim is drawn only when the issue list is complete and holds every open issue the milestone counts; otherwise the milestone draws its title and progress line only (rev-g1-5). An open milestone with no open issue left reads
 `<title> · all closed · ready to close` (pt-BR `todas fechadas · pronto para fechar`), drawn only from exact counts (`Milestone.countsExact`); a milestone with inexact counts draws its title and progress line, with the noun `items` (`{closed} of {total} items closed`, pt-BR `{closed} de {total} itens fechados`), since REST's counts include PRs (ux-5). Issues with no milestone sit under
@@ -357,7 +360,7 @@ Run from the mod folder:
    The mod is published as 0.2.0-beta.8 (commit 517f460) and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
-or reads a real record.
+or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`, `parseUtcOffset`) and do not depend on the zone the test process runs in; the register test answers `date +%z` through the process stub, including a refused call.
 
 ## 16. Limits
 

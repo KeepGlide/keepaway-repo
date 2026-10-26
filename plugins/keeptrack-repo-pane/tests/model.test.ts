@@ -18,6 +18,7 @@ import {
   mapLimited,
   parseDesktopGroups,
   parseRemote,
+  parseUtcOffset,
   plain,
   priorityOf,
   projectRecord,
@@ -1103,4 +1104,15 @@ test('groupIssues: closed-milestone groups stay after the open ones, by number d
   const open = dueMilestone(22, '2026-10-31T07:00:00Z')
   const groups = groupIssues([open], [{ ...closed, milestone: 40, milestoneTitle: 'Old' }], new Set(), false)
   expect(groups.map(group => group.milestone?.number ?? group.closedTitle)).toEqual([22, 'Old'])
+})
+
+test('parseUtcOffset reads the ±HHMM of date +%z in minutes east of UTC; any other text is null, so the runtime offset is kept', () => {
+  expect(parseUtcOffset('+0530')).toBe(330)
+  expect(parseUtcOffset('-0300')).toBe(-180)
+  expect(parseUtcOffset('+0000')).toBe(0)
+  expect(parseUtcOffset('-0300\n')).toBe(-180)
+  expect(parseUtcOffset('+1400')).toBe(840)
+  for (const garbage of ['', 'UTC', '-03:00', '0300', '+9900', '+0075', '+14', 'Mon Oct 26']) {
+    expect(parseUtcOffset(garbage)).toBeNull()
+  }
 })

@@ -23,6 +23,7 @@ import {
   newestCommentOf,
   parseDesktopGroups,
   parseRemote,
+  parseUtcOffset,
   plain,
   projectRecord,
   type DesktopGroups,
@@ -128,6 +129,9 @@ const openAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'open' } as const, f
 // Set when the first poll settled with no snapshot to show, so the pane draws the failure line instead of Loading (ux4-2).
 const loadFailedAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'loadFailed' } as const, false)
 const langAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'lang' } as const, 'en' as Lang)
+// The host's UTC offset in minutes east of UTC, read with `date +%z` at session.start and on each poll; the pane draws its clock times
+// in it, since the runtime's own zone may not be the host's. Until a read lands it is the runtime's offset.
+const utcOffsetAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'utcOffset' } as const, runtimeUtcOffset())
 // The main loop's turn, written by turn.start, tool.call, turn.complete and turn.abort: the band's status line reads it.
 const turnAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'turn' } as const, IDLE_TURN)
 // Whether this window's session waits for the person: the engine asked about a tool call (tool.check answered ask) and the call has not run.
@@ -1161,9 +1165,36 @@ async function currentSessionIdOf($: EngineInterface): Promise<string | null> {
   return $.session.id().catch(() => null)
 }
 
+// ---- the host's UTC offset ----
+
+// How long `date +%z` may take; a host that answers later falls back to the runtime's offset.
+const UTC_OFFSET_TIMEOUT_MS = 2_000
+
+// The runtime's own offset in minutes east of UTC: the fallback when the host cannot say (no `date` binary, a timeout, a bad answer).
+function runtimeUtcOffset(): number {
+  return -new Date().getTimezoneOffset()
+}
+
+// Reads the host's offset from `date +%z` (±HHMM) into the utcOffset atom. Any failure stores the runtime's offset.
+async function refreshUtcOffset($: EngineInterface): Promise<void> {
+  const utcOffset = await readUtcOffset($)
+  await update($, utcOffsetAtom, () => utcOffset)
+}
+
+async function readUtcOffset($: EngineInterface): Promise<number> {
+  try {
+    const run = await $.process.run(['date', '+%z'], { timeoutMs: UTC_OFFSET_TIMEOUT_MS })
+    const minutes = run.exitCode === 0 ? parseUtcOffset(run.stdout) : null
+    return minutes ?? runtimeUtcOffset()
+  } catch {
+    return runtimeUtcOffset()
+  }
+}
+
 // One poll: the repo, the gh data, the sessions and this window's issue, then the snapshot atom (repo-work-pane-design-spec.md 2.1).
 // null while the repo context has never been read (F02); refresh then marks the failure for the pane (ux4-2).
 async function buildSnapshot($: EngineInterface, seq: number, epoch: number): Promise<Snapshot | null> {
+  await refreshUtcOffset($)
   const now = await $.clock.now()
   const read = await repoContextOf($)
   const context = read ?? lastRepoContext
@@ -1591,6 +1622,7 @@ export const register: Register = on => {
     )
     // The repo of the previous session is not carried over: a failed repo read in this session draws no old repo (st-6).
     lastRepoContext = null
+    await refreshUtcOffset($)
     await scheduleTimer($)
     // A poll still in flight reads the previous session: the new session's poll starts when that one settles (state2-3, st-8).
     repollSoon($)
@@ -1611,6 +1643,7 @@ export const register: Register = on => {
       loadFailed: await read($, loadFailedAtom),
       lang: await read($, langAtom),
       surface: e.surface,
+      utcOffsetMinutes: await read($, utcOffsetAtom),
     })
   })
 
