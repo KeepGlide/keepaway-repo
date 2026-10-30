@@ -1,4 +1,4 @@
-# KeepTrack: spec (as built, v0.2.0-beta.11)
+# KeepTrack: spec (as built, v0.2.0-beta.12)
 
 Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepTrack, the command is `/keeptrack`.
 
@@ -27,14 +27,15 @@ where it differs from that record (section 9).
 | `hooks/pane.tsx` | Draws one `Snapshot`; reads no state. The session groups: `groupsOf`, `renderGroup`, `renderGroupLabel`. |
 | `hooks/band.tsx` | Draws the band row above the prompt: the status line, the repo context and the Open button (section 18); reads no state. |
 | `hooks/logo-element.tsx` | The logo elements: the pane header's mark (`renderKeepTrackLogo`), the band's leading mark (`renderKeepTrackMark`) and the KeepGlide mark (`renderKeepGlide`), drawn from `logo.ts` and `keepglide.ts` (section 18). |
-| `hooks/action-icons.ts` | One table of the action icons, emoji and SVG per key, for the band's status line (section 18). |
+| `hooks/action-icons.ts` | Every emoji of KeepTrack: the band's action icons (emoji and SVG per key, section 18), the pane's status icons and the priority icons (section 19). |
 | `hooks/turn.ts` | The pure transitions of the main loop's turn (turn.start, tool.call, turn.complete, turn.abort), written into the turn atom. |
 | `hooks/keepglide.ts` | A local copy of askaway's KeepGlide mark, drawn 24 px at the pane header's right (section 17). |
 | `hooks/held.ts` | Keeps the band's press handle across redraws: a local copy of askaway's `held.ts` (mods do not import each other). |
 | `hooks/i18n.ts` | English and pt-BR dictionaries and `t()`; `group.recents` is `Recents` in both languages, the Desktop sidebar's own label (the app bundle has `Recents` 24 times and `Recentes` 0 times, counted on this machine on 2026-10-22, `/usr/lib/claude-desktop/version`: `44.9.0`). |
 | `hooks/look.ts`, `hooks/logo.ts` | Theme keys and glyphs (`look.ts`); the one violet of the logo (`logo.ts`, exempt from the look gate). |
 | `types/index.d.ts` | The contracts: records, issues, PRs, `SessionNode`, `IssueDetails`, `Snapshot`, the drawn state. |
-| `scripts/keeptrack-look-check.sh` | Look gate: no hex colour, colour function or emoji in the drawn code. |
+| `scripts/keeptrack-look-check.sh` | Look gate: no hex colour, colour function or emoji in the drawn code (emoji only in `action-icons.ts`). |
+| `scripts/keeptrack-look-selftest.sh` | Self-check of the gate on a copy: the real tree passes; an emoji outside `action-icons.ts` fails; one inside passes; a hex colour there fails. |
 | `tests/*.test.ts`, `tests/fixtures/sample.ts` | Unit tests of the rules, the pane, the band, the i18n and the hooks module. |
 
 ## 3. Data flow
@@ -274,8 +275,8 @@ A poll never throws into the engine: a failed job is logged by its error name on
   is a context ancestor or sits in another group); a session with no parent link has no origin. With no issue: `no issue`. The milestone part is the title of the issue's milestone, open or closed; it is omitted when no title is known, never drawn as `no milestone` (ux-1).
   On the desktop `#n` links to the issue page when it is a https://github.com page. The milestone is its title up to the first
   ` · `.
-- Timeline: the 6 newest events of the session, always drawn, never folded. Kinds: commit (`●`, subject as plain text),
-  PR (`↗`, `PR #n opened: <title>`, from the PR's `createdAt`), session (`◇`, `started`, `forked from <title>`, or
+- Timeline: the 6 newest events of the session, always drawn, never folded. The timeline has a `🕘 Timeline` heading (drawn only with events). Kinds, each with its icon: commit (`📝`, subject as plain text),
+  PR (`🔀`, `PR #n opened: <title>`, from the PR's `createdAt`), session (`🚀`, `started`, `forked from <title>`, or
   `spawned from <title>`, the title of the session's own parent, an ended one included). Commits are the branch's own last 5, newest first, empty on the default branch.
 
 ## 11. This window's block
@@ -294,11 +295,11 @@ Inside one highlighted block (the engine's user-message background, `DETAILS_FIL
 Nothing folds. Each group draws its label line, then each top as a titled row (`├`, and `└` on the last) with its derived
 rows nested under it; deeper derived rows nest under their parent, indent capped at two levels (W1, section 9).
 
-Each session row's title line reads the branch glyph, then the state glyph with its word (`● working`, `○ idle`,
-`◐ waiting for you`; pt-BR `trabalhando`, `ociosa`, `esperando você`), then the title, on every row. The sessions section draws
+Each session row's title line reads the branch glyph, then the state glyph with its word (`🟢 working`, `💤 idle`,
+`⏳ waiting for you`; pt-BR `trabalhando`, `ociosa`, `esperando você`), then the title, on every row, with the active marker before it (`▶️` on this window's row, `🔄` on a session working now). The sessions section draws
 nothing when no session is listed: no heading, no label, no empty row.
 
-Below the sessions, the open issues that no session works on are drawn by milestone. Each milestone group is bold, with its title
+Below the sessions, the open issues that no session works on are drawn by milestone, under the heading `📋 Issues without session` (pt-BR `Issues sem sessão`). Each milestone group is bold, with its title
 up to the first ` · `, then a progress line `<closed> of <total> issues closed` (pt-BR `<closed> de <total> issues fechadas`, the
 singular `issue closed` or `issue fechada` when the total is 1). When GitHub gives the milestone a due date, the line ends with
 ` · due YYYY-MM-DD` (pt-BR `prazo YYYY-MM-DD`). The date is a calendar date: it is the UTC date of GitHub's `dueOn` (`2025-10-31T00:00:00Z` draws `2025-10-31` in every zone), never shifted into the host's zone. The totals come from GraphQL (section 4, row 3); only a failed call leaves REST's counts, and those are not exact. An open milestone
@@ -309,7 +310,7 @@ whose open issues all sit on sessions draws one line instead of its issues, `<ti
 under the closed milestone's title, marked `<title> · closed` (pt-BR `<title> · fechado`) with no progress line, the title read from
 each issue's own milestone field (pm1-9).
 
-Open milestone groups sort by due date, earliest first (an overdue one leads), then by number, newest first. A milestone with no due date, or one whose date does not parse, comes after the dated ones, by number, newest first. Inside every group the issues sort by priority, P0 first and unlabelled last, then newest first (a stable sort, so the newest-first order holds within a priority). A priority comes from the issue's labels, case-insensitive: `P0` to `P3`, or `priority: critical|high|medium|low` with the `priority/…`, `priority-…` and `prio…` variants, read as P0 to P3 (critical is P0, low is P3); when several labels name one, the highest wins (`priorityOf`, `hooks/model.ts`). The row draws the tag before its number (`P1 #12 title`); P0 and P1 rows draw bold (`EMPHASISED_PRIORITIES`, `hooks/look.ts`). The session line does not carry the tag: its breadcrumb reads IssueFacts, which would have to widen for it.
+Open milestone groups sort by due date, earliest first (an overdue one leads), then by number, newest first. A milestone with no due date, or one whose date does not parse, comes after the dated ones, by number, newest first. Inside every group the issues sort by priority, P0 first and unlabelled last, then newest first (a stable sort, so the newest-first order holds within a priority). A priority comes from the issue's labels, case-insensitive: `P0` to `P3`, or `priority: critical|high|medium|low` with the `priority/…`, `priority-…` and `prio…` variants, read as P0 to P3 (critical is P0, low is P3); when several labels name one, the highest wins (`priorityOf`, `hooks/model.ts`). The row draws the priority icon and the tag before its number (`🟠 P1 #12 title`, icons in section 19); P0 and P1 rows draw bold (`EMPHASISED_PRIORITIES`, `hooks/look.ts`). The session line does not carry the tag: its breadcrumb reads IssueFacts, which would have to widen for it.
 
 The pane's footer reads `Updated <age> · gh · <owner/name>` (pt-BR `Atualizado <age> · gh · <owner/name>`). The age uses the same
 scale as the rows: `just now` (pt-BR `agora`) under one minute, then `N min ago` (`há N min`), `N h ago` (`há N h`) or `N d ago`
@@ -355,9 +356,9 @@ Run from the mod folder:
 2. `claude plugin test .`: the unit, pane, band, turn, i18n and hooks-module tests (fixtures are synthetic; no real record, remote or
    GitHub call). The register tests stub `$` in memory: gh and git never run.
 3. `scripts/keeptrack-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
-   `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only.
+   `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only (it holds every emoji of KeepTrack). `scripts/keeptrack-look-selftest.sh` runs the gate on a copy and checks those cases.
 4. `agentic-mod-release-tool.sh keeptrack-repo-pane --check` must pass before the mod is installed (CLAUDE.md rule 6a).
-   The mod is published as 0.2.0-beta.11 and installed from `sophia-mods` (README, Installation).
+   The mod is published as 0.2.0-beta.12 and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
 or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`, `parseUtcOffset`) and do not depend on the zone the test process runs in; the register test answers `date +%z` through the process stub, including a refused call.
@@ -428,9 +429,9 @@ Done in the Claude Desktop with the mod installed, not by the build:
   (A, B and C are not chosen): the markup lives in `logo.ts` alone, so a swap changes that one file. The brand colours stay literal.
 - Action icons (`hooks/action-icons.ts`, one table: emoji and SVG per key): on the terminal the emoji as text; on the desktop a 14 px
   SVG on a 24 px grid, 2 px stroke, `currentColor` (an emoji renders as an odd glyph in the Desktop band font). Keys and emoji:
-  idle 💤, thinking 💭, waiting ⏳, MCP 🔌, shell 💻 (`Bash`), read 📖 (`Read`), edit ✏️ (`Edit`, `Write`, `MultiEdit`, `NotebookEdit`),
+  idle 💤, working 🟢 (the running word), thinking 💭, waiting ⏳, MCP 🔌, shell 💻 (`Bash`), read 📖 (`Read`), edit ✏️ (`Edit`, `Write`, `MultiEdit`, `NotebookEdit`),
   search 🔎 (`Grep`, `Glob`), web 🌐 (`WebFetch`, `WebSearch`), agent 🤖 (`Agent`, and the agent count), any other tool 🔧,
-  milestone 🎯, issue 📌, no issue 📭, no GitHub remote 🚫, error ⚠️. The register passes two flags: `waiting`, when this window's session is waiting for the user (its node in the session tree reads
+  milestone 🎯, in progress 🛠️ (this window's issue, was 📌), no milestone ⭕ (missing before this change: the band threw on that word), no issue 📭, no GitHub remote 🚫, error ⚠️. The register passes two flags: `waiting`, when this window's session is waiting for the user (its node in the session tree reads
   `waiting`: set when the engine's tool check answers `ask` (the engine puts a tool call to the person), cleared when that call runs, when a turn starts or ends, and when a session starts; the status line starts with `waiting for you`, pt-BR `esperando você`); and `error`, when the
   snapshot holds an error other than `no-remote`, `gh-missing` or `gh-auth` (the band does not flag those three, which the repo line already names) (the repo context line ends with `data error`, pt-BR `erro nos dados`).
 - Status line (`bandStatusWords`, `hooks/band.tsx`), from the main loop only (turn events without an `agentId`), as words, each with
@@ -459,7 +460,7 @@ Done in the Claude Desktop with the mod installed, not by the build:
     turn.complete, agent.spawn and each band tick. A status `waiting` counts: the agent waits on background work it owns. An agent read begun under the previous session writes nothing (its session epoch is old).
   - The transitions are the pure functions of `hooks/turn.ts`, written by the hooks into the atoms `turn: { startedAt, endedAt, tool,
     endedTurnStart }`, `agentRun` and `waiting` (the band's waiting flag, a boolean).
-- Repo context (`bandContextWords`, icons 🎯 and 📌): `<milestone> <closed>/<total> · #<n>`. The milestone is this window's milestone
+- Repo context (`bandContextWords`, icons 🎯 and 🛠️): `<milestone> <closed>/<total> · #<n>`. The milestone is this window's milestone
   title (cut to 24 characters with `…` in the band); the total is the milestone's
   `openIssues` plus `closedIssues` (section 4, row 3: GraphQL counts, exact; REST's fallback counts PRs too and is not exact). The milestone part is the title of the issue's milestone, open or closed (pm1-9); it is omitted when no title is known, never drawn as `no milestone` (ux-1). `no issue`
   when the window maps to no issue; `no GitHub remote` when the window has no remote; nothing before the first poll. `#<n>` alone when
@@ -477,7 +478,7 @@ Done in the Claude Desktop with the mod installed, not by the build:
 - Reads the atoms, the snapshot and the clock only. A render starts no poll itself and calls no `$.process` or `$.fs`; a render that
   finds the timers missing schedules `ensureTimers` through the clock (section 3), as the pane's draw does.
 - Look gate (`scripts/keeptrack-look-check.sh`): `logo.ts` and `keepglide.ts` are exempt from its checks (they hold the brand
-  colours); `action-icons.ts` is exempt from the emoji scan only (the terminal emoji), and its icons take `currentColor`.
+  colours); `action-icons.ts` is exempt from the emoji scan only: it is the one module of every emoji (section 19), and its SVG icons take `currentColor`.
 - Limits: the engine exposes no tool-finished event in this build, so the band keeps the last tool of the turn until the turn ends.
   A subagent that ends stays counted until the next band tick (30 s) or a turn.start, turn.complete or agent.spawn event re-reads
   the list (turn.abort does not re-read it: SM2, section 9). The elapsed and idle times are measured at
@@ -487,3 +488,44 @@ Done in the Claude Desktop with the mod installed, not by the build:
 - i18n keys (both dictionaries): `band.open`, `band.show`, `band.running`, `band.idle`, `band.thinking`, `band.agents`,
   `band.agentsOne`, `band.span.seconds`, `band.span.minutes`, `band.span.hours`, `band.noRemote`, `band.error`; with the existing
   `crumb.noIssue`, `crumb.noMilestone` and `age.*`. `band.context` is gone: the milestone and the issue are separate words.
+
+## 19. Icon vocabulary
+
+Every emoji of KeepTrack lives in `hooks/action-icons.ts`; the drawn code takes them by name. The words stay in `hooks/i18n.ts` (EN and
+PT), and the icon sits before its word. The pane draws its emoji as text on both surfaces; a band action on the desktop is its SVG
+(section 18). Icons are drawn only in these places:
+
+| Meaning | Emoji | Where drawn |
+|---|---|---|
+| Working now (session state, band Running) | 🟢 | pane session rows; band `Running` word |
+| Waiting for you | ⏳ | pane session rows; band; loading line |
+| Idle | 💤 | pane session rows; band `Idle` word |
+| Subagents active | 🤖 | band agents word |
+| This window's row (active marker) | ▶️ | title of this window's row |
+| Another session working now (active marker) | 🔄 | title of the row |
+| This window's issue, in progress | 🛠️ | band `#n`; breadcrumb `#n` |
+| Open issues without a session (to do) | 📋 | heading `Issues without session`; header counter |
+| Sessions count | 🖥️ | header counter |
+| Milestone | 🎯 | band milestone word; milestone heading |
+| No milestone | ⭕ | band `no milestone` |
+| Done: closed issue, all-closed or closed milestone, merged PR | ✅ | issue details; milestone lines; PR state |
+| Closed PR | ☑️ | PR state |
+| Open PR | 🔀 | PR state; timeline PR events |
+| History heading | 🕘 | timeline heading |
+| Commit event | 📝 | timeline commit events |
+| Session event (started, forked, spawned) | 🚀 | timeline session events |
+| Due date | 📅 | milestone progress line |
+| Overdue | ⚠️ | milestone progress line (open issues left, exact counts) |
+| Error or partial-list line | ⚠️ | pane error lines |
+| Loading / load failure | ⏳ / ❌ | pane loading and failure lines |
+| Priority P0 / P1 / P2 / P3 | 🔴 / 🟠 / 🟡 / ⚪ | issue row, before the tag |
+| Band: no issue, no remote, tool, MCP | 📭, 🚫, 🔧, 🔌 | band words (section 18) |
+
+- Progress bar: ten cells of plain characters, `▰` filled and `▱` empty, then the rounded percentage (`▰▰▰▰▰▰▱▱▱▱ 60%`). It is drawn
+  only from exact counts (`countsExact`); a milestone with inexact counts draws its progress line without a bar (`progressBarOf`).
+- Overdue: an open milestone with open issues and exact counts whose due date (GitHub's calendar date) is before today's date in the
+  host's zone (`isOverdue`). A milestone with no open issue left is never overdue.
+- Look gate: emoji only in `action-icons.ts`. The text glyphs `▶` (band), `▪`, `▰`, `▱`, `├`, `└`, `↗`, `←` are not emoji and stay
+  outside the scan; hex colours and colour functions are banned in every drawn module.
+- Not mapped, because the timeline has no such kind: merged, closed, comment and reopened events (the timeline holds commit, PR and
+  session events only). The merged and closed icons appear on the PR state instead.

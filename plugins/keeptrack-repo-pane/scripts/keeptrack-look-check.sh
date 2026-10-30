@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The look gate of KeepTrack (keeptrack-repo-pane): the drawn code (hooks/*.ts and *.tsx, except logo.ts and keepglide.ts, which hold the
 # colours of the two marks: the KeepTrack product mark and the KeepGlide mark) takes its colours from the engine's theme keys and
-# draws no emoji. action-icons.ts is exempt from the emoji scan only: it holds the band's terminal emoji, which Sophia asked for.
+# draws no emoji. action-icons.ts is exempt from the emoji scan only: it is the one module that holds every emoji of KeepTrack (the
+# band's and the pane's icons, and the priority icons), and the drawn code takes them by name from it.
 # Exit 0 when clean, 1 on a hex colour, a colour function or an emoji, 2 when the gate cannot run (no module found, or grep fails).
 set -euo pipefail
 
@@ -10,8 +11,9 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # A hex colour: a hash, 3 to 8 hex digits, at least one of them a letter (so a PR or issue number such as #106 is not one).
 hex_colour='#(?=[0-9a-fA-F]*[a-fA-F])[0-9a-fA-F]{3,8}\b'
 colour_function='(?i)\b(?:rgba?|hsla?)\('
-# Emoji and pictographic blocks; the symbols the pane uses (●, ○, ◐, ▪, ├, └, ↗, ←, ⎇) sit outside them.
-emoji='[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}]'
+# Emoji and pictographic blocks, plus the watch and hourglass (U+231A-U+231B, U+23E9-U+23FA) that sit outside them. The text glyphs the
+# drawn code keeps (▶ on the band, ▪, ▰, ▱, ├, └, ↗, ←) are not emoji and stay outside the scan.
+emoji='[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}\x{231A}-\x{231B}\x{23E9}-\x{23FA}]'
 
 shopt -s nullglob
 files=()

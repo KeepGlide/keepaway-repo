@@ -27,6 +27,7 @@ const IDLE: BandTurn = { startedAt: null, endedAt: null, tool: null }
 const RUNNING: BandTurn = { startedAt: NOW - 3 * MINUTE, endedAt: null, tool: 'Bash' }
 const ALL_ICON_KEYS: ActionIconKey[] = [
   'idle',
+  'working',
   'thinking',
   'waiting',
   'mcp',
@@ -38,7 +39,8 @@ const ALL_ICON_KEYS: ActionIconKey[] = [
   'agent',
   'tool',
   'milestone',
-  'issue',
+  'inProgress',
+  'noMilestone',
   'noIssue',
   'noRemote',
   'error',
@@ -247,18 +249,27 @@ test('thinking, the agents and idle each carry their icon', () => {
   expect(bandStatusWords(view())[0]).toEqual({ icon: 'idle', text: 'Idle' })
 })
 
+test('the running word carries the working icon, the green dot (🟢)', () => {
+  expect(bandStatusWords(view({ turn: RUNNING }))[0]).toEqual({ icon: 'working', text: 'Running' })
+})
+
 test('the context carries the milestone, issue, no-issue and no-remote icons', () => {
   expect(bandContextWords(view())).toEqual([
     { icon: 'milestone', text: 'W16-hotfix 10/16' },
-    { icon: 'issue', text: '#106' },
+    { icon: 'inProgress', text: '#106' },
   ])
   expect(bandContextWords(view({ issue: null }))).toEqual([{ icon: 'noIssue', text: 'no issue' }])
+  expect(bandContextWords(view({ issue: { number: 106, milestoneTitle: null, progress: null } }))).toEqual([
+    { icon: 'noMilestone', text: 'no milestone' },
+    { icon: 'inProgress', text: '#106' },
+  ])
   expect(bandContextWords(view({ repo: 'none', issue: null }))).toEqual([{ icon: 'noRemote', text: 'no GitHub remote' }])
 })
 
 // The emoji each action draws on the terminal, key by key (action-icons.ts): a key that draws another icon fails here (sp-7).
 const EXPECTED_EMOJI: Readonly<Record<ActionIconKey, string>> = {
   idle: '💤',
+  working: '🟢',
   thinking: '💭',
   waiting: '⏳',
   mcp: '🔌',
@@ -270,7 +281,8 @@ const EXPECTED_EMOJI: Readonly<Record<ActionIconKey, string>> = {
   agent: '🤖',
   tool: '🔧',
   milestone: '🎯',
-  issue: '📌',
+  inProgress: '🛠️',
+  noMilestone: '⭕',
   noIssue: '📭',
   noRemote: '🚫',
   error: '⚠️',
@@ -431,4 +443,12 @@ test('a waiting window reads "waiting for you" with the waiting icon, before the
 test('a snapshot with errors adds the data error word with the error icon, and no word when it is clean', () => {
   expect(bandErrorWords(view({ error: true }))).toEqual([{ icon: 'error', text: 'data error' }])
   expect(bandErrorWords(view())).toEqual([])
+})
+
+// Regression: the no-milestone word names its icon, which the table must hold; drawing the band with such an issue used to throw.
+test('a band whose issue has no milestone draws the ⭕ icon before its words, and does not throw', () => {
+  const noMilestone = { number: 106, milestoneTitle: null, progress: null }
+  expect(textsOf(renderBand(TERMINAL, view({ issue: noMilestone }), () => {}, heldButtons()))).toContain('⭕')
+  expect(textsOf(renderBand(TERMINAL, view({ issue: noMilestone }), () => {}, heldButtons()))).toContain('no milestone')
+  expect(svgSourcesOf(renderBand(DESKTOP, view({ surface: 'desktop', issue: noMilestone }), () => {}, heldButtons())).length).toBeGreaterThan(0)
 })

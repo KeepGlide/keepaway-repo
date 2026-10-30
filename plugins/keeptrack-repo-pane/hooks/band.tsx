@@ -135,7 +135,7 @@ function loopWords(view: BandView): BandWord[] {
   const origin = elapsedOriginOf(view)
   const work = turn.startedAt === null ? [] : [turn.tool === null ? word(t(lang, 'band.thinking'), 'thinking') : toolWordOf(turn.tool)]
   return [
-    word(t(lang, 'band.running')),
+    word(t(lang, 'band.running'), 'working'),
     ...work,
     ...(view.agents > 0 ? [word(agentsText(lang, view.agents), 'agent')] : []),
     word(spanText(lang, view.now - (origin ?? view.now))),
@@ -173,7 +173,7 @@ export function bandContextWords(view: BandView): BandWord[] | null {
   if (repo === 'unknown') return null
   if (repo === 'none') return [word(t(lang, 'band.noRemote'), 'noRemote')]
   if (issue === null) return [word(t(lang, 'crumb.noIssue'), 'noIssue')]
-  const number = word(`#${issue.number}`, 'issue')
+  const number = word(`#${issue.number}`, 'inProgress')
   const milestone = issue.detailsMissing === true ? null : milestoneWordOf(lang, issue)
   return milestone === null ? [number] : [milestone, number]
 }

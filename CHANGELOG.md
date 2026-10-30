@@ -8,6 +8,17 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+## [0.2.0-beta.12] - 2026-10-30
+
+### Added
+
+- Icons before the words, all in `hooks/action-icons.ts` (the one module of emoji): session states 🟢 working, ⏳ waiting for you and 💤 idle; active rows marked ▶️ (this window) and 🔄 (a session working now); a 🕘 Timeline heading, with 📝 commit, 🔀 PR and 🚀 session icons; open issues under a 📋 heading, this window's issue with 🛠️; milestones 🎯 with a 📅 due date and a ⚠️ overdue marker; a text progress bar (`▰▰▰▰▰▰▱▱▱▱ 60%`) only from exact counts; priority tags 🔴 P0, 🟠 P1, 🟡 P2 and ⚪ P3; header counters 📋 and 🖥️; loading ⏳, load failure ❌ and error lines ⚠️; PR state icons. The vocabulary is SPEC section 19.
+- The look gate's self-check, `scripts/keeptrack-look-selftest.sh`: the gate passes on the real tree, fails on an emoji outside `action-icons.ts` and on a hex colour, and passes an emoji inside it.
+
+### Fixed
+
+- Drawing the band for a window whose issue has no milestone threw: its `no milestone` word named an icon the table did not have. The table now has ⭕ for it, with a regression test that draws the band.
+
 ## [0.2.0-beta.11] - 2026-10-30
 
 ### Added

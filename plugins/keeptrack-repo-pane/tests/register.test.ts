@@ -2333,7 +2333,7 @@ test('F: a pane with two sessions under Recents, two open issues and two issue b
   const markdowns = nodesOf(tree).filter(node => node.type === 'Markdown')
   const texts = markdowns.map(node => String(node.props?.text))
   for (const number of [1, 2]) {
-    expect(texts.filter(text => text.startsWith(`[#${number}](https://github.com/acme/app/issues/${number})`))).toHaveLength(1)
+    expect(texts.filter(text => text.startsWith(`[🛠️ #${number}](https://github.com/acme/app/issues/${number})`))).toHaveLength(1)
   }
   for (const number of [3, 4]) {
     expect(texts.filter(text => text.endsWith(`[#${number} Issue ${number}](https://github.com/acme/app/issues/${number})`))).toHaveLength(1)

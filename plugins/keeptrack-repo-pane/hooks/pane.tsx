@@ -11,6 +11,7 @@ import type {
   IssueDetails,
   IssueGroup,
   IssueRef,
+  Milestone,
   PaneError,
   PullRequest,
   SessionGroup,
@@ -18,9 +19,10 @@ import type {
   Snapshot,
   TimelineEvent,
 } from '../types'
+import { actionIconEmoji, priorityEmoji, statusIconEmoji, type ActionIconKey, type StatusIconKey } from './action-icons'
 import { t, type Lang, type MessageKey } from './i18n'
 import { RECENTS_GROUP, TEXT_MAX, TIMELINE_LIMIT, isSessionLinkId, plain, priorityOf } from './model'
-import { BRANCH_GLYPH, DETAILS_FILL, EMPHASISED_PRIORITIES, LINK_MARK, STATE_GLYPH } from './look'
+import { BAR_EMPTY, BAR_FILLED, BRANCH_GLYPH, DETAILS_FILL, EMPHASISED_PRIORITIES, LINK_MARK } from './look'
 import { KEEPGLIDE_HEADER_SIZE, renderKeepGlide, renderKeepTrackLogo } from './logo-element'
 
 type Ui = Elements[RenderSurface]
@@ -84,7 +86,15 @@ const NO_VALUE = '—'
 const GITHUB_PAGE_URL = /^https:\/\/github\.com\/[^\s()<>[\]"']+$/
 // Markdown punctuation that a title could carry; escaped before it goes into a link label.
 const MARKDOWN_PUNCTUATION = /[\\`*_[\]()<>!|~&:.@]/g
-const TIMELINE_GLYPH: Readonly<Record<TimelineEvent['kind'], string>> = { commit: '●', pr: '↗', session: '◇' }
+// The icon of each timeline kind (the history), of each session state, and of each PR state on a PR line.
+const TIMELINE_ICON: Readonly<Record<TimelineEvent['kind'], StatusIconKey>> = { commit: 'commit', pr: 'pr', session: 'session' }
+const STATE_ICON: Readonly<Record<SessionNode['state'], ActionIconKey>> = { working: 'working', idle: 'idle', waiting: 'waiting' }
+const PR_STATE_ICON: Readonly<Record<PullRequest['state'], StatusIconKey>> = { OPEN: 'pr', MERGED: 'done', CLOSED: 'closed' }
+// The cells of a milestone's progress bar, and the scale of its percentage.
+const BAR_CELLS = 10
+const PERCENT_MAX = 100
+// The text with its icon before it; an empty icon leaves the text as it is.
+const withIcon = (icon: string, text: string): string => (icon === '' ? text : `${icon} ${text}`)
 const STATE_KEY: Readonly<Record<SessionNode['state'], MessageKey>> = {
   working: 'state.working',
   idle: 'state.idle',
@@ -144,8 +154,8 @@ export function renderPane(elements: Ui, context: PaneContext): RenderElement {
 // The pane before any snapshot: Loading while the first poll runs, the failure line once that poll settled with nothing to show (ux4-2).
 function renderUnsettled(view: View, loadFailed: boolean): RenderElement {
   const { Text } = view.ui
-  if (loadFailed) return <Text key="load-failed">{t(view.lang, 'pane.loadFailed')}</Text>
-  return <Text key="loading">{t(view.lang, 'pane.loading')}</Text>
+  if (loadFailed) return <Text key="load-failed">{withIcon(statusIconEmoji('loadFailed'), t(view.lang, 'pane.loadFailed'))}</Text>
+  return <Text key="loading">{withIcon(statusIconEmoji('loading'), t(view.lang, 'pane.loading'))}</Text>
 }
 
 // The header: the logo and the bold heading on the left; the counter and the KeepGlide mark on the right (askaway's header).
@@ -169,7 +179,7 @@ function renderHeader(view: View, snapshot: Snapshot | null): RenderElement {
 // issues marked "+" when their list is cut; with no session listed, "nothing in progress" follows (pm1-3, ux4-4, ux-3, ux-4).
 function counterText(view: View, snapshot: Snapshot): string {
   const sessions = countSessions(snapshot.sessions)
-  const sessionsText = t(view.lang, 'counter.sessions', { count: sessions })
+  const sessionsText = withIcon(statusIconEmoji('sessions'), t(view.lang, 'counter.sessions', { count: sessions }))
   const line =
     snapshot.mode === 'github'
       ? t(view.lang, 'counter.line', { issues: issuesCountText(view, snapshot), sessions: sessionsText })
@@ -179,7 +189,7 @@ function counterText(view: View, snapshot: Snapshot): string {
 
 function issuesCountText(view: View, snapshot: Snapshot): string {
   const cut = snapshot.truncatedLimits.includes(ISSUE_LIST_LIMIT)
-  return t(view.lang, 'counter.issues', { count: cut ? `${snapshot.openIssueCount}+` : snapshot.openIssueCount })
+  return withIcon(statusIconEmoji('issues'), t(view.lang, 'counter.issues', { count: cut ? `${snapshot.openIssueCount}+` : snapshot.openIssueCount }))
 }
 
 function countSessions(nodes: readonly SessionNode[]): number {
@@ -207,7 +217,7 @@ function renderErrors(view: View, snapshot: Snapshot): RenderElement[] {
     lines.push(t(view.lang, TRUNCATED_KEY.get(limit) ?? 'error.truncated', { count: limit }))
   }
   const { Text } = view.ui
-  return lines.map((line, index) => <Text key={`error-${index}`}>{line}</Text>)
+  return lines.map((line, index) => <Text key={`error-${index}`}>{withIcon(actionIconEmoji('error'), line)}</Text>)
 }
 
 function renderSection(view: View, key: string, heading: string, rows: RenderElement[]): RenderElement {
@@ -273,7 +283,7 @@ function renderIssuesSection(view: View, snapshot: Snapshot): RenderElement {
   // No group is built when every open issue sits on a session: then the header counts them, so the line says they are in sessions (ux-2).
   const emptyKey = snapshot.openIssueCount > 0 ? 'issues.allLinked' : 'issues.none'
   const body = rows.length > 0 ? rows : [<Text key="issues-none">{t(view.lang, emptyKey)}</Text>]
-  return renderSection(view, 'issues', t(view.lang, 'group.issues'), body)
+  return renderSection(view, 'issues', withIcon(statusIconEmoji('issues'), t(view.lang, 'group.issues')), body)
 }
 
 // A session row and, under it, its derived sessions (one level deeper, each with its branch glyph).
@@ -327,7 +337,7 @@ function renderSessionHead(view: View, node: SessionNode, place: RowPlace): Rend
   return (
     <Box key={`head-${node.id}`} flexDirection="row" gap={1}>
       <Text key="branch">{place.branch}</Text>
-      <Text key="state">{`${STATE_GLYPH[node.state]} ${t(view.lang, STATE_KEY[node.state])}`}</Text>
+      <Text key="state">{withIcon(actionIconEmoji(STATE_ICON[node.state]), t(view.lang, STATE_KEY[node.state]))}</Text>
       <Box key="title-block" flexDirection="column" flexGrow={1}>
         {renderSessionTitle(view, node, node.isThisWindow)}
         {renderCrumb(view, node, place)}
@@ -337,18 +347,27 @@ function renderSessionHead(view: View, node: SessionNode, place: RowPlace): Rend
 }
 
 // The title is a link to the session where the Desktop draws Markdown and the id is a session id; the Desktop opens it.
-// Elsewhere (the terminal, or an id that is not a session link) it is plain Text, without the arrow.
+// Elsewhere (the terminal, or an id that is not a session link) it is plain Text, without the arrow. The active marker leads the
+// title, outside the link.
 function renderSessionTitle(view: View, node: SessionNode, isThis: boolean): RenderElement {
   const { ui, lang } = view
+  const active = activeMarkerOf(node)
   const marker = isThis ? t(lang, 'session.thisWindow') : ''
   if (view.desktop && 'Markdown' in ui && isSessionLinkId(node.id)) {
     const { Markdown } = ui
     const anchor = `[${escapeMarkdown(`${node.title} ↗`)}](#${node.id})`
     const linked = isThis ? `**${anchor}**` : anchor
-    return <Markdown key={`title-${node.id}`} text={isThis ? `${linked} ${escapeMarkdown(marker)}` : linked} />
+    return <Markdown key={`title-${node.id}`} text={withIcon(active, isThis ? `${linked} ${escapeMarkdown(marker)}` : linked)} />
   }
   const { Text } = ui
-  return <Text key={`title-${node.id}`} bold={isThis}>{isThis ? `${node.title} ${marker}` : node.title}</Text>
+  return <Text key={`title-${node.id}`} bold={isThis}>{withIcon(active, isThis ? `${node.title} ${marker}` : node.title)}</Text>
+}
+
+// The marker of an active row: this window's row (the activeWindow icon), and a session working now (the activeSession icon).
+// Any other row carries none.
+function activeMarkerOf(node: SessionNode): string {
+  if (node.isThisWindow) return statusIconEmoji('activeWindow')
+  return node.state === 'working' ? statusIconEmoji('activeSession') : ''
 }
 
 // The milestone part of a crumb: "no milestone" for an issue that has none, its title otherwise, and omitted when the title is unknown
@@ -360,7 +379,7 @@ function milestonePartOf(lang: Lang, node: SessionNode): string[] {
 
 // The breadcrumb parts: the issue, the milestone part, then a derived session's origin (none for a root).
 function crumbPartsOf(lang: Lang, node: SessionNode, place: RowPlace): string[] {
-  const issue = node.issue === null ? t(lang, 'crumb.noIssue') : `#${node.issue.number}`
+  const issue = node.issue === null ? t(lang, 'crumb.noIssue') : withIcon(actionIconEmoji('inProgress'), `#${node.issue.number}`)
   const milestone = milestonePartOf(lang, node)
   if (node.kind === 'root') return [issue, ...milestone]
   const origin =
@@ -447,13 +466,14 @@ function startedTextOf(lang: Lang, at: number, now: number, utcOffsetMinutes: nu
 // The session state word, with the issue's state added when the issue is closed (an override may name one).
 function stateTextOf(lang: Lang, state: SessionNode['state'], issueState: IssueDetails['state']): string {
   const word = t(lang, STATE_KEY[state])
-  return issueState === 'closed' ? `${word}${TITLE_SEPARATOR}${t(lang, 'detail.issueClosed')}` : word
+  return issueState === 'closed' ? `${word}${TITLE_SEPARATOR}${withIcon(statusIconEmoji('done'), t(lang, 'detail.issueClosed'))}` : word
 }
 
 function prTextOf(lang: Lang, pr: IssueDetails['pr']): string {
   if (pr === null) return t(lang, 'detail.noPr')
   const review = pr.reviewDecision === null ? '' : `${TITLE_SEPARATOR}${t(lang, REVIEW_KEY[pr.reviewDecision])}`
-  return `#${pr.number} ${pr.title}${TITLE_SEPARATOR}${t(lang, PR_STATE_KEY[pr.state])}${review}`
+  const state = withIcon(statusIconEmoji(PR_STATE_ICON[pr.state]), t(lang, PR_STATE_KEY[pr.state]))
+  return `#${pr.number} ${pr.title}${TITLE_SEPARATOR}${state}${review}`
 }
 
 function commitTextOf(lang: Lang, commit: IssueDetails['lastCommit'], now: number): string {
@@ -493,10 +513,11 @@ function renderTimeline(view: View, node: SessionNode, indent: number): RenderEl
   const events = [...node.timeline].sort((a, b) => b.at - a.at).slice(0, TIMELINE_LIMIT)
   return (
     <Box key={`timeline-${node.id}`} flexDirection="column" gap={1} paddingLeft={indent}>
+      {events.length > 0 && <Text key="heading" bold>{withIcon(statusIconEmoji('history'), t(view.lang, 'timeline.heading'))}</Text>}
       {events.map((event, index) => (
         <Box key={`event-${node.id}-${index}`} flexDirection="row" gap={1}>
           <Text key="time">{clockOf(event.at, view.utcOffsetMinutes)}</Text>
-          <Text key="glyph">{TIMELINE_GLYPH[event.kind]}</Text>
+          <Text key="glyph">{statusIconEmoji(TIMELINE_ICON[event.kind])}</Text>
           <Box key="text" flexGrow={1}>
             <Text>{timelineText(view.lang, node, event)}</Text>
           </Box>
@@ -524,35 +545,54 @@ function renderIssueGroup(view: View, group: IssueGroup): RenderElement[] {
   const { Text } = view.ui
   const { milestone, closedTitle, issues } = group
   const groupKey = milestone === null ? 'none' : String(milestone.number)
-  const label = milestone === null ? t(lang, 'group.noMilestone') : titleLabel(milestone.title)
+  const name = milestone === null ? t(lang, 'group.noMilestone') : titleLabel(milestone.title)
   const issueRows = issues.map(issue => renderIssue(view, issue))
   // The issues of a closed milestone sit under its title, marked closed. Its counts are not read, so there is no progress line (pm1-9).
   if (closedTitle !== null) {
-    const closedLabel = t(lang, 'milestone.closed', { label: titleLabel(closedTitle) })
+    const closedLabel = withIcon(statusIconEmoji('done'), t(lang, 'milestone.closed', { label: titleLabel(closedTitle) }))
     return [<Text key={`milestone-closed-${closedTitle}`} bold>{closedLabel}</Text>, ...issueRows]
   }
   if (milestone === null) {
-    return issues.length > 0 ? [<Text key={`milestone-${groupKey}`} bold>{label}</Text>, ...issueRows] : []
+    return issues.length > 0 ? [<Text key={`milestone-${groupKey}`} bold>{name}</Text>, ...issueRows] : []
   }
-  // The progress line carries the due date when GitHub sets one (its date part; pm1-4). The due date is a calendar date, so it is
-  // drawn from its own UTC date and never shifted into the host's zone. The count is the total. Exact counts name
-  // issues; inexact ones are REST's, which count PRs too, so they take the neutral noun "items" (ux-5).
+  const heading = withIcon(actionIconEmoji('milestone'), name)
+  // The count is the total. Exact counts name issues; inexact ones are REST's, which count PRs too, so they take the neutral noun
+  // "items" (ux-5).
   const total = milestone.openIssues + milestone.closedIssues
-  const due = milestone.dueOn === null ? '' : `${TITLE_SEPARATOR}${t(lang, 'milestone.due', { date: milestone.dueOn.slice(0, DATE_LENGTH) })}`
   const progressKey = milestone.countsExact ? 'milestone.progress' : 'milestone.progressItems'
   const progress = (
     <Text key={`progress-${groupKey}`}>
-      {`${t(lang, progressKey, { closed: milestone.closedIssues, total, count: total })}${due}`}
+      {progressLineOf(view, milestone, t(lang, progressKey, { closed: milestone.closedIssues, total, count: total }))}
     </Text>
   )
-  if (issues.length > 0) return [<Text key={`milestone-${groupKey}`} bold>{label}</Text>, progress, ...issueRows]
-  // An open milestone with no open issue left is one line. One whose open issues all sit on sessions says how many are open,
-  // so its remaining work stays visible in the pane (pm1-2); that claim is drawn only when the issue list backs it (rev-g1-5).
-  let title = label
+  if (issues.length > 0) return [<Text key={`milestone-${groupKey}`} bold>{heading}</Text>, progress, ...issueRows]
   // "All closed" is drawn only from exact counts: REST's zero (PRs included) or a partial answer never says the milestone is done.
-  if (milestone.countsExact && milestone.openIssues === 0) title = t(lang, 'milestone.allClosed', { label })
-  else if (group.claimsLinked) title = t(lang, 'milestone.allLinked', { label, count: milestone.openIssues })
+  if (milestone.countsExact && milestone.openIssues === 0) {
+    const allClosed = withIcon(statusIconEmoji('done'), t(lang, 'milestone.allClosed', { label: name }))
+    return [<Text key={`milestone-${groupKey}`}>{allClosed}</Text>, progress]
+  }
+  // An open milestone whose open issues all sit on sessions says how many are open, so its remaining work stays visible in the pane
+  // (pm1-2); that claim is drawn only when the issue list backs it (rev-g1-5).
+  const title = group.claimsLinked
+    ? withIcon(actionIconEmoji('milestone'), t(lang, 'milestone.allLinked', { label: name, count: milestone.openIssues }))
+    : heading
   return [<Text key={`milestone-${groupKey}`}>{title}</Text>, progress]
+}
+
+// The progress line: the text bar and its percentage (exact counts only), the count, the due date (its calendar date, from GitHub's own
+// date, never shifted into the host's zone: pm1-4) and the overdue marker. The overdue marker needs exact counts and open issues left.
+function progressLineOf(view: View, milestone: Milestone, count: string): string {
+  const { lang, now, utcOffsetMinutes } = view
+  const bar = milestone.countsExact ? progressBarOf(milestone.closedIssues, milestone.openIssues + milestone.closedIssues) : ''
+  const due =
+    milestone.dueOn === null
+      ? ''
+      : withIcon(statusIconEmoji('due'), t(lang, 'milestone.due', { date: milestone.dueOn.slice(0, DATE_LENGTH) }))
+  const overdue =
+    milestone.dueOn !== null && milestone.countsExact && milestone.openIssues > 0 && isOverdue(milestone.dueOn, now, utcOffsetMinutes)
+      ? withIcon(statusIconEmoji('overdue'), t(lang, 'milestone.overdue'))
+      : ''
+  return [bar, count, due, overdue].filter(part => part !== '').join(TITLE_SEPARATOR)
 }
 
 // The milestone label: its title up to the first " · " (repo-work-pane-design-spec.md section 3.1).
@@ -576,7 +616,8 @@ function renderIssue(view: View, issue: Issue): RenderElement {
 function renderIssueLine(view: View, issue: Issue): RenderElement {
   const { ui } = view
   const priority = priorityOf(issue.labels)
-  const label = `${priority === null ? '' : `${priority} `}#${issue.number} ${issue.title}`
+  const tag = priority === null ? '' : `${priorityEmoji(priority)} ${priority} `
+  const label = `${tag}#${issue.number} ${issue.title}`
   const emphasised = priority !== null && EMPHASISED_PRIORITIES.includes(priority)
   if (view.desktop && 'Markdown' in ui && GITHUB_PAGE_URL.test(issue.url)) {
     const { Markdown } = ui
@@ -616,6 +657,20 @@ export function clockOf(at: number, utcOffsetMinutes: number): string {
 export function dateOf(at: number, utcOffsetMinutes: number): string {
   const when = hostWallClockOf(at, utcOffsetMinutes)
   return `${when.getUTCFullYear()}-${pad(when.getUTCMonth() + 1)}-${pad(when.getUTCDate())}`
+}
+
+// A due date is overdue when it falls before today's date in the host's zone. Both are YYYY-MM-DD, so they compare as strings.
+export function isOverdue(dueOn: string, now: number, utcOffsetMinutes: number): boolean {
+  return dueOn.slice(0, DATE_LENGTH) < dateOf(now, utcOffsetMinutes)
+}
+
+// The text bar of the closed share: BAR_CELLS cells, filled for the closed part, then the percentage ("▰▰▰▰▰▰▱▱▱▱ 60%"). Empty when there
+// is no issue to count, so a milestone draws no bar without exact counts (the caller passes only exact ones).
+export function progressBarOf(closed: number, total: number): string {
+  if (total <= 0) return ''
+  const share = closed / total
+  const filled = Math.round(share * BAR_CELLS)
+  return `${BAR_FILLED.repeat(filled)}${BAR_EMPTY.repeat(BAR_CELLS - filled)} ${Math.round(share * PERCENT_MAX)}%`
 }
 
 // "just now", "N min ago", "N h ago", "N d ago", in the language of the pane.
