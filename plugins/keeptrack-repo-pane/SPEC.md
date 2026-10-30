@@ -1,4 +1,4 @@
-# KeepTrack: spec (as built, v0.2.0-beta.12)
+# KeepTrack: spec (as built, v0.2.0-beta.13)
 
 Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepTrack, the command is `/keeptrack`.
 
@@ -275,7 +275,7 @@ A poll never throws into the engine: a failed job is logged by its error name on
   is a context ancestor or sits in another group); a session with no parent link has no origin. With no issue: `no issue`. The milestone part is the title of the issue's milestone, open or closed; it is omitted when no title is known, never drawn as `no milestone` (ux-1).
   On the desktop `#n` links to the issue page when it is a https://github.com page. The milestone is its title up to the first
   ` · `.
-- Timeline: the 6 newest events of the session, always drawn, never folded. The timeline has a `🕘 Timeline` heading (drawn only with events). Kinds, each with its icon: commit (`📝`, subject as plain text),
+- Timeline: the 6 newest events of the session, always drawn, never folded. The timeline of this window's block has a `🕘 Timeline` heading (drawn only with events); other sessions' timelines have none, so the heading is not repeated down the pane. Kinds, each with its icon: commit (`📝`, subject as plain text),
   PR (`🔀`, `PR #n opened: <title>`, from the PR's `createdAt`), session (`🚀`, `started`, `forked from <title>`, or
   `spawned from <title>`, the title of the session's own parent, an ended one included). Commits are the branch's own last 5, newest first, empty on the default branch.
 
@@ -358,7 +358,7 @@ Run from the mod folder:
 3. `scripts/keeptrack-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
    `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only (it holds every emoji of KeepTrack). `scripts/keeptrack-look-selftest.sh` runs the gate on a copy and checks those cases.
 4. `agentic-mod-release-tool.sh keeptrack-repo-pane --check` must pass before the mod is installed (CLAUDE.md rule 6a).
-   The mod is published as 0.2.0-beta.12 and installed from `sophia-mods` (README, Installation).
+   The mod is published as 0.2.0-beta.13 and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
 or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`, `parseUtcOffset`) and do not depend on the zone the test process runs in; the register test answers `date +%z` through the process stub, including a refused call.
@@ -425,7 +425,7 @@ Done in the Claude Desktop with the mod installed, not by the build:
   context. Right: the KeepGlide mark (desktop only) and the button.
 - Leading mark (`renderKeepTrackMark`, `hooks/logo-element.tsx`): on the desktop the still product mark, concept C (the checkpoint)
   from `hooks/logo.ts` (`keepTrackSvg`), in every state. It never turns: a turning loop has no pause control (WCAG 2.2.2), so the
-  turning variant is not in `logo.ts`. On the terminal the text glyph: `▶` running, `○` idle. Concept C is provisional
+  turning variant is not in `logo.ts`. On the terminal no mark: the state icon after it (`🟢`, `💤`) already says running or idle. Concept C is provisional
   (A, B and C are not chosen): the markup lives in `logo.ts` alone, so a swap changes that one file. The brand colours stay literal.
 - Action icons (`hooks/action-icons.ts`, one table: emoji and SVG per key): on the terminal the emoji as text; on the desktop a 14 px
   SVG on a 24 px grid, 2 px stroke, `currentColor` (an emoji renders as an odd glyph in the Desktop band font). Keys and emoji:
@@ -525,7 +525,7 @@ PT), and the icon sits before its word. The pane draws its emoji as text on both
   only from exact counts (`countsExact`); a milestone with inexact counts draws its progress line without a bar (`progressBarOf`).
 - Overdue: an open milestone with open issues and exact counts whose due date (GitHub's calendar date) is before today's date in the
   host's zone (`isOverdue`). A milestone with no open issue left is never overdue.
-- Look gate: emoji only in `action-icons.ts`. The text glyphs `▶` (band), `▪`, `▰`, `▱`, `├`, `└`, `↗`, `←` are not emoji and stay
+- Look gate: emoji only in `action-icons.ts`. The text glyphs `▪`, `▰`, `▱`, `├`, `└`, `↗`, `←` are not emoji and stay
   outside the scan; hex colours and colour functions are banned in every drawn module.
 - Not mapped, because the timeline has no such kind: merged, closed, comment and reopened events (the timeline holds commit, PR and
   session events only). The merged and closed icons appear on the PR state instead.

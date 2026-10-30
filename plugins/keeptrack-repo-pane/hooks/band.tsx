@@ -221,7 +221,7 @@ export function renderBand(ui: Ui, view: BandView, onOpen: () => void, held: Hel
   const band = (
     <Box flexDirection="row" flexWrap="wrap" justifyContent="space-between" alignItems="center" gap={1}>
       <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
-        {renderKeepTrackMark(ui, desktop, runningOf(view))}
+        {renderKeepTrackMark(ui, desktop)}
         <Box flexDirection="row" flexWrap="wrap" alignItems="center">
           {wordNodes(ui, desktop, bandStatusWords(view), 'status')}
         </Box>

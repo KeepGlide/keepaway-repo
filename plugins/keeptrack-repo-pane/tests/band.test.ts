@@ -321,7 +321,7 @@ test('on the desktop an action is drawn as its SVG; on the terminal the same act
   expect(drawnNodes(terminal).some(node => node.tag === 'Svg')).toBe(false)
 })
 
-test('the product mark stays still in every state on the desktop; the terminal shows ▶ or ○', () => {
+test('the product mark stays still in every state on the desktop; the terminal draws no mark, only the state icon', () => {
   const scope = globalThis as { matchMedia?: (query: string) => { matches: boolean } }
   const before = scope.matchMedia
   scope.matchMedia = () => ({ matches: false }) // a page that accepts motion: the mark still does not turn (ux4-13)
@@ -333,8 +333,13 @@ test('the product mark stays still in every state on the desktop; the terminal s
   } finally {
     scope.matchMedia = before
   }
-  expect(textsOf(renderBand(TERMINAL, view({ turn: RUNNING }), () => {}, heldButtons()))).toContain('▶')
-  expect(textsOf(renderBand(TERMINAL, view(), () => {}, heldButtons()))).toContain('○')
+  // The terminal draws no leading mark: the state icon already says running or idle.
+  const runningTexts = textsOf(renderBand(TERMINAL, view({ turn: RUNNING }), () => {}, heldButtons()))
+  const idleTexts = textsOf(renderBand(TERMINAL, view(), () => {}, heldButtons()))
+  expect(runningTexts).not.toContain('▶')
+  expect(idleTexts).not.toContain('○')
+  expect(runningTexts).toContain('🟢')
+  expect(idleTexts).toContain('💤')
 })
 
 // The mark never turns, with or without a page to ask: a turning mark with no pause breaks WCAG 2.2.2 (ux4-13).

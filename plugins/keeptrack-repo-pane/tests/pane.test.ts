@@ -927,6 +927,8 @@ test('active rows carry a marker: this window ▶️, a session working now 🔄
 test('the timeline has a 🕘 heading, and its events carry the icon of their kind: PR 🔀, session 🚀', () => {
   const texts = drawnTexts(drawTerminal())
   expect(texts).toContain('🕘 Timeline')
+  // Only this window's block takes the heading; the other sessions' timelines are drawn without it.
+  expect(texts.filter(text => text === '🕘 Timeline')).toHaveLength(1)
   expect(texts).toContain('🔀')
   expect(texts).toContain('🚀')
   expect(statusIconEmoji('history')).toBe('🕘')

@@ -8,6 +8,13 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+## [0.2.0-beta.13] - 2026-10-30
+
+### Changed
+
+- The band on the terminal draws no leading `▶`/`○` mark: the state icon (`🟢`, `💤`) already says running or idle (`hooks/logo-element.tsx`, `hooks/band.tsx`).
+- Only this window's block draws the `🕘 Timeline` heading; other sessions' timelines are drawn without it (`hooks/pane.tsx`).
+
 ## [0.2.0-beta.12] - 2026-10-30
 
 ### Added

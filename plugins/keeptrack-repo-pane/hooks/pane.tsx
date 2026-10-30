@@ -313,7 +313,7 @@ function renderThisWindow(view: View, node: SessionNode, place: RowPlace): Rende
     >
       {renderSessionHead(view, node, place)}
       {node.issue !== null && thisIssue !== null && renderDetails(view, node, thisIssue, BODY_INDENT)}
-      {renderTimeline(view, node, BODY_INDENT)}
+      {renderTimeline(view, node, BODY_INDENT, true)}
       {node.issue !== null && renderGithubLink(view, node.issue.number, thisIssue?.url ?? node.issueUrl, BODY_INDENT)}
     </Box>
   )
@@ -507,13 +507,14 @@ function renderGithubLink(view: View, number: number, url: string | null, indent
   )
 }
 
-// The timeline, newest first: time, kind glyph, text. Always drawn, at most TIMELINE_LIMIT events, never folded.
-function renderTimeline(view: View, node: SessionNode, indent: number): RenderElement {
+// The timeline, newest first: time, kind glyph, text. Always drawn, at most TIMELINE_LIMIT events, never folded. Only this
+// window's block takes the history heading: one per session would repeat it down the pane.
+function renderTimeline(view: View, node: SessionNode, indent: number, heading = false): RenderElement {
   const { Box, Text } = view.ui
   const events = [...node.timeline].sort((a, b) => b.at - a.at).slice(0, TIMELINE_LIMIT)
   return (
     <Box key={`timeline-${node.id}`} flexDirection="column" gap={1} paddingLeft={indent}>
-      {events.length > 0 && <Text key="heading" bold>{withIcon(statusIconEmoji('history'), t(view.lang, 'timeline.heading'))}</Text>}
+      {heading && events.length > 0 && <Text key="heading" bold>{withIcon(statusIconEmoji('history'), t(view.lang, 'timeline.heading'))}</Text>}
       {events.map((event, index) => (
         <Box key={`event-${node.id}-${index}`} flexDirection="row" gap={1}>
           <Text key="time">{clockOf(event.at, view.utcOffsetMinutes)}</Text>
