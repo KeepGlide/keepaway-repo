@@ -5,6 +5,7 @@
 // gh and git are never run. The drawn pane is read through a mounted drawing.
 import type { On } from 'claude-code'
 import { expect, mock, test, type Engine } from 'claude-code/testing'
+import { actionIconEmoji } from '../hooks/action-icons'
 import { RECORD_MAX_BYTES } from '../hooks/model'
 import { TURN_MAX_AGE_MS } from '../hooks/turn'
 import { TOOL_NAME_MAX, resetDesktopConfigCache } from '../hooks/register'
@@ -1458,7 +1459,7 @@ async function bandDrawn($: Engine): Promise<string> {
 }
 
 // The kit cannot raise turn.start or turn.complete (tests/turn.test.ts), so no turn runs here: this checks the agents alone.
-test('two agents still running read Running with 2 agents, and Idle once they finish (no turn event is raised)', async ($: Engine, on) => {
+test('two agents still running draw the working icon with 2 agents, and the idle icon once they finish (no turn event is raised)', async ($: Engine, on) => {
   const agents = [
     { id: 'agent-1', status: 'running' },
     { id: 'agent-2', status: 'running' },
@@ -1468,11 +1469,13 @@ test('two agents still running read Running with 2 agents, and Idle once they fi
   await host.clock.settle()
   await host.clock.advance(BAND_TICK_MS)
   const running = await bandDrawn($)
-  expect(running).toContain('Running')
+  expect(running).toContain(actionIconEmoji('working'))
   expect(running).toContain('2 agents')
   for (const agent of agents) agent.status = 'completed'
   await host.clock.advance(BAND_TICK_MS)
-  expect(await bandDrawn($)).toContain('Idle')
+  const idle = await bandDrawn($)
+  expect(idle).toContain(actionIconEmoji('idle'))
+  expect(idle).not.toContain(actionIconEmoji('working'))
 })
 
 test('a repo whose only remote is named github is read from it: the poll runs and the pane names no missing remote', async ($: Engine, on) => {
@@ -1494,31 +1497,35 @@ test('a band draw starts the poll when no session.start ran in this module insta
   expect(ghCalls(host)).toBe(8)
 })
 
-test('state2-2: a new session drops the previous session\'s turn, so the band reads Idle', async ($: Engine, on) => {
+test('state2-2: a new session drops the previous session\'s turn, so the band draws the idle icon', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
   await $.turn.start({ text: 'work', turnId: 't1' })
-  expect(await bandDrawn($)).toContain('Running')
+  expect(await bandDrawn($)).toContain(actionIconEmoji('working'))
   await $.session.start(SESSION)
   await host.clock.settle()
-  expect(await bandDrawn($)).toContain('Idle')
+  const idle = await bandDrawn($)
+  expect(idle).toContain(actionIconEmoji('idle'))
+  expect(idle).not.toContain(actionIconEmoji('working'))
 })
 
 test('state2-2: a tool call with no turn start infers a running turn', async ($: Engine, on) => {
   stubHost(on)
   await $.session.start(SESSION)
   await $.tool.call({ tool: 'Bash' })
-  expect(await bandDrawn($)).toContain('Running')
+  expect(await bandDrawn($)).toContain(actionIconEmoji('working'))
 })
 
-test('state2-2: a turn past TURN_MAX_AGE_MS with no end event reads Idle on the band tick', async ($: Engine, on) => {
+test('state2-2: a turn past TURN_MAX_AGE_MS with no end event draws the idle icon on the band tick', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
   await $.turn.start({ text: 'work', turnId: 't1' })
   await host.clock.advance(TURN_MAX_AGE_MS - BAND_TICK_MS)
-  expect(await bandDrawn($)).toContain('Running')
+  expect(await bandDrawn($)).toContain(actionIconEmoji('working'))
   await host.clock.advance(2 * BAND_TICK_MS)
-  expect(await bandDrawn($)).toContain('Idle')
+  const idle = await bandDrawn($)
+  expect(idle).toContain(actionIconEmoji('idle'))
+  expect(idle).not.toContain(actionIconEmoji('working'))
 })
 
 test('the band redraws each minute while idle, so the time since the last turn moves', async ($: Engine, on) => {
@@ -1529,10 +1536,10 @@ test('the band redraws each minute while idle, so the time since the last turn m
   const before = host.redraws
   await host.clock.advance(60_000)
   expect(host.redraws).toBeGreaterThan(before)
-  // No turn ends here (these tests raise no turn end: tests/turn.test.ts), so the idle band has no last turn yet: it reads Idle
-  // alone before and after the minute. The time since a last turn moving at the minute is pinned in tests/band.test.ts.
+  // No turn ends here (these tests raise no turn end: tests/turn.test.ts), so the idle band has no last turn yet: it draws the idle
+  // icon alone before and after the minute. The time since a last turn moving at the minute is pinned in tests/band.test.ts.
   for (const drawn of [drawnBefore, await bandDrawn($)]) {
-    expect(drawn).toContain('"Idle"')
+    expect(drawn).toContain(actionIconEmoji('idle'))
     expect(drawn).not.toContain('just now')
     expect(drawn).not.toContain(' ago')
   }
@@ -1665,29 +1672,29 @@ test('a snapshot whose only error is no-remote draws no data error in the band',
   expect(await bandDrawn($)).not.toContain('data error')
 })
 
-test('waiting: the band says waiting for you while the engine asks the person about a tool call, and clears when the call runs', async ($: Engine, on) => {
+test('waiting: the band draws the waiting icon while the engine asks the person about a tool call, and drops it when the call runs', async ($: Engine, on) => {
   const options: StubOptions = { permission: 'ask' }
   stubHost(on, options)
   await $.session.start(SESSION)
   await $.turn.start({ text: 'work', turnId: 't1' })
   await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })
-  expect(await bandDrawn($)).toContain('waiting for you')
+  expect(await bandDrawn($)).toContain(actionIconEmoji('waiting'))
   // The person approves: the engine's own check of the call now allows it, and the call runs.
   options.permission = 'allow'
   await $.tool.call({ tool: 'Bash' })
-  expect(await bandDrawn($)).not.toContain('waiting for you')
+  expect(await bandDrawn($)).not.toContain(actionIconEmoji('waiting'))
 })
 
-test('waiting: a verdict other than ask clears the flag, so an answered question does not stay waiting', async ($: Engine, on) => {
+test('waiting: a verdict other than ask clears the flag, so an answered question does not keep the waiting icon', async ($: Engine, on) => {
   const options: StubOptions = { permission: 'ask' }
   stubHost(on, options)
   await $.session.start(SESSION)
   await $.turn.start({ text: 'work', turnId: 't1' })
   await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })
-  expect(await bandDrawn($)).toContain('waiting for you')
+  expect(await bandDrawn($)).toContain(actionIconEmoji('waiting'))
   options.permission = 'allow'
   await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })
-  expect(await bandDrawn($)).not.toContain('waiting for you')
+  expect(await bandDrawn($)).not.toContain(actionIconEmoji('waiting'))
 })
 
 test('waiting: no Askaway folder is read, so an Askaway question cannot light the band', async ($: Engine, on) => {
@@ -1697,7 +1704,7 @@ test('waiting: no Askaway folder is read, so an Askaway question cannot light th
   await host.clock.settle()
   expect(host.listed.some(path => path.includes('askaway'))).toBe(false)
   expect(host.readPaths.some(path => path.includes('askaway'))).toBe(false)
-  expect(await bandDrawn($)).not.toContain('waiting for you')
+  expect(await bandDrawn($)).not.toContain(actionIconEmoji('waiting'))
 })
 
 // ux-8: a gh that is missing or not signed in draws its pane line, and no data error in the band (the pane already says which).

@@ -8,6 +8,13 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+## [0.2.0-beta.15] - 2026-10-30
+
+### Changed
+
+- The band draws its states as their icon alone: running `🟢`, idle `💤`, waiting `⏳`. The words `Running`, `Idle` (pt-BR `Executando`, `Parada`) and the `band.running` and `band.idle` keys are gone; the tool, agents and time stay as words (`hooks/band.tsx`, `hooks/i18n.ts`, SPEC section 18).
+- The footer legend is a table headed `Labels` (pt-BR `Labels`): a bold heading row, then one row per icon, the emoji in a fixed-width cell and its meaning beside it. Rows run in four groups: session states, work, history, project (`hooks/pane.tsx`, SPEC section 19).
+
 ## [0.2.0-beta.14] - 2026-10-30
 
 ### Changed

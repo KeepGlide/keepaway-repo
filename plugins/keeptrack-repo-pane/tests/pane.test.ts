@@ -75,13 +75,16 @@ function indentBefore(node: unknown, key: string, inherited = 0): number | undef
   return indentBefore(drawn.props.children, key, inherited + padding)
 }
 
-// Every text drawn, in order: one per Text, and one per Markdown block (its label).
-const drawnTexts = (tree: unknown): string[] =>
-  nodesOf(tree).flatMap(node => {
+// The texts of some drawn nodes, in order: one per Text, and one per Markdown block (its label).
+const textsOfNodes = (nodes: Drawn[]): string[] =>
+  nodes.flatMap(node => {
     if (node.tag === 'Text') return [textOf(node.props.children)]
     if (node.tag === 'Markdown') return [plainMarkdown(String(node.props.text))]
     return []
   })
+
+// Every text drawn, in order.
+const drawnTexts = (tree: unknown): string[] => textsOfNodes(nodesOf(tree))
 
 // The Markdown blocks whose raw text carries a session link (`](#local_...)`).
 const sessionLinksIn = (tree: unknown): string[] =>
@@ -92,10 +95,11 @@ const sessionLinksIn = (tree: unknown): string[] =>
 // The element drawn with this key, if any.
 const keyed = (tree: unknown, key: string): Drawn | undefined => nodesOf(tree).find(node => node.props.key === key)
 
-// The drawn texts without the footer legend: the assertions on the body's rows and lines read these.
+// The drawn texts without the footer legend: the assertions on the body's rows and lines read these. The legend's own nodes are
+// skipped by identity, so a body text that equals a legend icon (the commit emoji, say) is still read.
 const bodyTextsOf = (tree: unknown): string[] => {
-  const legend = drawnTexts(keyed(tree, 'legend'))
-  return drawnTexts(tree).filter(text => !legend.includes(text))
+  const legend = new Set<Drawn>(nodesOf(keyed(tree, 'legend')))
+  return textsOfNodes(nodesOf(tree).filter(node => !legend.has(node)))
 }
 
 function snapshotWith(overrides: Partial<Snapshot> = {}): Snapshot {
@@ -637,51 +641,75 @@ test('a session row reads its title first, then its state icon and active marker
   }
 })
 
-test('the footer legend names each icon in its own words, in English and pt-BR, on both surfaces', () => {
+// The legend's rows in drawn order: each row is an icon cell, then its meaning.
+const legendRowsOf = (tree: unknown): Drawn[] => nodesOf(tree).filter(node => /^legend-(?!heading$)/.test(String(node.props.key)))
+
+// Each legend row as its drawn texts: its icon, then its meaning.
+const legendPairsOf = (tree: unknown): string[][] => legendRowsOf(tree).map(row => drawnTexts(row))
+
+test('the legend is a Labels table: a bold heading, then one row per icon in group order, in English and pt-BR', () => {
   const english = [
-    '🟢 working',
-    '⏳ waiting for you',
-    '💤 idle',
-    '▶️ this window',
-    '🔄 session working now',
-    '🛠️ issue of a session',
-    '🎯 milestone',
-    '📋 open issues',
-    '🖥️ sessions',
-    '🕘 timeline',
-    '📝 commit',
-    '🔀 open PR',
-    '🚀 session event',
-    '✅ done',
-    '☑️ closed PR',
-    '📅 due date',
-    '⚠️ error, partial list or overdue',
-    '🔴 🟠 🟡 ⚪ priority P0 to P3',
+    ['🟢', 'working'],
+    ['⏳', 'waiting for you'],
+    ['💤', 'idle'],
+    ['▶️', 'this window'],
+    ['🔄', 'session working now'],
+    ['📋', 'open issues'],
+    ['🛠️', 'issue of a session'],
+    ['✅', 'done'],
+    ['☑️', 'closed PR'],
+    ['🕘', 'timeline'],
+    ['📝', 'commit'],
+    ['🔀', 'open PR'],
+    ['🚀', 'session event'],
+    ['🎯', 'milestone'],
+    ['📅', 'due date'],
+    ['⚠️', 'error, partial list or overdue'],
+    ['🔴 🟠 🟡 ⚪', 'priority P0 to P3'],
+    ['🖥️', 'sessions'],
   ]
   const portuguese = [
-    '🟢 trabalhando',
-    '⏳ esperando você',
-    '💤 ociosa',
-    '▶️ esta janela',
-    '🔄 sessão trabalhando agora',
-    '🛠️ issue de uma sessão',
-    '🎯 milestone',
-    '📋 issues abertas',
-    '🖥️ sessões',
-    '🕘 linha do tempo',
-    '📝 commit',
-    '🔀 PR aberto',
-    '🚀 evento de sessão',
-    '✅ concluído',
-    '☑️ PR fechado',
-    '📅 prazo',
-    '⚠️ erro, lista parcial ou atrasado',
-    '🔴 🟠 🟡 ⚪ prioridade P0 a P3',
+    ['🟢', 'trabalhando'],
+    ['⏳', 'esperando você'],
+    ['💤', 'ociosa'],
+    ['▶️', 'esta janela'],
+    ['🔄', 'sessão trabalhando agora'],
+    ['📋', 'issues abertas'],
+    ['🛠️', 'issue de uma sessão'],
+    ['✅', 'concluído'],
+    ['☑️', 'PR fechado'],
+    ['🕘', 'linha do tempo'],
+    ['📝', 'commit'],
+    ['🔀', 'PR aberto'],
+    ['🚀', 'evento de sessão'],
+    ['🎯', 'milestone'],
+    ['📅', 'prazo'],
+    ['⚠️', 'erro, lista parcial ou atrasado'],
+    ['🔴 🟠 🟡 ⚪', 'prioridade P0 a P3'],
+    ['🖥️', 'sessões'],
   ]
-  expect(drawnTexts(keyed(drawDesktop({ lang: 'en' }), 'legend'))).toEqual(english)
-  expect(drawnTexts(keyed(drawTerminal({ lang: 'en' }), 'legend'))).toEqual(english)
-  expect(drawnTexts(keyed(drawDesktop({ lang: 'pt' }), 'legend'))).toEqual(portuguese)
-  expect(drawnTexts(keyed(drawTerminal({ lang: 'pt' }), 'legend'))).toEqual(portuguese)
+  for (const tree of [drawDesktop({ lang: 'en' }), drawTerminal({ lang: 'en' })]) {
+    expect(drawnTexts(keyed(tree, 'legend-heading'))).toEqual(['Labels'])
+    expect(keyed(tree, 'legend-heading')?.props.bold).toBe(true)
+    expect(legendPairsOf(tree)).toEqual(english)
+  }
+  for (const tree of [drawDesktop({ lang: 'pt' }), drawTerminal({ lang: 'pt' })]) {
+    expect(drawnTexts(keyed(tree, 'legend-heading'))).toEqual(['Labels'])
+    expect(legendPairsOf(tree)).toEqual(portuguese)
+  }
+})
+
+// Each row is a fixed-width icon cell, then its meaning, so the rows read as a table on both surfaces.
+test('each legend row is a fixed-width icon cell, then its meaning, on both surfaces', () => {
+  for (const tree of [drawDesktop(), drawTerminal()]) {
+    for (const row of legendRowsOf(tree)) {
+      const [cell, meaning] = row.props.children as Drawn[]
+      expect(cell?.tag).toBe('Box')
+      // The four priority emoji (11 columns) fit in the cell.
+      expect(Number(cell?.props.width)).toBeGreaterThanOrEqual(11)
+      expect(meaning?.tag).toBe('Text')
+    }
+  }
 })
 
 test('the legend lists every icon a snapshot draws, and no other, in both languages and on both surfaces', () => {
@@ -689,17 +717,19 @@ test('the legend lists every icon a snapshot draws, and no other, in both langua
     for (const draw of [drawDesktop, drawTerminal]) {
       const tree = draw({ lang, snapshot: richSnapshot() })
       const legendTexts = drawnTexts(keyed(tree, 'legend'))
-      const body = drawnTexts(tree).filter(text => !legendTexts.includes(text))
+      const body = bodyTextsOf(tree)
       expect(new Set(iconsIn(legendTexts))).toEqual(new Set(iconsIn(body)))
     }
   }
 })
 
 test('the legend sits above the footer, which stays the last line; its keys are unique and the same on both surfaces', () => {
-  const texts = drawnTexts(drawDesktop())
+  const tree = drawDesktop()
+  const texts = drawnTexts(tree)
+  const legend = drawnTexts(keyed(tree, 'legend'))
   expect(texts.at(-1)?.startsWith('Updated ')).toBe(true)
-  expect(texts.at(-2)).toBe('🔴 🟠 🟡 ⚪ priority P0 to P3')
-  const keysOf = (tree: unknown): string[] => nodesOf(tree).map(node => String(node.props.key)).filter(key => key.startsWith('legend-'))
+  expect(texts.slice(-legend.length - 1, -1)).toEqual(legend)
+  const keysOf = (drawn: unknown): string[] => nodesOf(drawn).map(node => String(node.props.key)).filter(key => key.startsWith('legend-'))
   const keys = keysOf(drawDesktop())
   expect(keys.length).toBeGreaterThan(15)
   expect(new Set(keys).size).toBe(keys.length)

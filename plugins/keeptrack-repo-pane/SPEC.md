@@ -1,4 +1,4 @@
-# KeepTrack: spec (as built, v0.2.0-beta.14)
+# KeepTrack: spec (as built, v0.2.0-beta.15)
 
 Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepTrack, the command is `/keeptrack`.
 
@@ -357,7 +357,7 @@ Run from the mod folder:
 3. `scripts/keeptrack-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
    `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only (it holds every emoji of KeepTrack). `scripts/keeptrack-look-selftest.sh` runs the gate on a copy and checks those cases.
 4. `agentic-mod-release-tool.sh keeptrack-repo-pane --check` must pass before the mod is installed (CLAUDE.md rule 6a).
-   The mod is published as 0.2.0-beta.14 and installed from `sophia-mods` (README, Installation).
+   The mod is published as 0.2.0-beta.15 and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
 or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`, `parseUtcOffset`) and do not depend on the zone the test process runs in; the register test answers `date +%z` through the process stub, including a refused call.
@@ -435,23 +435,24 @@ Done in the Claude Desktop with the mod installed, not by the build:
   snapshot holds an error other than `no-remote`, `gh-missing` or `gh-auth` (the band does not flag those three, which the repo line already names) (the repo context line ends with `data error`, pt-BR `erro nos dados`).
 - Status line (`bandStatusWords`, `hooks/band.tsx`), from the main loop only (turn events without an `agentId`), as words, each with
   its icon:
-  - Running, from turn.start to turn.complete or turn.abort, and for as long as an agent is active after the turn has ended:
-    `Running · <tool or thinking> · <n> agents · <elapsed>`; the agents part is left out when `<n>` is 0
-    (`Running · <tool or thinking> · <elapsed>`). The tool is the name of the running turn's last tool.call (never its
+  - Running, from turn.start to turn.complete or turn.abort, and for as long as an agent is active after the turn has ended: the
+    working icon alone (`🟢`, no word), then `<tool or thinking> · <n> agents · <elapsed>`; the agents part is left out when `<n>` is 0
+    (`🟢 · <tool or thinking> · <elapsed>`). The tool is the name of the running turn's last tool.call (never its
     arguments); `thinking` until its first call. An MCP tool (`mcp__<server>__<tool>`) reads `MCP <server>`, e.g.
-    `Running · MCP master-jev-hook`. Once the turn has ended, the tool part is dropped: `Running · <n> agents · <elapsed>` (or `Running · <elapsed>` with no agent).
+    `MCP master-jev-hook`. Once the turn has ended, the tool part is dropped: `<n> agents · <elapsed>` (or `<elapsed>` with no agent).
     A main-loop tool.call (one with no `agentId`) that arrives while no turn runs opens an inferred turn at its time, with that tool,
     since its turn.start may have been lost; a subagent's tool.call never opens one. The inferred turn ends like any other, with
     turn.complete or turn.abort. A turn that has run past `TURN_MAX_AGE_MS` (2 h, `hooks/turn.ts`) is ended by the band tick, so the
-    band reads `Idle` from then on; a lost end event therefore cannot keep the band Running for longer. The turn ends at its expiry, `startedAt + TURN_MAX_AGE_MS`, not at the tick that found it (`turnTimedOut`), so the idle `since` is the expiry time. A tool.call after that opens
+    band draws the idle icon from then on; a lost end event therefore cannot keep the band Running for longer. The turn ends at its expiry, `startedAt + TURN_MAX_AGE_MS`, not at the tick that found it (`turnTimedOut`), so the idle `since` is the expiry time. A tool.call after that opens
     another inferred turn, whose elapsed time counts from zero.
     The elapsed time reads `42 s`, `3 min`, `1 h 5 min`, counted from the earliest of: the running turn's start; the start of a turn
     that ended while an agent it overlapped still runs (R2-05: `turnEnded` keeps the start as `endedTurnStart`, and it counts only
     when the turn ended at or after the agents' run began); the start of the agents' run.
-  - Idle: `Idle · <since>`, where since is the last turn's end (`just now`, `5 min ago`, `2 h ago`, `3 d ago`); `Idle` before the
-    first turn.
-  - The state word and the agents are the band's own words; pt-BR: `Executando`, `Parada`, `pensando`, `agentes`.
-  - Vocabulary by design: the band says `Running` and `Idle` (pt-BR `Executando`, `Parada`); the pane says `working`, `idle` and
+  - Idle: the idle icon alone (`💤`), then `<since>`, where since is the last turn's end (`just now`, `5 min ago`, `2 h ago`, `3 d ago`);
+    the icon alone before the first turn.
+  - The states are icons only: no state word is drawn, in either language, so the band's words are the tool, the agents and the time
+    (pt-BR: `pensando`, `agentes`). A waiting window adds the waiting icon (`⏳`) before the loop's icon.
+  - Vocabulary by design: the band draws the state icons alone (`🟢`, `💤`, `⏳`), and the pane says `working`, `idle` and
     `waiting` (pt-BR `trabalhando`, `ociosa`, `esperando você`; `state.working`, `state.idle`, `state.waiting` in `hooks/i18n.ts`).
     The two vocabularies are kept apart on purpose.
   - The agents counted are the ones whose `$.agent.list()` status is pending, running or waiting (not idle, not ended). Their count and
@@ -484,7 +485,7 @@ Done in the Claude Desktop with the mod installed, not by the build:
   each redraw, so they refresh on events and on the band's tick, not every second. The test kit cannot raise turn events (`prompt.submit` has no
   implementation there), so the transitions are tested as pure functions in `tests/turn.test.ts`; the band's words, icons and drawn tree
   are tested in `tests/band.test.ts`.
-- i18n keys (both dictionaries): `band.open`, `band.show`, `band.running`, `band.idle`, `band.thinking`, `band.agents`,
+- i18n keys (both dictionaries): `band.open`, `band.show`, `band.thinking`, `band.agents`,
   `band.agentsOne`, `band.span.seconds`, `band.span.minutes`, `band.span.hours`, `band.noRemote`, `band.error`; with the existing
   `crumb.noIssue`, `crumb.noMilestone` and `age.*`. `band.context` is gone: the milestone and the issue are separate words.
 
@@ -520,10 +521,13 @@ PT), and the icon sits before its word. The pane draws its emoji as text on both
 | Priority P0 / P1 / P2 / P3 | 🔴 / 🟠 / 🟡 / ⚪ | issue row, before the tag |
 | Band: no issue, no remote, tool, MCP | 📭, 🚫, 🔧, 🔌 | band words (section 18) |
 
-- Legend (the footer's block above `Updated`): one entry per icon a snapshot draws, the emoji taken by name from `action-icons.ts`
+- Legend (the footer's block above `Updated`), a table headed `Labels` (`legend.title`, both languages): a bold heading row, then one
+  row per icon a snapshot draws. Each row is the emoji in a fixed-width cell (`LEGEND_ICON_COLUMNS`, 12 columns), then its meaning. The
+  rows run in four groups: session states (🟢 ⏳ 💤 ▶️ 🔄), work (📋 🛠️ ✅ ☑️), history (🕘 📝 🔀 🚀), project (🎯 📅 ⚠️ priorities 🖥️).
+  The emoji are taken by name from `action-icons.ts`
   (`LEGEND_ENTRIES`, `hooks/pane.tsx`) and the meaning from `legend.*` in `hooks/i18n.ts` (EN and PT). The four priority tags share one
   entry. The band-only rows (📭, 🚫, ⭕, 🔧, 🔌) are not listed, and neither are the loading and failure lines (⏳, ❌), which draw
-  without the footer. Keys: `legend`, and `legend-<id>` per entry, the same on every draw. A session row's state icon is text inside
+  without the footer. Keys: `legend`, `legend-heading`, and `legend-<id>` per row, the same on every draw. A session row's state icon is text inside
   `title-<session id>`; the separate `state` element is gone. `tests/pane.test.ts` checks that the legend lists every icon a snapshot
   draws, and no other, in both languages.
 - Progress bar: ten cells of plain characters, `▰` filled and `▱` empty, then the rounded percentage (`▰▰▰▰▰▰▱▱▱▱ 60%`). It is drawn

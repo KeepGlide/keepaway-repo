@@ -10,7 +10,7 @@
 
 **Um mod do Claude Code Desktop para quem mantém várias sessões em um mesmo repositório do GitHub. Ele mostra qual issue cada sessão está trabalhando, e o que o repositório está fazendo agora.**
 
-[![Versão](https://img.shields.io/badge/vers%C3%A3o-0.2.0--beta.14-2BB8AE.svg)](CHANGELOG.md) [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-1E2A47.svg)](LICENSE) ![Plataforma](https://img.shields.io/badge/Claude%20Code%20Desktop-mod-1E2A47.svg)
+[![Versão](https://img.shields.io/badge/vers%C3%A3o-0.2.0--beta.15-2BB8AE.svg)](CHANGELOG.md) [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-1E2A47.svg)](LICENSE) ![Plataforma](https://img.shields.io/badge/Claude%20Code%20Desktop-mod-1E2A47.svg)
 
 [Instalação](#-instalação) · [Uso](#-uso) · [Changelog](CHANGELOG.md) · [Reportar um bug](https://github.com/KeepGlide/keeptrack/issues/new) · [Segurança](SECURITY.md)
 
@@ -47,7 +47,7 @@
 
 ## 📌 Status
 
-Beta (`0.2.0-beta.14`). O projeto segue o [SemVer](https://semver.org/): enquanto a versão for `0.y.z`, qualquer release pode mudar o comportamento sem aviso.
+Beta (`0.2.0-beta.15`). O projeto segue o [SemVer](https://semver.org/): enquanto a versão for `0.y.z`, qualquer release pode mudar o comportamento sem aviso.
 
 ## 💡 Por que existe
 
@@ -189,7 +189,7 @@ Regras de base:
 | 1 | Conferir se o gh está logado | `gh auth status` | Saída 0 e uma linha `Logged in to github.com`. Se não, a pessoa roda `gh auth login`. |
 | 2 | Conferir se o repositório tem um remote no GitHub | `git remote get-url origin` | Saída 0 e uma URL cujo host é `github.com`, ou um alias SSH com `github` no nome (por exemplo `git@github-<label>:<owner>/<repo>.git`). Se não, o painel mostra `sem remote no GitHub para este repo`. |
 | 3 🧑 | Adicionar o marketplace, a menos que `claude plugin marketplace list` já mostre `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Saída 0, e `claude plugin marketplace list` mostra `sophia-mods` com `Source: Folder (<path>)`. |
-| 4 🧑 | Instalar o plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Saída 0, e `claude plugin list` mostra `keeptrack-repo-pane@sophia-mods` com `Version: 0.2.0-beta.14` e `Status: ✔ enabled`. |
+| 4 🧑 | Instalar o plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Saída 0, e `claude plugin list` mostra `keeptrack-repo-pane@sophia-mods` com `Version: 0.2.0-beta.15` e `Status: ✔ enabled`. |
 | 5 | Conferir se o comando está registrado | Em uma sessão do Desktop, `/keeptrack bogus` | Um toast com a linha de uso `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em inglês, ou `Uso: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em português. Nada muda. |
 | 6 | Abrir o painel | `/keeptrack` | Abre um painel com o título `KeepTrack`. Mostra `Carregando o repo...`, depois as issues abertas por milestone, ou uma linha de erro de [Solução de problemas](#-solução-de-problemas). |
 | 7 | Trocar o idioma para português | `/keeptrack lang pt-BR` | O painel e a faixa mudam para português. Durante o carregamento, o painel mostra `Carregando o repo...`. |
@@ -322,12 +322,12 @@ Limitações conhecidas, como o código se comporta hoje:
 | Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo, projeção de registros, leitura do fuso UTC (`tests/model.test.ts`) | 94 |
 | Módulo de hooks: consulta, comando do painel, temporizadores, fechamento e fuso UTC do host (`tests/register.test.ts`) | 144 |
 | Faixa: linha de status, estados e botão Open (`tests/band.test.ts`) | 41 |
-| Painel: desenho do snapshot, relógio do host e datas de prazo (`tests/pane.test.ts`) | 76 |
+| Painel: desenho do snapshot, relógio do host e datas de prazo (`tests/pane.test.ts`) | 77 |
 | Idioma: dicionários em inglês e português do Brasil (`tests/i18n.test.ts`) | 10 |
 | Transições de turno da faixa (`tests/turn.test.ts`) | 8 |
-| **Total** | **373** |
+| **Total** | **374** |
 
-Contagens de `claude plugin test plugins/keeptrack-repo-pane` na árvore Unreleased (a ordem das linhas e a legenda): 373 aprovados, 0 falhas, 6 arquivos. A verificação de aparência (`scripts/keeptrack-look-selftest.sh`) é um script de shell e não entra na contagem.
+Contagens de `claude plugin test plugins/keeptrack-repo-pane` na árvore Unreleased (a ordem das linhas e a legenda): 374 aprovados, 0 falhas, 6 arquivos. A verificação de aparência (`scripts/keeptrack-look-selftest.sh`) é um script de shell e não entra na contagem.
 
 ## 🔧 Desenvolvimento
 

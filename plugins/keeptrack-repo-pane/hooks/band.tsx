@@ -46,7 +46,8 @@ export type BandView = {
   now: number
 }
 
-// One word of the band's line: its text, and the action icon drawn before it (none for a plain word).
+// One word of the band's line: its text, and the action icon drawn before it (none for a plain word). A state word (running, idle,
+// waiting) has an empty text: its icon alone is the word.
 export type BandWord = { icon: ActionIconKey | null; text: string }
 
 // Another mod's band may take the digit 1, so this band takes 2; both can show above the same prompt.
@@ -124,28 +125,30 @@ function elapsedOriginOf(view: BandView): number | null {
   return starts.length > 0 ? Math.min(...starts) : null
 }
 
-// The band's line as words. While the turn or an agent runs: Running, the tool or thinking (only while the turn runs), the agents,
-// the elapsed time. Otherwise: Idle, and the time since the last turn ended (nothing more before the first turn).
+// The band's line as words. While the turn or an agent runs: the working icon alone, the tool or thinking (only while the turn runs),
+// the agents, the elapsed time. Otherwise: the idle icon alone, and the time since the last turn ended (nothing more before the
+// first turn).
 function loopWords(view: BandView): BandWord[] {
   const { lang, turn } = view
   if (!runningOf(view)) {
-    const idle = word(t(lang, 'band.idle'), 'idle')
+    const idle = word('', 'idle')
     return turn.endedAt === null ? [idle] : [idle, word(agoText(lang, view.now - turn.endedAt))]
   }
   const origin = elapsedOriginOf(view)
   const work = turn.startedAt === null ? [] : [turn.tool === null ? word(t(lang, 'band.thinking'), 'thinking') : toolWordOf(turn.tool)]
   return [
-    word(t(lang, 'band.running'), 'working'),
+    word('', 'working'),
     ...work,
     ...(view.agents > 0 ? [word(agentsText(lang, view.agents), 'agent')] : []),
     word(spanText(lang, view.now - (origin ?? view.now))),
   ]
 }
 
-// The band's status words: the waiting word first when this window's session waits for the user, then the loop's words.
+// The band's status words: the waiting icon first when this window's session waits for the user, then the loop's words. The
+// states (running, idle, waiting) are drawn as their icon alone, as in the pane's rows.
 export function bandStatusWords(view: BandView): BandWord[] {
   const loop = loopWords(view)
-  return view.waiting === true ? [word(t(view.lang, 'state.waiting'), 'waiting'), ...loop] : loop
+  return view.waiting === true ? [word('', 'waiting'), ...loop] : loop
 }
 
 // The flag of a snapshot that holds errors: one word after the repo context, drawn with the error icon.
@@ -178,9 +181,10 @@ export function bandContextWords(view: BandView): BandWord[] | null {
   return milestone === null ? [number] : [milestone, number]
 }
 
-// The words as plain text, apart by the separator: the line as a terminal without icons reads it.
+// The words as plain text, apart by the separator: the line as a terminal without icons reads it. A state word has no text,
+// so it is left out.
 export function bandWordsText(words: readonly BandWord[]): string {
-  return words.map(item => item.text).join(SEPARATOR)
+  return words.map(item => item.text).filter(text => text !== '').join(SEPARATOR)
 }
 
 // The icon of a word in the drawn tree: the SVG on the desktop, its emoji as text on the terminal.
@@ -200,11 +204,12 @@ function wordNodes(ui: Ui, desktop: boolean, words: readonly BandWord[], prefix:
   return words.flatMap((item, index) => {
     const separator = index === 0 ? [] : [<Text key={`${prefix}-sep-${index}`}>{SEPARATOR}</Text>]
     const icon = item.icon === null ? [] : [iconNodeOf(ui, desktop, item.icon, `${prefix}-icon-${index}`)]
-    const text = <Text key={`${prefix}-text-${index}`}>{item.text}</Text>
+    // A state word is its icon alone (the pane's legend names it); other words keep their text.
+    const text = item.text === '' ? [] : [<Text key={`${prefix}-text-${index}`}>{item.text}</Text>]
     return [
       ...separator,
       <Box key={`${prefix}-word-${index}`} flexDirection="row" alignItems="center" gap={1}>
-        {[...icon, text]}
+        {[...icon, ...text]}
       </Box>,
     ]
   })

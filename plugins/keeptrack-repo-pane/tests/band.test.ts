@@ -134,26 +134,29 @@ const svgSourcesOf = (drawn: unknown): string[] =>
 
 const lineOf = (words: BandWord[] | null): string | null => (words === null ? null : bandWordsText(words))
 
-test('the running status names the tool, the agents and the elapsed time, in each language', () => {
-  expect(lineOf(bandStatusWords(view({ turn: RUNNING, agents: 2 })))).toBe('Running · Bash · 2 agents · 3 min')
-  expect(lineOf(bandStatusWords(view({ turn: { ...RUNNING, tool: null }, agents: 1 })))).toBe('Running · thinking · 1 agent · 3 min')
-  expect(lineOf(bandStatusWords(view({ turn: { startedAt: NOW - 42 * SECOND, endedAt: null, tool: null } })))).toBe(
-    'Running · thinking · 42 s',
-  )
-  expect(lineOf(bandStatusWords(view({ turn: { startedAt: NOW - 61 * MINUTE, endedAt: null, tool: 'Read' } })))).toBe(
-    'Running · Read · 1 h 1 min',
-  )
-  expect(lineOf(bandStatusWords(view({ lang: 'pt', turn: RUNNING, agents: 1 })))).toBe('Executando · Bash · 1 agente · 3 min')
-  expect(lineOf(bandStatusWords(view({ lang: 'pt', turn: RUNNING, agents: 3 })))).toBe('Executando · Bash · 3 agentes · 3 min')
+// The state icon of a surface, as the drawn tree holds it: its SVG source on the desktop, its emoji text on the terminal.
+const stateIconOn = (surface: 'desktop' | 'terminal', icon: ActionIconKey): string =>
+  surface === 'desktop' ? actionIconSvg(icon, ACTION_ICON_SIZE) : actionIconEmoji(icon)
+
+// A text as it reads inside the JSON of the drawn tree (the quotes and backslashes escaped), without its outer quotes.
+const jsonTextOf = (text: string): string => JSON.stringify(text).slice(1, -1)
+
+test('the running status is the working icon alone, then the tool, the agents and the elapsed time, in each language', () => {
+  expect(bandStatusWords(view({ turn: RUNNING, agents: 2 }))[0]).toEqual({ icon: 'working', text: '' })
+  expect(lineOf(bandStatusWords(view({ turn: RUNNING, agents: 2 })))).toBe('Bash · 2 agents · 3 min')
+  expect(lineOf(bandStatusWords(view({ turn: { ...RUNNING, tool: null }, agents: 1 })))).toBe('thinking · 1 agent · 3 min')
+  expect(lineOf(bandStatusWords(view({ turn: { startedAt: NOW - 42 * SECOND, endedAt: null, tool: null } })))).toBe('thinking · 42 s')
+  expect(lineOf(bandStatusWords(view({ turn: { startedAt: NOW - 61 * MINUTE, endedAt: null, tool: 'Read' } })))).toBe('Read · 1 h 1 min')
+  expect(bandStatusWords(view({ lang: 'pt', turn: RUNNING, agents: 1 }))[0]).toEqual({ icon: 'working', text: '' })
+  expect(lineOf(bandStatusWords(view({ lang: 'pt', turn: RUNNING, agents: 1 })))).toBe('Bash · 1 agente · 3 min')
+  expect(lineOf(bandStatusWords(view({ lang: 'pt', turn: RUNNING, agents: 3 })))).toBe('Bash · 3 agentes · 3 min')
 })
 
-test('the idle status shows the time since the last turn ended, or the bare word before the first turn', () => {
-  expect(lineOf(bandStatusWords(view()))).toBe('Idle')
-  expect(lineOf(bandStatusWords(view({ turn: { startedAt: null, endedAt: NOW - 5 * MINUTE, tool: null } })))).toBe('Idle · 5 min ago')
-  expect(lineOf(bandStatusWords(view({ turn: { startedAt: null, endedAt: NOW - 10 * SECOND, tool: null } })))).toBe('Idle · just now')
-  expect(lineOf(bandStatusWords(view({ lang: 'pt', turn: { startedAt: null, endedAt: NOW - 5 * MINUTE, tool: null } })))).toBe(
-    'Parada · há 5 min',
-  )
+test('the idle status is the idle icon alone, then the time since the last turn ended, or nothing before the first turn', () => {
+  expect(bandStatusWords(view())).toEqual([{ icon: 'idle', text: '' }])
+  expect(lineOf(bandStatusWords(view({ turn: { startedAt: null, endedAt: NOW - 5 * MINUTE, tool: null } })))).toBe('5 min ago')
+  expect(lineOf(bandStatusWords(view({ turn: { startedAt: null, endedAt: NOW - 10 * SECOND, tool: null } })))).toBe('just now')
+  expect(lineOf(bandStatusWords(view({ lang: 'pt', turn: { startedAt: null, endedAt: NOW - 5 * MINUTE, tool: null } })))).toBe('há 5 min')
 })
 
 // The register redraws the idle band each minute with the clock's now (tests/register.test.ts); this is the text that redraw draws.
@@ -185,13 +188,16 @@ test('a long milestone title is cut to 24 characters in the band', () => {
 })
 
 for (const [surface, ui] of [['desktop', DESKTOP], ['terminal', TERMINAL]] as const) {
-  test(`the band draws its status, its context and an Open button with hotkey 2 on the ${surface}`, () => {
+  test(`the band draws its working icon, its context and an Open button with hotkey 2 on the ${surface}`, () => {
     const drawn = renderBand(ui, view({ surface, turn: RUNNING, agents: 1 }), () => {}, heldButtons())
     const [button] = buttonsOf(drawn)
     expect(button?.props.label).toBe('Open')
     expect(button?.props.hotkey).toBe('2')
     expect(button?.props.variant).toBe('primary')
-    expect(textsOf(drawn)).toEqual(expect.arrayContaining(['Running', 'Bash', '1 agent', '3 min', 'W16-hotfix 10/16', '#106']))
+    const stateIcons = surface === 'desktop' ? svgSourcesOf(drawn) : textsOf(drawn)
+    expect(stateIcons).toContain(stateIconOn(surface, 'working'))
+    expect(textsOf(drawn)).toEqual(expect.arrayContaining(['Bash', '1 agent', '3 min', 'W16-hotfix 10/16', '#106']))
+    expect(textsOf(drawn)).not.toContain('Running')
   })
 }
 
@@ -236,21 +242,21 @@ for (const [tool, icon] of TOOL_ICONS) {
   })
 }
 
-test('an MCP tool reads as its server, with the mcp icon: "Running · MCP master-jev-hook"', () => {
+test('an MCP tool reads as its server, with the mcp icon: "MCP master-jev-hook · 3 min"', () => {
   const turn = { ...RUNNING, tool: 'mcp__master-jev-hook__request_decision' }
-  expect(lineOf(bandStatusWords(view({ turn })))).toBe('Running · MCP master-jev-hook · 3 min')
+  expect(lineOf(bandStatusWords(view({ turn })))).toBe('MCP master-jev-hook · 3 min')
   expect(bandStatusWords(view({ turn }))[1]).toEqual({ icon: 'mcp', text: 'MCP master-jev-hook' })
-  expect(lineOf(bandStatusWords(view({ lang: 'pt', turn })))).toBe('Executando · MCP master-jev-hook · 3 min')
+  expect(lineOf(bandStatusWords(view({ lang: 'pt', turn })))).toBe('MCP master-jev-hook · 3 min')
 })
 
 test('thinking, the agents and idle each carry their icon', () => {
   expect(bandStatusWords(view({ turn: { ...RUNNING, tool: null } }))[1]).toEqual({ icon: 'thinking', text: 'thinking' })
   expect(bandStatusWords(view({ turn: RUNNING, agents: 2 }))[2]).toEqual({ icon: 'agent', text: '2 agents' })
-  expect(bandStatusWords(view())[0]).toEqual({ icon: 'idle', text: 'Idle' })
+  expect(bandStatusWords(view())[0]).toEqual({ icon: 'idle', text: '' })
 })
 
-test('the running word carries the working icon, the green dot (🟢)', () => {
-  expect(bandStatusWords(view({ turn: RUNNING }))[0]).toEqual({ icon: 'working', text: 'Running' })
+test('the running word carries the working icon, the green dot (🟢), and no text', () => {
+  expect(bandStatusWords(view({ turn: RUNNING }))[0]).toEqual({ icon: 'working', text: '' })
 })
 
 test('the context carries the milestone, issue, no-issue and no-remote icons', () => {
@@ -378,12 +384,16 @@ test('the KeepGlide mark sits immediately before the Open button on the desktop 
 
 test('R2-05: an agent still running after its turn ended counts the elapsed time from the turn start', () => {
   const turn = turnEnded(turnToolNamed(turnStarted(NOW - 3 * MINUTE), 'Bash'), NOW - MINUTE)
-  expect(lineOf(bandStatusWords(view({ turn, agents: 1, agentsSince: NOW - 2 * MINUTE })))).toBe('Running · 1 agent · 3 min')
+  const words = bandStatusWords(view({ turn, agents: 1, agentsSince: NOW - 2 * MINUTE }))
+  expect(words[0]).toEqual({ icon: 'working', text: '' })
+  expect(lineOf(words)).toBe('1 agent · 3 min')
 })
 
 test('R2-05: an agent that began after an earlier turn ended does not count that turn', () => {
   const turn = turnEnded(turnStarted(NOW - 10 * MINUTE), NOW - 5 * MINUTE)
-  expect(lineOf(bandStatusWords(view({ turn, agents: 1, agentsSince: NOW - MINUTE })))).toBe('Running · 1 agent · 1 min')
+  const words = bandStatusWords(view({ turn, agents: 1, agentsSince: NOW - MINUTE }))
+  expect(words[0]).toEqual({ icon: 'working', text: '' })
+  expect(lineOf(words)).toBe('1 agent · 1 min')
 })
 
 for (const surface of ['desktop', 'terminal'] as const) {
@@ -393,7 +403,10 @@ for (const surface of ['desktop', 'terminal'] as const) {
     const band = await mountBand($, surface)
     expect(await band.find({ type: 'Button', key: 'open' })).toBeTruthy()
     expect((await band.find({ type: 'Button', key: 'open' }))?.props.hotkey).toBe('2')
-    expect(await band.find({ type: 'Text', text: 'Idle' })).toBeTruthy()
+    // Idle with no turn: the idle icon alone, drawn on this surface, and no state word.
+    const drawn = JSON.stringify(await band.drawn())
+    expect(drawn).toContain(jsonTextOf(stateIconOn(surface, 'idle')))
+    expect(drawn).not.toContain('"Idle"')
     await band.press({ key: 'open' })
     expect(host.opened).toEqual([{ id: PANE_ID, focus: true }])
     await host.clock.settle()
@@ -420,15 +433,18 @@ test('the band reads in the stored language', async ($, on) => {
   await band.unmount()
   const opened = await mountBand($, 'terminal')
   expect(await opened.find({ type: 'Text', text: 'sem remote no GitHub' })).toBeTruthy()
-  expect(await opened.find({ type: 'Text', text: 'Parada' })).toBeTruthy()
+  // The idle state is its icon alone in pt-BR too: the pt-BR word (Parada) is gone with the band's words.
+  expect(await opened.find({ type: 'Text', text: actionIconEmoji('idle') })).toBeTruthy()
+  expect(await opened.find({ type: 'Text', text: 'Parada' })).toBeFalsy()
   expect((await opened.find({ type: 'Button', key: 'open' }))?.props.label).toBe('Mostrar')
   await opened.unmount()
 })
 
-test('agents still running after the main turn ended: the band reads Running with their count and the time since they began', () => {
-  const text = lineOf(bandStatusWords(view({ turn: IDLE, agents: 2, agentsSince: NOW - 3 * MINUTE })))
-  expect(text).toBe('Running · 2 agents · 3 min')
-  expect(lineOf(bandStatusWords(view({ turn: IDLE, agents: 0, agentsSince: null })))).toBe('Idle')
+test('agents still running after the main turn ended: the working icon with their count and the time since they began', () => {
+  const words = bandStatusWords(view({ turn: IDLE, agents: 2, agentsSince: NOW - 3 * MINUTE }))
+  expect(words[0]).toEqual({ icon: 'working', text: '' })
+  expect(lineOf(words)).toBe('2 agents · 3 min')
+  expect(bandStatusWords(view({ turn: IDLE, agents: 0, agentsSince: null }))).toEqual([{ icon: 'idle', text: '' }])
 })
 
 test('F19: a milestone title is cut by characters, so an emoji is never split in the band', () => {
@@ -440,9 +456,13 @@ test('F08: a window whose issue details are missing reads #<n> alone, never no i
   expect(lineOf(bandContextWords(view({ issue: { number: 106, milestoneTitle: null, progress: null, detailsMissing: true } })))).toBe('#106')
 })
 
-test('a waiting window reads "waiting for you" with the waiting icon, before the loop words', () => {
-  expect(bandStatusWords(view({ waiting: true }))[0]).toEqual({ icon: 'waiting', text: 'waiting for you' })
-  expect(lineOf(bandStatusWords(view({ lang: 'pt', waiting: true })))).toBe('esperando você · Parada')
+test('a waiting window draws the waiting icon alone, before the loop words', () => {
+  expect(bandStatusWords(view({ waiting: true }))).toEqual([
+    { icon: 'waiting', text: '' },
+    { icon: 'idle', text: '' },
+  ])
+  expect(bandStatusWords(view({ lang: 'pt', waiting: true, turn: RUNNING }))[0]).toEqual({ icon: 'waiting', text: '' })
+  expect(lineOf(bandStatusWords(view({ lang: 'pt', waiting: true, turn: RUNNING })))).toBe('Bash · 3 min')
 })
 
 test('a snapshot with errors adds the data error word with the error icon, and no word when it is clean', () => {
