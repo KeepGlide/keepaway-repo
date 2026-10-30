@@ -1,4 +1,4 @@
-# KeepTrack: spec (as built, v0.2.0-beta.18)
+# KeepTrack: spec (as built, v0.2.0-beta.19)
 
 Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepTrack, the command is `/keeptrack`.
 
@@ -14,8 +14,9 @@ where it differs from that record (section 9).
   `Recents`, the Desktop sidebar's label), then each top session and its derived sessions (fork or spawn). Ended sessions are never listed.
 - Show the open issues that no session works on, grouped by open milestone; the issues of a closed milestone are grouped under
   that milestone's title and marked as closed.
-- Read only. The pane writes two kinds of state: the open flag and the language (`$.store` `lang`), and the issue
-  override a `/keeptrack issue` command sets (`$.store` `override:<sessionId>`).
+- Read only. The pane writes these kinds of state: the open flag and the language (`$.store` `lang`), the issue
+  override a `/keeptrack issue` command sets (`$.store` `override:<sessionId>`), and the summary setting (`$.store` `summary`,
+  section 21). The summaries themselves are kept in this window's memory only (section 21).
 
 ## 2. Files
 
@@ -24,6 +25,7 @@ where it differs from that record (section 9).
 | `.claude-plugin/plugin.json`, `hooks/hooks.json` | Manifest; the hooks module is `hooks/register.tsx`. |
 | `hooks/register.tsx` | The only module that calls `$`: the poll timer, the atoms, the `/keeptrack` command, the close; the context ancestors (`ancestorsOf`) and the Desktop config read (`readDesktopGroups`). |
 | `hooks/model.ts` | Pure rules: remote parsing, session-to-issue mapping, session tree with its groups (`parseDesktopGroups`, `familyOf`, `groupOf`, `cutAcrossGroups`, `sortTops`, `nearestKeptAncestorOf`), issue groups, timelines, state, record projection. |
+| `hooks/summary.ts` | The session summary's pure rules (section 21): the first prompt of a transcript head, cleaned and cut to 93 characters, and the transcript folder of a session. `hooks/register.tsx` reads the transcript. |
 | `hooks/pane.tsx` | Draws one `Snapshot`; reads no state. The session groups: `groupsOf`, `renderGroup`, `renderGroupLabel`. |
 | `hooks/band.tsx` | Draws the band row above the prompt: the status line, the repo context and the Open button (section 18); reads no state. |
 | `hooks/logo-element.tsx` | The logo elements: the pane header's mark (`renderKeepTrackLogo`), the band's leading mark (`renderKeepTrackMark`) and the KeepGlide mark (`renderKeepGlide`), drawn from `logo.ts` and `keepglide.ts` (section 18). |
@@ -69,7 +71,7 @@ where it differs from that record (section 9).
    4. Candidates: this window's record always; any other record whose git common dir has an origin that names this repo (match by host, owner and name, case-insensitive; the newest 63 others by activity, plus every other one among the newest 256 records by activity whose branch has an open PR; section 16). An archived record is never a candidate, except this window's own (section 9). The records up the parent chains of the candidates that are not candidates themselves, in any state (archived, of another repo, past the 64 cap), are context ancestors (`ancestorsOf`): they link and group the tree only, and are never listed, never counted, never asked of git and never read beyond the scan. A record with no `gitAnchors` derives its common dir with
       `git rev-parse --path-format=absolute --git-common-dir` in its cwd. A common dir that git reports as not a repository (exit 128, not-a-repository stderr) is a definite non-member: the record is left out and sets no `git-failed`.
    5. Branch of each member of the newest 4 × 64 others (the scan window; membership is checked there too): `git symbolic-ref --quiet HEAD` in its cwd, `refs/heads/` removed (detached HEAD gives no branch; section 4). The open-PR admission of step 4 needs these reads.
-   6. Waiting: nothing is read here, and no Askaway file is read anywhere. This window's flag comes from the engine's `tool.check` verdict (`ask`), see section 11 (the band) and the hook note in section 3.
+   6. Waiting: this window's flag comes from the engine's `tool.check` verdict (`ask`), see section 11 (the band) and the hook note in section 3. Another session waits for the person while its record's `postTurnSummary` says `blocked` and its last activity is within 24 h (section 7, D7). No Askaway file is read anywhere.
    7. Overrides: store keys `override:<sessionId>`.
    8. Tree (`buildTree`), Askaway's shape: group, then each top session, then its derived sessions.
       - Listing (`keptIds`): this window at any state, the live members (not archived, and active within 72 h or with an open
@@ -93,7 +95,7 @@ where it differs from that record (section 9).
         parent, an ended one included (section 10).
       - Sorting (`sortTops`): the group holding this window first, even when it is Recents; then the named Desktop Groups by
         the newest own activity of their tops, then by key (ties no longer keep the input order); Recents last otherwise.
-        Inside a group, the top holding this window first, then by activity, newest first, then by session id (Sophia,
+        Inside a group, the top holding this window first, then a top whose session, or a session under it, waits for the person (section 7, D7; Q6, owner-approved 2026-10-30; the rank looks down the whole tree, so the first 20 tops of a group never hide a waiting session), then by activity, newest first, then by session id (Sophia,
         2026-10-22, Askaway q-mvjtulza-91d6af, option A).
       - Cycles: cut at one link (`cutCycleAbove`); the link left stands only when both members share a group (one Desktop
         Group, or Recents), since otherwise the Group rule cuts it.
@@ -176,6 +178,7 @@ When this window's node has an issue, one gh call (section 4, call 4) fills `Iss
 - `checks`: always null in v1; the pane draws `no CI`.
 - `lastComment`: the newest comment (`newestCommentOf`), body previewed to 200 characters; or null. Only the newest comment of
   the issue is kept.
+- `decision`: the text of the newest comment by the owner, a member or a collaborator (`authorAssociation` OWNER, MEMBER or COLLABORATOR; a comment by any other author is ignored) that starts with `Decisão:` or `Decision:` (case-insensitive, after leading whitespace, plain or in bold as `**Decisão:**`), the text after the prefix as plain text, cut to 200 characters (graphemes) with the ellipsis counted (`newestDecisionOf`); null when there is none, or when the prefix has no text after it. Only the newest decision is kept (Mock S delta 8).
 - `startedAt`: the record's `createdAt`.
 
 A failed call keeps no details (`thisIssue` null), sets `stale`, and adds the error line for its failure. No call, and no
@@ -190,7 +193,8 @@ Only these fields are projected (`projectRecord`); all others are dropped unread
 | `sessionId` (`local_<id>`) | Session id; a link target only when it has this shape |
 | `cliSessionId` | Matches this window (`$.session.id()`) |
 | `title` | Row title (escaped before it goes into a link) |
-| `createdAt`, `lastActivityAt` | Started time, recency (72 h cutoff), state (working within 5 min) |
+| `createdAt`, `lastActivityAt` | Started time, recency (72 h cutoff), state (working within 5 min; waiting for another session within 24 h, see `postTurnSummary`) |
+| `postTurnSummary` (Desktop-internal, undocumented) | `status_category` `blocked` makes another session wait for the person (state `waiting`, D7) while its `lastActivityAt` is within 24 h; any other value does not. `needs_action` is the plain-text line under that session's row (`Needs you:` / `Precisa de você:`), cut to 90 characters with the `…` counted, at the last space before the limit (a hard cut when there is none). This window's own row takes no line. Each field is guarded: a missing or malformed summary, or a `status_category` that is not a string, is no data (no waiting, no line); a `needs_action` that is not a string, is blank or is over 4096 characters gives no line and keeps the status. `status_detail` and `summarizes_uuid` are not read |
 | `isArchived` | Ended: an archived session is never listed, at any age or with an open PR, except this window's own record. As an ancestor it is context only: it links the tree and lends its Desktop Group (Sophia, 2026-10-22) |
 | `forkedFromSessionId` | Parent, kind fork |
 | `spawnedFrom.sessionId`, `spawnedFrom.title` | Parent, kind spawn, and its title for the timeline |
@@ -201,7 +205,7 @@ Only these fields are projected (`projectRecord`); all others are dropped unread
 The projection also keeps `titleIssue`, the first valid #n reference of the uncut title (at most 4096 characters), read before the
 title is cut to 200 characters; the title step of D1 uses it.
 
-Not read: prompts, suggestions, MCP settings, turn reports, transcripts, account and tool settings. A record over 2 MiB is
+Not read: prompts, suggestions, MCP settings, turn reports, transcripts (except the head of a session's transcript, read for its first prompt: section 21), account and tool settings. A record over 2 MiB is
 skipped before it is parsed. A field longer than 4096 characters makes the record unreadable.
 
 ## 8. Failure lines
@@ -222,7 +226,7 @@ Each line is drawn above the groups, in the language of the pane. The sessions a
 
 Each cut list draws its own partial-list line: first 500 for issues, first 100 for PRs; both when both are cut. The limit names the list (`ISSUE_LIMIT` and `PR_LIMIT` in `hooks/register.tsx`, mirrored by `ISSUE_LIST_LIMIT` and `PR_LIST_LIMIT` in `hooks/pane.tsx`); a limit the pane does not know keeps the generic `list is partial (first N)` line (ux-4).
 
-Before any snapshot exists the pane draws `Loading the repo...` (pt-BR `Carregando o repo...`) only while the first poll has not settled. A first poll that settles with no repo context (no snapshot to show, `loadFailed`) draws `Could not read the repo: state unknown` (pt-BR `Não foi possível ler o repo: estado desconhecido`) instead, so the pane never stays on Loading (ux4-2).
+Before any snapshot exists the pane draws `Loading the repo...` (pt-BR `Carregando o repo...`), with no icon (section 19) only while the first poll has not settled. A first poll that settles with no repo context (no snapshot to show, `loadFailed`) draws `Could not read the repo: state unknown` (pt-BR `Não foi possível ler o repo: estado desconhecido`) instead, so the pane never stays on Loading (ux4-2).
 
 A gh answer over 4 MiB (UTF-8 bytes), or cut by the engine, is not parsed: gh-failed.
 
@@ -251,6 +255,7 @@ A poll never throws into the engine: a failed job is logged by its error name on
 | D5: "Estado" is the session state word | Session state word; `issue closed` is added when the issue is closed | An override may name a closed issue |
 | D5: comment text | Plain Text: author, age, preview | Comments never render as Markdown (no fake session link) |
 | Mock: "Estado" is hand-written issue prose | Computed from the session state (D7) | Records carry no issue prose |
+| D7: waiting is this window's flag only | Another session also waits while its `postTurnSummary` says `blocked` and its last activity is within 24 h, with its needs line; the top of its group, after this window's top (Q5, Q6); a top whose session under it waits ranks the same (section 3) | Owner-approved 2026-10-30 (Q5 with the 24 h cutoff, Q6 ordering); the needs line is the Q14 limit of 90 characters |
 | DESIGN 3.1: errors above groups | Same | none |
 | Window without issue | No details block and no GitHub line; the breadcrumb reads `no issue` | Mock and Sophia's brief |
 | Ended sessions never listed (D2, W6; 2026-10-22) | Ended = archived (`isArchived`) or deleted (the record is gone; its `deleted_<id>` tombstone is skipped). An ended record other than this window's is not matched, admitted, asked of git, listed or counted. As an ancestor it is context only: it links the tree, lends its Desktop Group and is named in the timeline of its derived sessions. This window's own archived record is still listed, with the state of its activity | Sophia's decision of 2026-10-22: "KeepTrack must not list sessions that already ended". It replaces the W6 rule (archived ancestors drawn idle). Her earlier request of the same day, finished rows with a ✓ glyph, was withdrawn by her |
@@ -289,7 +294,7 @@ Inside one highlighted block (the engine's user-message background, `DETAILS_FIL
 1. Title row: on the desktop the session title links to the repo's page (GitHub or GitLab, when the session's remote is known and its page passes `PAGE_URL`), with a small `open session: <title>` link (the title cut at 40 characters) to `#local_<id>` after the icons; the ↗ after the title marks the external page; with no known remote the title links to `#local_<id>` as before. Plain text on the terminal, then its icons: the state icon, the active marker and, on this window's row, `← this window`. On the desktop, a session row whose repo has a logo draws it 16 px square before the title (`renderTitleLine`, `renderRepoLogo`); the terminal draws none. The logo is the first raster logo file of the session's checkout (`logo.png`, `logo.jpg` or `logo.jpeg` at the root, then in `assets/`, `.github/`, `docs/` or `images/`, basename matched case-insensitively; a symbolic link is never read), else the first of the root's three names in GitHub's contents (`GITHUB_LOGO_CALLS`: a logo of a folder is found in the checkout only). Raster only: an SVG is drawn from no source (not the checkout, not GitHub's contents, not an avatar). A file over 64 KB, or a PNG or JPEG that does not open and close as one (the magic bytes at the start; the IEND chunk, or the `FF D9` end marker, at the end, so a truncated download is no logo), is not drawn. Each repo's logo is cached in the store under `logo:<host>/<owner>/<name>` (the remote's host, owner and name, in lower case; an enterprise host is its own key, never the github.com page's); the poll starts the lookup and never waits for it, and the pane redraws when it lands. A stored logo of a repo this window no longer shows is dropped once it has expired, since the store is shared by every window; past 20 repo logos the oldest of the others go first (`LOGO_STORE_MAX`). This window keeps the logos it reads or writes in memory, so a poll reads the store only on a miss. A store that refuses a read, a write or a delete is logged once per operation (`logo store <operation> failed (<error name>)`), and the pane goes on. A cross-window lock (`logo-lock:<key>`, a marker with its time `at`) makes a second window skip a lookup of the same repo while the marker is younger than 2 minutes, and this window deletes its own marker after its lookup. The owner's avatar comes next, for a GitHub repo on the host `github.com` (exactly that host, once an ssh alias is resolved to its real host (section 16); gh is never asked for an enterprise host) whose contents hold no logo: `gh api users/<owner> --jq .type`; only an `Organization` gets its `avatar_url` (`gh api users/<owner> --jq .avatar_url`), asked at `s=32`. A user owner draws none. The avatar is fetched through `sh -c` with curl and base64 (`AVATAR_FETCH_SCRIPT` in `hooks/repo-logo.ts`: https only (`--proto =https`), no redirects followed (no `-L`), the URL is the one positional argument, the 64 KB cap), and it is drawn only when its bytes are a complete PNG or JPEG (magic bytes and trailer); the avatar host is `avatars.githubusercontent.com` only. A failed fetch (curl missing, a non-200, a timeout, an empty answer) is a lookup failure, logged as `avatar fetch` and kept for an hour; an answer that is not a picture is no logo. The GitLab project avatar (`glab api projects/<owner%2Fname> --hostname <remote host>`, the `avatar_url` of its JSON, on the remote's host) is asked for a GitLab remote (a host with `gitlab` in it) once the checkout has no logo. glab is detected once on a definite answer (its exit code, or a missing binary); a timeout fails that lookup (`glab`: kept an hour like a failed gh lookup, then asked again). Without glab the avatar is silently skipped, with no failure. A repo with no folder (no `cwd`) gets no logo.
 2. Breadcrumb (section 10).
 3. Detail lines `Heading: text` (only when `thisIssue` is drawn): State, Branch, PR, Last commit, Checks, Last comment,
-   Next step, Started. Each heading is bold; each line is a separate row. On the desktop the PR line links to the PR's page, and the Last commit line to its commit page (`commitPageOf`, as the timeline's commit events do). "Next step" reads `no next step` (pt-BR `nenhum registrado`) while no value exists, which is
+   Next step, Started, then Decided when the issue has a decision by the owner, a member or a collaborator (Mock S delta 8: pt-BR `Decidido:`). Each heading is bold; each line is a separate row. On the desktop the PR line links to the PR's page, and the Last commit line to its commit page (`commitPageOf`, as the timeline's commit events do). "Next step" reads `no next step` (pt-BR `nenhum registrado`) while no value exists, which is
    always so far, since no snapshot field feeds it. "Started" is `hh:mm · <age>`, or `YYYY-MM-DD hh:mm · <age>` once the start is over a day old (ux-9).
    Every clock time (Started and the timeline times, section 10) is the host's wall clock: `clockOf` and `dateOf` in `hooks/pane.tsx` shift the instant by the host's UTC offset (the `date +%z` read of section 4) and read the UTC getters, so the runtime's own zone never decides the digits. Ages (`N min ago`) are offset-free and unchanged.
 4. Timeline (section 10).
@@ -298,11 +303,11 @@ Inside one highlighted block (the engine's user-message background, `DETAILS_FIL
 Nothing folds. Each group draws its label line, then each top as a titled row (`├`, and `└` on the last) with its derived
 rows nested under it; deeper derived rows nest under their parent, indent capped at two levels (W1, section 9).
 
-Each session row's title line reads the branch glyph, then the title, then the state icon (`🟢` working, `⏳` waiting for you, `💤` idle) and the active marker after it (`▶️` on this window's row, and no marker on any other row, since the state icon already says working), on every row. A row carries no state word, in either language: the footer's legend names each icon (section 19). The state word stays in this window's details (`State:`, item 3 above). The sessions section draws
+Each session row's title line reads the branch glyph, then the title, then the state icon (`🟢` working, `⏳` waiting for you, `💤` idle) and the active marker after it (`▶️` on this window's row, and no marker on any other row, since the state icon already says working), on every row. A row carries no state word, in either language: the footer's legend names each icon (section 19). A session other than this window that stopped for the person (section 7) draws `⏳` and, under its title and breadcrumb, its needs line (`Needs you: <text>`, pt-BR `Precisa de você: <text>`); this window's row never draws one. The state word stays in this window's details (`State:`, item 3 above). The sessions section draws
 nothing when no session is listed: no heading, no label, no empty row.
 
 Below the sessions, the open issues that no session works on are drawn by milestone, under the heading `📋 Issues without session` (pt-BR `Issues sem sessão`). Each milestone group is bold, with its title
-up to the first ` · `, then a progress line `<closed> of <total> issues closed` (pt-BR `<closed> de <total> issues fechadas`, the
+up to the first ` · `, then cut at 40 characters, the ellipsis counted, at the last space before the limit (`headingTitleOf`, Mock S delta 11; `Preflight antes da instalação em disco cheio … · v2` draws `Preflight antes da instalação em disco…`), then its objective when the milestone has a description (`Objective: <text>`, pt-BR `Objetivo: <text>`: the description as plain text, cut to 100 characters with the ellipsis counted, at the last space before the limit; Mock S delta 9), then a progress line `<closed> of <total> issues closed` (pt-BR `<closed> de <total> issues fechadas`, the
 singular `issue closed` or `issue fechada` when the total is 1). When GitHub gives the milestone a due date, the line ends with
 ` · due YYYY-MM-DD` (pt-BR `prazo YYYY-MM-DD`). The date is a calendar date: it is the UTC date of GitHub's `dueOn` (`2025-10-31T00:00:00Z` draws `2025-10-31` in every zone), never shifted into the host's zone. The totals come from GraphQL (section 4, row 3); only a failed call leaves REST's counts, and those are not exact. An open milestone
 whose open issues all sit on sessions draws one line instead of its issues, `<title> · N open, all in sessions` (pt-BR
@@ -310,7 +315,7 @@ whose open issues all sit on sessions draws one line instead of its issues, `<ti
 `<title> · all closed · ready to close` (pt-BR `todas fechadas · pronto para fechar`), drawn only from exact counts (`Milestone.countsExact`); an exact milestone with no issue at all (no open and no closed issue) reads `<title> · no issues` (pt-BR `<title> · sem issues`), with no done icon and no ready-to-close claim; a milestone with inexact counts draws its title and progress line, with the noun `items` (`{closed} of {total} items closed`, pt-BR `{closed} de {total} itens fechados`), since REST's counts include PRs (ux-5). Issues with no milestone sit under
 `No milestone / issue` (pt-BR `Sem milestone / issue`). The issues of a closed milestone are not in that group: they are grouped
 under the closed milestone's title, marked `<title> · closed` (pt-BR `<title> · fechado`) with no progress line, the title read from
-each issue's own milestone field (pm1-9). On the desktop every milestone heading links to its GitHub milestone page (`milestonePageOf`):
+each issue's own milestone field (pm1-9). The heading reads the title first, then ↗ where the heading links (desktop, the page passes `PAGE_URL`; Mock S delta 10), then the icons: 🎯, then ⚠️ when overdue; the all-closed and closed headings put ✅ there (Mock S delta 11). On the desktop every milestone heading links to its GitHub milestone page (`milestonePageOf`):
 the open, the all-closed and the closed one; a closed group's number is its issue's own milestone number (`IssueGroup.closedNumber`).
 
 Open milestone groups sort by due date, earliest first (an overdue one leads), then by number, newest first. A milestone with no due date, or one whose date does not parse, comes after the dated ones, by number, newest first. Inside every group the issues sort by priority, P0 first and unlabelled last, then newest first (a stable sort, so the newest-first order holds within a priority). A priority comes from the issue's labels, case-insensitive: `P0` to `P3`, or `priority: critical|high|medium|low` with the `priority/…`, `priority-…` and `prio…` variants, read as P0 to P3 (critical is P0, low is P3); when several labels name one, the highest wins (`priorityOf`, `hooks/model.ts`). The row draws the priority icon and the tag before its number (`🟠 P1 #12 title`, icons in section 19); P0 and P1 rows draw bold (`EMPHASISED_PRIORITIES`, `hooks/look.ts`). The session line does not carry the tag: its breadcrumb reads IssueFacts, which would have to widen for it.
@@ -331,10 +336,10 @@ scale as the rows: `just now` (pt-BR `agora`) under one minute, then `N min ago`
 ## 13. Commands and state
 
 - `/keeptrack open`: open the pane (no verb means open). The band's button (section 18) does the same. `/keeptrack issue <n>`: this window's override. `/keeptrack issue none`:
-  clear it. `/keeptrack lang <choice>`. Any other argument: a toast with the usage line and no change. `/keeptrack open` and
+  clear it. `/keeptrack lang <choice>`. `/keeptrack summary on|off` (section 21). Any other argument: a toast with the usage line and no change. `/keeptrack open` and
   `/keeptrack issue <n>` followed by extra words also show the usage toast and change nothing.
 - A window that is not a Desktop session (no record with its `cliSessionId`) cannot set an issue: a toast says so.
-- Store keys: `override:<sessionId>` = `{ issue, ts }`, `lang`. Nothing else is persisted. An override is dropped on a poll when no record in the records folder names its session (any repo's: the store is shared by every window) or its `ts` is over 30 days old (not on a poll with an unreadable folder). The 30-day lifetime (`OVERRIDE_TTL_MS`) also applies on read: an expired override is ignored
+- Store keys: `override:<sessionId>` = `{ issue, ts }`, `lang`, `summary` (boolean, absent is on; section 21). Nothing else is persisted. The `summary:<sessionId>` keys an earlier build wrote are deleted once per window. An override is dropped on a poll when no record in the records folder names its session (any repo's: the store is shared by every window) or its `ts` is over 30 days old (not on a poll with an unreadable folder). The 30-day lifetime (`OVERRIDE_TTL_MS`) also applies on read: an expired override is ignored
   even when the record scan was partial and the prune did not run. Module memory holds the file read
   cache, git lookups and the last good gh data.
 - The state lives in the mod's `$.store`, keyed by the plugin name (`keeptrack-repo-pane`), so the store of the old name
@@ -361,7 +366,7 @@ Run from the mod folder:
 3. `scripts/keeptrack-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
    `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only (it holds every emoji of KeepTrack). `scripts/keeptrack-look-selftest.sh` runs the gate on a copy and checks those cases.
 4. `agentic-mod-release-tool.sh keeptrack-repo-pane --check` must pass before the mod is installed (CLAUDE.md rule 6a).
-   The mod is published as 0.2.0-beta.18 and installed from `sophia-mods` (README, Installation).
+   The mod is published as 0.2.0-beta.19 and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
 or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`, `parseUtcOffset`) and do not depend on the zone the test process runs in; the register test answers `date +%z` through the process stub, including a refused call.
@@ -382,6 +387,15 @@ or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`
 | Branch commits read | 5 |
 | Session cutoff | 72 h (an open PR keeps a session past it, only among the 256 newest records by activity (the DL7 exception); not for archived, which are never shown, except this window's own) |
 | Working state window | 5 min after the last activity (heuristic) |
+| Waiting window (another session that stopped for the person, D7) | 24 h after the last activity; older, the normal rule applies (owner-approved 2026-10-30) |
+| Needs line | 90 characters, the `…` counted; cut at the last space before the limit, a hard cut when there is none |
+| Summary line | 93 characters, the `…` counted; cut at the last space before the limit, a hard cut when there is none (section 21) |
+| Transcript head read per session | 256 KiB (`head -c`); 5 transcripts read per poll; 200 summaries kept in the store and in memory |
+| Milestone objective | 100 characters, the ellipsis counted (`OBJECTIVE_MAX`) |
+| Milestone heading title | cut at the first ` · `, then 40 characters, the ellipsis counted (`MILESTONE_TITLE_MAX`, Mock S delta 11) |
+| Top-level sessions per group | the first 20 are drawn, then one `+k more` line (pt-BR `+k mais`) for the rest; the header still counts every listed session (`SESSION_LIST_MAX`, Mock S Q7) |
+| Decided line | 200 characters, the ellipsis counted (`DECISION_MAX`) |
+| Summary retry (not final) | 10 minutes (`SUMMARY_RETRY_MS`) |
 | Comment preview | 200 characters |
 | Desktop files read per poll (records and questions) | 2000 (the rest are not read) |
 | Candidate sessions | 64 newest by activity, plus every other session with an open PR, admitted only among the 256 newest records by activity (the DL7 exception, the scan window of `memberRecordsOf`) |
@@ -512,7 +526,7 @@ PT), and the icon sits before its word. The pane draws its emoji as text on both
 | Meaning | Emoji | Where drawn |
 |---|---|---|
 | Working now (session state, band Running) | 🟢 | pane session rows; band `Running` word |
-| Waiting for you | ⏳ | pane session rows; band; loading line |
+| Waiting for you | ⏳ | pane session rows; hero chip (other sessions); band |
 | Idle | 💤 | pane session rows; band `Idle` word |
 | Subagents active | 🤖 | band agents word |
 | This window's row (active marker) | ▶️ | title of this window's row |
@@ -521,16 +535,16 @@ PT), and the icon sits before its word. The pane draws its emoji as text on both
 | Sessions count | 🖥️ | header counter |
 | Milestone | 🎯 | band milestone word; milestone heading |
 | No milestone | ⭕ | band `no milestone` |
-| Done: closed issue, all-closed or closed milestone, merged PR | ✅ | issue details; milestone lines; PR state |
+| Done: closed issue, all-closed or closed milestone, merged PR | ✅ | issue details; milestone lines; merged PR state |
 | Closed PR | ☑️ | PR state |
 | Open PR | 🔀 | PR state; timeline PR events |
 | History heading | 🕘 | timeline heading |
 | Commit event | 📝 | timeline commit events |
 | Session event (started, forked, spawned) | 🚀 | timeline session events |
-| Due date | 📅 | milestone progress line |
-| Overdue | ⚠️ | milestone progress line (open issues left, exact counts) |
+| Due date | 📅 | milestone progress line; hero chip (due within 14 days) |
+| Overdue | ⚠️ | milestone heading, after 🎯 (open issues left, exact counts); hero chip (overdue) |
 | Error or partial-list line | ⚠️ | pane error lines |
-| Loading / load failure | ⏳ / ❌ | pane loading and failure lines |
+| Load failure | ❌ | the failure line only. The loading line (`Loading the repo...`) draws no icon, as the code does (Q8, section 8) |
 | Priority P0 / P1 / P2 / P3 | 🔴 / 🟠 / 🟡 / ⚪ | issue row, before the tag |
 | Band: no issue, no remote, tool, MCP | 📭, 🚫, 🔧, 🔌 | band words (section 18) |
 
@@ -542,7 +556,7 @@ PT), and the icon sits before its word. The pane draws its emoji as text on both
   (`LEGEND_ENTRIES`, `hooks/pane.tsx`) and the name and the sentence from `legend.<id>.name` and `legend.<id>.text` in `hooks/i18n.ts` (EN and
   PT). The desktop draws the row as one Markdown line (`**name**: sentence`); the terminal draws the name as a bold `Text` nested in a
   `Text`. Each priority is its own row (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3), named `priority P0` to `priority P3`. The band-only rows (📭, 🚫, ⭕, 🔧, 🔌) are not listed, and neither are the loading and failure lines (⏳, ❌), which draw
-  without the footer. Keys: `legend`, `legend-heading`, `legend-<id>` per row, and `legend-<id>-text` for its sentence, the same on every draw. A session row's state icon is text inside
+  without the footer. Keys: `legend`, `legend-heading`, `legend-<id>` per row, and `legend-<id>-text` for its sentence, the same on every draw. Below the rows, one muted note line (`legend-note`, `dimColor`) says ↗, ~, #n and "no priority icon" as text; it is not a row (Mock S delta 15). A session row's state icon is text inside
   `title-<session id>`; the separate `state` element is gone. `tests/pane.test.ts` checks that the legend lists every icon a snapshot
   draws, and no other, in both languages.
 - Progress bar: ten cells of plain characters, `▰` filled and `▱` empty, then the rounded percentage (`▰▰▰▰▰▰▱▱▱▱ 60%`). It is drawn
@@ -550,8 +564,38 @@ PT), and the icon sits before its word. The pane draws its emoji as text on both
   The bar moves in 10% steps, since its cells are rounded (`Math.round(share * 10)`), while the percentage beside it is computed from the exact
   counts and rounded to a whole percent (`Math.round(share * 100)`), so the number can move where the bar does not.
 - Overdue: an open milestone with open issues and exact counts whose due date (GitHub's calendar date) is before today's date in the
-  host's zone (`isOverdue`). A milestone with no open issue left is never overdue.
+  host's zone (`isOverdue`). A milestone with no open issue left is never overdue. The marker is drawn on the milestone heading, after 🎯, and as a hero chip (section 20); the progress line names no state.
 - Look gate: emoji only in `action-icons.ts`. The text glyphs `▪`, `▰`, `▱`, `├`, `└`, `↗`, `←` are not emoji and stay
   outside the scan; hex colours and colour functions are banned in every drawn module.
 - Not mapped, because the timeline has no such kind: merged, closed, comment and reopened events (the timeline holds commit, PR and
   session events only). The merged and closed icons appear on the PR state instead.
+
+## 20. The hero (risks first, then the count)
+
+Above the session groups, in github mode only, since its milestones come from GitHub (`renderHero`, `hooks/pane.tsx`). Top to bottom:
+
+1. Kicker (`hero-kicker`): `Done` (pt-BR `Feito`).
+2. Risk chips (`hero-risks`): a row of bordered chips that wraps. Each chip is its icon, then its text as a plain `Text`, so a title is never read as markup. Order: one chip per open milestone that is overdue or due soon, in milestone order (the open milestones by due date), then the waiting chip.
+   - Overdue (`hero-overdue-<number>`): `⚠️ <title> overdue · N issues without session` (pt-BR `⚠️ <title> atrasado · N issues sem sessão`). The due date falls before today in the host's zone (`isOverdue`), the milestone has open issues, and the count is exact.
+   - Due soon (`hero-due-<number>`): `📅 <title> due in N days · N issues without session` (pt-BR `📅 <title> vence em N dias · …`; one day reads `1 day` and `1 dia`). The due date falls from today to 14 days ahead in the host's zone (`isDueSoon`, `DUE_SOON_DAYS`, Q10). Due today reads `due today` (pt-BR `vence hoje`), with no count to name.
+   - `<title>` is the milestone title up to the first ` · `. N is the milestone's open issues that no session shows (its issue group). The count is exact only when the milestone's counts are exact and the issue list is whole (not cut at 500); otherwise the milestone gets no chip.
+   - Waiting (`hero-waiting`): `⏳ N stopped waiting for you · #103, #97` (pt-BR `⏳ N pararam esperando você · …`). It counts the sessions other than this window whose state is `waiting` (section 11 and SPEC §7 post-turn summary). The issue numbers are the sessions' linked issues, in drawing order, at most three then ` +k`; a session with no issue is counted and lists no number. With exactly one session the chip ends with its age: `#103 · 3 h ago` (pt-BR `#103 · há 3 h`), from its last activity (`SessionNode.lastActivityAt`).
+3. Count (`hero-number`, bold, body size): `14 of 24 closed in the open milestones` (pt-BR `14 de 24 fechadas nos milestones abertos`), the closed and total issues of the open milestones. With an inexact count in any open milestone: `~14 of ~24 closed (partial count)` (pt-BR `~14 de ~24 fechadas (contagem parcial)`). With no open milestone or a total of 0: `no open milestone` (pt-BR `nenhum milestone aberto`).
+4. Bar (`hero-bar`): the progress bar with its percentage, drawn once (`progressBarOf`), then `N left` (pt-BR `faltam N`) and `N working` (pt-BR `N trabalhando`), the sessions in the working state. With an inexact count or no open milestone the bar line is the working count alone.
+
+Idle sessions are not in the hero (idle stays as 💤 on the session row). The Labels table already lists ⚠️, 📅 and ⏳ with their meanings, so the hero adds no icon to it.
+
+## 21. Session summary and `/keeptrack summary`
+
+Mock S delta 7 (owner decisions Q3 and Q12, 2026-10-30). Under the title and breadcrumb of each session row, on the desktop and in the terminal alike, the pane draws `Summary: <text>` (pt-BR `Resumo: <text>`). The text is the session's first real prompt, deterministic, with no model call.
+
+- Source: the transcript `~/.claude/projects/<folder>/<cliSessionId>.jsonl`. The folder is the session's cwd with every character that is not a letter or a digit replaced by `-` (checked against the real folder names: `/.cache` gives `--cache`). A session id that is not a plain letter, digit or `-` string is not read.
+- Read: `head -c 262144` through `$.process.run`, not `$.fs.read`, which refuses files over 4 MiB. The first prompt is near the top, so the head is enough. The last segment of the head is never read, since the head limit may have cut it.
+- Cleaning (`hooks/summary.ts`): the first user line that is not a meta or a sidechain line and has usable text. `<system-reminder>` blocks go. `<command-name>` and `<command-message>` go with their text; `<command-args>` tags go and their text stays. A `<pasted_content>` block goes when the message has typed text; when the message is only a paste, the paste's text is the prompt. Array content counts its `text` parts only. Markdown heading markers at a line start and `*` and backticks go; an issue reference such as `#106` stays. Control characters and whitespace collapse. The wrapper and paste tags are removed by a linear scan: an opening tag with no closing tag stays as text (256 KiB of unclosed tags costs milliseconds), and a `<pasted_content>` opening tag has at most 256 characters of attributes. The last line of a head is dropped only when the head was cut at `TRANSCRIPT_HEAD_BYTES`. The cut to 93 characters counts graphemes, so an emoji sequence is never split.
+- Cut: 93 characters, the `…` counted (Q17), at the last space before the limit; a hard cut when there is none; `…` whenever the text is cut. Text within the limit is unchanged.
+- No usable text: `no summary` (pt-BR `sem resumo`). No line while the summary is not known yet (a session past this poll's reads) or while the setting is off.
+- Reads per poll: at most 5 transcripts. Each session is read once: this window's memory, then the transcript. A final summary (a prompt, or a transcript with a user line that has no usable text) is kept for the window's life. A transcript that is missing, whose read is refused, or that has no user line yet (a session that has just started) is kept in memory only, shows `no summary` meanwhile, and is read again after 10 minutes (`SUMMARY_RETRY_MS`); it is never stored. A refused read is logged once, by the error's name; a prompt or a path never reaches the log.
+- Memory only: no summary is written to the store. This window keeps at most 200 (`SUMMARY_KEEP_MAX`); the oldest go first. A poll admits at most 64 candidate sessions (`CANDIDATE_MAX`), so the cap is reached only over a long window life. Once per window, the `summary:<sessionId>` keys an earlier build stored are deleted (`clearStoredSummaries`), and the `summary` setting is kept.
+- Command: `/keeptrack summary on|off` stores `summary` (boolean; absent is on) and answers with a toast in the session's language (`Session summary lines: on` or `off`; pt-BR `Linhas de resumo das sessões: ligadas` or `desligadas`). An open pane polls at once, so the lines appear or go. Off: no transcript is read and no line is drawn. Any other argument: the usage toast, no change.
+- Labels: no icon; the line is text, so the Labels table is unchanged.
+- Owner question open: whether the summary should show a true (model-written) text instead; not built (Q3 b and c were not chosen).

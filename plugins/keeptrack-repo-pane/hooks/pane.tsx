@@ -1,4 +1,4 @@
-// The KeepTrack pane: the header, the sessions by group (a bold label, a Desktop Group's name,
+// The KeepTrack pane: the header, the hero (risks first, then the count), the sessions by group (a bold label, a Desktop Group's name,
 // else Recents, then its tops as titled rows with their derived sessions under them; this window's group first, the window
 // highlighted with its issue details, its timeline and its GitHub link), the issues without a session by milestone, and the
 // footer. It draws one Snapshot the register hands in and reads or writes no state. Nothing folds: every row, every detail and
@@ -21,7 +21,7 @@ import type {
 } from '../types'
 import { actionIconEmoji, priorityEmoji, statusIconEmoji, type ActionIconKey, type StatusIconKey } from './action-icons'
 import { t, type Lang, type MessageKey } from './i18n'
-import { PAGE_URL, RECENTS_GROUP, TEXT_MAX, TIMELINE_LIMIT, isSessionLinkId, milestonePageOf, plain, priorityOf, repoPageOf } from './model'
+import { PAGE_URL, RECENTS_GROUP, TEXT_MAX, TIMELINE_LIMIT, cutAtWord, isSessionLinkId, milestonePageOf, plain, priorityOf, repoPageOf } from './model'
 import { BAR_EMPTY, BAR_FILLED, BRANCH_GLYPH, DETAILS_FILL, EMPHASISED_PRIORITIES, LINK_MARK } from './look'
 import { KEEPGLIDE_HEADER_SIZE, renderKeepGlide, renderKeepTrackLogo, renderRepoLogo } from './logo-element'
 import { repoLabelOf } from './repo-logo'
@@ -30,6 +30,8 @@ type Ui = Elements[RenderSurface]
 
 export type PaneContext = {
   snapshot: Snapshot | null
+  // The instant the pane reads as now; the wall clock when absent (the tests fix it).
+  now?: number
   // True once the first poll settled with no snapshot to show (ux4-2): the pane draws the failure line instead of Loading.
   loadFailed?: boolean
   lang: Lang
@@ -72,6 +74,11 @@ const MAX_INDENT_LEVELS = 2
 const BODY_INDENT = 4
 // The indent of a group's rows under its label.
 const GROUP_INDENT = 1
+// The most top-level sessions one group draws (Mock S Q7); the rest sit behind a "+k more" line. A group puts this window and the sessions
+// waiting for the person first, so the cut never hides them.
+const SESSION_LIST_MAX = 20
+// The longest milestone title on its heading, in characters, the ellipsis counted (Mock S delta 11, Q9, Q17).
+const MILESTONE_TITLE_MAX = 40
 const TITLE_SEPARATOR = ' · '
 const MINUTE_MS = 60_000
 // The date part of a GitHub due date (YYYY-MM-DD, then the time when GitHub sends one).
@@ -79,6 +86,10 @@ const DATE_LENGTH = 10
 const MINUTES_PER_HOUR = 60
 const HOURS_PER_DAY = 24
 const DAY_MS = HOURS_PER_DAY * MINUTES_PER_HOUR * MINUTE_MS
+// The hero's due-soon chip covers the milestones due from today to this many days ahead (Q10), and its waiting chip lists at most this many
+// issue numbers before "+k" (Mock S, delta 5).
+const DUE_SOON_DAYS = 14
+const WAITING_NUMBERS_MAX = 3
 // The limits register.tsx cuts the two GitHub lists at (ISSUE_LIMIT, PR_LIMIT). The snapshot carries the limit, not the list's name,
 // so the limit names the list; a limit it does not know keeps the generic partial line.
 const ISSUE_LIST_LIMIT = 500
@@ -151,7 +162,7 @@ export function renderPane(elements: Ui, context: PaneContext): RenderElement {
     ui: elements,
     lang: context.lang,
     desktop: context.surface === 'desktop',
-    now: Date.now(),
+    now: context.now ?? Date.now(),
     utcOffsetMinutes: context.utcOffsetMinutes,
     thisIssue: snapshot?.thisIssue ?? null,
     repoPage: snapshot?.repo ? repoPageOf({ host: 'github.com', ...snapshot.repo }) : null,
@@ -208,15 +219,17 @@ function issuesCountText(view: View, snapshot: Snapshot): string {
 }
 
 function countSessions(nodes: readonly SessionNode[]): number {
-  return nodes.reduce((total, node) => total + 1 + countSessions(node.children), 0)
+  return allSessionsOf(nodes).length
 }
 
-// The body of a snapshot, top to bottom: the error lines above the groups, the sessions, the issues (github mode only),
-// and the footer.
+// The body of a snapshot, top to bottom: the error lines above the groups, the hero (github mode only), the sessions, the issues (github
+// mode only), and the footer.
 function renderSnapshot(view: View, snapshot: Snapshot): RenderElement[] {
   const issues = snapshot.mode === 'github' ? [renderIssuesSection(view, snapshot)] : []
+  const hero = snapshot.mode === 'github' ? [renderHero(view, snapshot)] : []
   return [
     ...renderErrors(view, snapshot),
+    ...hero,
     ...renderSessionGroups(view, snapshot),
     ...issues,
     renderLegend(view),
@@ -234,6 +247,113 @@ function renderErrors(view: View, snapshot: Snapshot): RenderElement[] {
   }
   const { Text } = view.ui
   return lines.map((line, index) => <Text key={`error-${index}`}>{withIcon(actionIconEmoji('error'), line)}</Text>)
+}
+
+// The hero above the sessions (Mock S, deltas 1 to 5): the risk chips first, then the closed issues of the open milestones in bold, then the
+// bar with its percentage, the issues left and the sessions working. The milestones come from GitHub, so it is drawn in github mode only.
+function renderHero(view: View, snapshot: Snapshot): RenderElement {
+  const { Box, Text } = view.ui
+  const chips = [...riskChipsOf(view, snapshot), ...waitingChipOf(view, snapshot)]
+  return (
+    <Box key="hero" flexDirection="column" gap={1}>
+      <Text key="hero-kicker">{t(view.lang, 'hero.kicker')}</Text>
+      {chips.length > 0 && <Box key="hero-risks" flexDirection="row" flexWrap="wrap" gap={1}>{chips}</Box>}
+      <Text key="hero-number" bold>{countLineOf(view, snapshot)}</Text>
+      <Text key="hero-bar">{barLineOf(view, snapshot)}</Text>
+    </Box>
+  )
+}
+
+// One risk chip: a rounded box with its icon and its text. The text is a plain Text child, so a title is never read as markup.
+function renderChip(view: View, key: string, icon: string, text: string): RenderElement {
+  const { Box, Text } = view.ui
+  return (
+    <Box key={key} borderStyle="round" paddingX={1}>
+      <Text>{withIcon(icon, text)}</Text>
+    </Box>
+  )
+}
+
+// The open issues of a milestone that no session shows: the count its risk chip names. Null unless the count is exact, that is the
+// milestone's counts are exact and the issue list is whole (a cut list would miss issues).
+function unlinkedCountOf(snapshot: Snapshot, milestone: Milestone): number | null {
+  if (!milestone.countsExact || snapshot.truncatedLimits.includes(ISSUE_LIST_LIMIT)) return null
+  const group = snapshot.issueGroups.find(each => each.milestone?.number === milestone.number)
+  return group === undefined ? null : group.issues.length
+}
+
+// The overdue and due-soon chips: one per open milestone with open issues and a due date that is overdue, or due within DUE_SOON_DAYS.
+// Each names its title and the count of its open issues with no session. A milestone with an inexact count gets no chip.
+function riskChipsOf(view: View, snapshot: Snapshot): RenderElement[] {
+  return snapshot.milestones.flatMap(milestone => riskChipOf(view, snapshot, milestone))
+}
+
+function riskChipOf(view: View, snapshot: Snapshot, milestone: Milestone): RenderElement[] {
+  const { lang, now, utcOffsetMinutes } = view
+  const unlinked = unlinkedCountOf(snapshot, milestone)
+  if (unlinked === null || milestone.dueOn === null || milestone.openIssues <= 0) return []
+  const label = titleLabel(milestone.title)
+  const noSession = t(lang, 'hero.noSession', { count: unlinked })
+  if (isOverdue(milestone.dueOn, now, utcOffsetMinutes)) {
+    const text = `${t(lang, 'hero.overdue', { label })}${TITLE_SEPARATOR}${noSession}`
+    return [renderChip(view, `hero-overdue-${milestone.number}`, statusIconEmoji('overdue'), text)]
+  }
+  if (!isDueSoon(milestone.dueOn, now, utcOffsetMinutes)) return []
+  const days = daysUntilDue(milestone.dueOn, now, utcOffsetMinutes)
+  // Due today has no count to name: "due today", not "due in 0 days" (the one-day form is the '.one' key of hero.dueSoon).
+  const dueKey = days === 0 ? 'hero.dueToday' : 'hero.dueSoon'
+  const text = `${t(lang, dueKey, { label, count: days })}${TITLE_SEPARATOR}${noSession}`
+  return [renderChip(view, `hero-due-${milestone.number}`, statusIconEmoji('due'), text)]
+}
+
+// The waiting chip: the other sessions that stopped for the person (the waiting state of a session other than this window). It names
+// their count, the issue numbers of those with one (three at most, then "+k"), and the age of the one session when there is only one.
+function waitingChipOf(view: View, snapshot: Snapshot): RenderElement[] {
+  const { lang, now } = view
+  const waiting = allSessionsOf(snapshot.sessions).filter(node => !node.isThisWindow && node.state === 'waiting')
+  if (waiting.length === 0) return []
+  const numbers = waiting.flatMap(node => (node.issue === null ? [] : [node.issue.number]))
+  const listed = numbers.slice(0, WAITING_NUMBERS_MAX)
+  const more = numbers.length - listed.length
+  const numbersText = listed.map(number => `#${number}`).join(', ') + (more > 0 ? ` +${more}` : '')
+  const [only] = waiting
+  const age = waiting.length === 1 && only !== undefined ? ageText(lang, only.lastActivityAt, now) : ''
+  const text = [t(lang, 'hero.waiting', { count: waiting.length }), numbersText, age].filter(part => part !== '').join(TITLE_SEPARATOR)
+  return [renderChip(view, 'hero-waiting', actionIconEmoji('waiting'), text)]
+}
+
+// Every session drawn, each top followed by its derived sessions, in drawing order.
+function allSessionsOf(nodes: readonly SessionNode[]): SessionNode[] {
+  return nodes.flatMap(node => [node, ...allSessionsOf(node.children)])
+}
+
+// The totals of the open milestones: the closed and the whole issues, and whether every count is exact (REST's counts include PRs).
+type OpenTotals = { closed: number; total: number; exact: boolean }
+
+function openTotalsOf(milestones: readonly Milestone[]): OpenTotals {
+  const closed = milestones.reduce((sum, milestone) => sum + milestone.closedIssues, 0)
+  const total = milestones.reduce((sum, milestone) => sum + milestone.openIssues + milestone.closedIssues, 0)
+  return { closed, total, exact: milestones.every(milestone => milestone.countsExact) }
+}
+
+// The count line: "14 of 24 closed in the open milestones"; the partial wording when a count is inexact; "no open milestone" when there is
+// none, or the total is 0.
+function countLineOf(view: View, snapshot: Snapshot): string {
+  const { lang } = view
+  const { closed, total, exact } = openTotalsOf(snapshot.milestones)
+  if (total === 0) return t(lang, 'hero.none')
+  return t(lang, exact ? 'hero.count' : 'hero.countPartial', { closed, total })
+}
+
+// The bar line: the bar with its percentage (once), the issues left and the sessions working. Without exact counts it names the working
+// sessions alone, and with no open milestone too.
+function barLineOf(view: View, snapshot: Snapshot): string {
+  const { lang } = view
+  const { closed, total, exact } = openTotalsOf(snapshot.milestones)
+  const working = allSessionsOf(snapshot.sessions).filter(node => node.state === 'working').length
+  const workingText = t(lang, 'hero.working', { count: working })
+  if (!exact || total === 0) return workingText
+  return [progressBarOf(closed, total), t(lang, 'hero.left', { count: total - closed }), workingText].join(TITLE_SEPARATOR)
 }
 
 function renderSection(view: View, key: string, heading: string, rows: RenderElement[]): RenderElement {
@@ -264,22 +384,25 @@ function groupsOf(tops: readonly SessionNode[]): GroupRun[] {
 }
 
 // One group, drawn as a branch: the label in bold, then each top as a titled row with its children under it,
-// "├" and "└" on the last.
+// "├" and "└" on the last. Past SESSION_LIST_MAX tops, the group draws the first ones and a "+k more" line (Mock S Q7).
 function renderGroup(view: View, run: GroupRun): RenderElement {
   const { group, tops } = run
-  const lastIndex = tops.length - 1
-  const { Box } = view.ui
+  const shown = tops.slice(0, SESSION_LIST_MAX)
+  const hidden = tops.length - shown.length
+  const lastIndex = shown.length - 1
+  const { Box, Text } = view.ui
   return (
     <Box key={`group-${group.key}`} flexDirection="column">
       {renderGroupLabel(view, group)}
       <Box key="group-rows" flexDirection="column" gap={1} paddingLeft={GROUP_INDENT}>
-        {tops.map((node, index) =>
+        {shown.map((node, index) =>
           renderSessionRow(view, node, {
             branch: index === lastIndex ? BRANCH_GLYPH.last : BRANCH_GLYPH.middle,
             parentIssue: null,
             level: 0,
           }),
         )}
+        {hidden > 0 && <Text key={`group-more-${group.key}`}>{t(view.lang, 'group.more', { count: hidden })}</Text>}
       </Box>
     </Box>
   )
@@ -356,9 +479,28 @@ function renderSessionHead(view: View, node: SessionNode, place: RowPlace): Rend
       <Box key="title-block" flexDirection="column" flexGrow={1}>
         {renderTitleLine(view, node, node.isThisWindow)}
         {renderCrumb(view, node, place)}
+        {renderSummaryLine(view, node)}
+        {renderNeedsLine(view, node)}
       </Box>
     </Box>
   )
+}
+
+// The summary line under the title (Mock S delta 7, SPEC section 21): the session's first prompt, cut, as plain text; "no summary" when its
+// transcript has no prompt. No line while the summary is unknown or the setting is off.
+function renderSummaryLine(view: View, node: SessionNode): RenderElement | false {
+  if (node.summary === null) return false
+  const { Text } = view.ui
+  const text = node.summary.text ?? t(view.lang, 'session.noSummary')
+  return <Text key={`summary-${node.id}`}>{t(view.lang, 'session.summary', { text })}</Text>
+}
+
+// The needs line under a session that stopped for the person (D7, Q14): what its Desktop summary says it needs, as plain text; no line
+// without that text.
+function renderNeedsLine(view: View, node: SessionNode): RenderElement | false {
+  if (node.needsAction === null) return false
+  const { Text } = view.ui
+  return <Text key={`needs-${node.id}`}>{t(view.lang, 'session.needsYou', { text: node.needsAction })}</Text>
 }
 
 // The title line: the repo's logo in front of the title when the desktop draws one (SPEC section 11), else the title alone, so the terminal's
@@ -539,6 +681,8 @@ function detailLinesOf(view: View, node: SessionNode, issue: IssueDetails): Deta
       label: t(lang, 'detail.started'),
       value: startedTextOf(lang, issue.startedAt, now, view.utcOffsetMinutes),
     },
+    // The decision of the issue's newest "Decisão:" comment, last, only when there is one (Mock S delta 8).
+    ...(issue.decision === null ? [] : [{ key: 'decided', label: t(lang, 'detail.decided'), value: issue.decision }]),
   ]
 }
 
@@ -642,18 +786,21 @@ function renderIssueGroup(view: View, group: IssueGroup): RenderElement[] {
   const { Text } = view.ui
   const { milestone, closedTitle, closedNumber, issues } = group
   const groupKey = milestone === null ? 'none' : String(milestone.number)
-  const name = milestone === null ? t(lang, 'group.noMilestone') : titleLabel(milestone.title)
+  const name = milestone === null ? t(lang, 'group.noMilestone') : headingTitleOf(milestone.title)
   const issueRows = issues.map(issue => renderIssue(view, issue))
   // The issues of a closed milestone sit under its title, marked closed, the title linked to its milestone page. Its counts are not read,
   // so there is no progress line (pm1-9).
   if (closedTitle !== null) {
-    const closedLabel = withIcon(statusIconEmoji('done'), t(lang, 'milestone.closed', { label: titleLabel(closedTitle) }))
+    const closedLabel = t(lang, 'milestone.closed', {
+      label: milestoneLabelOf(view, closedNumber, headingTitleOf(closedTitle), [statusIconEmoji('done')]),
+    })
     return [renderMilestoneHeading(view, `milestone-closed-${closedTitle}`, closedLabel, closedNumber, true), ...issueRows]
   }
   if (milestone === null) {
     return issues.length > 0 ? [<Text key={`milestone-${groupKey}`} bold>{name}</Text>, ...issueRows] : []
   }
-  const heading = withIcon(actionIconEmoji('milestone'), name)
+  // The heading reads the title, then its icons: the milestone icon, then the overdue icon when overdue (Mock S delta 11, SPEC section 19).
+  const heading = milestoneLabelOf(view, milestone.number, name, [actionIconEmoji('milestone'), overdueIconOf(view, milestone)])
   // The count is the total. Exact counts name issues; inexact ones are REST's, which count PRs too, so they take the neutral noun
   // "items" (ux-5).
   const total = milestone.openIssues + milestone.closedIssues
@@ -663,43 +810,67 @@ function renderIssueGroup(view: View, group: IssueGroup): RenderElement[] {
       {progressLineOf(view, milestone, t(lang, progressKey, { closed: milestone.closedIssues, total, count: total }))}
     </Text>
   )
-  if (issues.length > 0) return [renderMilestoneHeading(view, `milestone-${groupKey}`, heading, milestone.number, true), progress, ...issueRows]
+  const objective = objectiveLinesOf(view, milestone, groupKey)
+  if (issues.length > 0)
+    return [renderMilestoneHeading(view, `milestone-${groupKey}`, heading, milestone.number, true), ...objective, progress, ...issueRows]
   // "All closed" is drawn only from exact counts: REST's zero (PRs included) or a partial answer never says the milestone is done. An exact
   // zero of closed issues too has no issue at all, so it reads "no issues" (no done icon, nothing to close).
   if (milestone.countsExact && milestone.openIssues === 0) {
     const label =
       milestone.closedIssues > 0
-        ? withIcon(statusIconEmoji('done'), t(lang, 'milestone.allClosed', { label: name }))
-        : withIcon(actionIconEmoji('milestone'), t(lang, 'milestone.noIssues', { label: name }))
-    return [renderMilestoneHeading(view, `milestone-${groupKey}`, label, milestone.number, false), progress]
+        ? t(lang, 'milestone.allClosed', { label: milestoneLabelOf(view, milestone.number, name, [statusIconEmoji('done')]) })
+        : t(lang, 'milestone.noIssues', { label: milestoneLabelOf(view, milestone.number, name, [actionIconEmoji('milestone')]) })
+    return [renderMilestoneHeading(view, `milestone-${groupKey}`, label, milestone.number, false), ...objective, progress]
   }
   // An open milestone whose open issues all sit on sessions says how many are open, so its remaining work stays visible in the pane
   // (pm1-2); that claim is drawn only when the issue list backs it (rev-g1-5).
-  const title = group.claimsLinked
-    ? withIcon(actionIconEmoji('milestone'), t(lang, 'milestone.allLinked', { label: name, count: milestone.openIssues }))
-    : heading
-  return [renderMilestoneHeading(view, `milestone-${groupKey}`, title, milestone.number, false), progress]
+  const title = group.claimsLinked ? t(lang, 'milestone.allLinked', { label: heading, count: milestone.openIssues }) : heading
+  return [renderMilestoneHeading(view, `milestone-${groupKey}`, title, milestone.number, false), ...objective, progress]
 }
 
-// The progress line: the text bar and its percentage (exact counts only), the count, the due date (its calendar date, from GitHub's own
-// date, never shifted into the host's zone: pm1-4) and the overdue marker. The overdue marker needs exact counts and open issues left.
+// The milestone's objective, its GitHub description as plain text, drawn under the heading; no line when the milestone has none (Mock S delta 9).
+function objectiveLinesOf(view: View, milestone: Milestone, groupKey: string): RenderElement[] {
+  if (!milestone.description) return []
+  const { Text } = view.ui
+  return [<Text key={`objective-${groupKey}`}>{t(view.lang, 'milestone.objective', { text: milestone.description })}</Text>]
+}
+
+// The progress line: the text bar and its percentage (exact counts only), the count and the due date (its calendar date, from GitHub's own
+// date, never shifted into the host's zone: pm1-4). The overdue marker sits on the heading (overdueIconOf), so this line names no state.
 function progressLineOf(view: View, milestone: Milestone, count: string): string {
-  const { lang, now, utcOffsetMinutes } = view
+  const { lang } = view
   const bar = milestone.countsExact ? progressBarOf(milestone.closedIssues, milestone.openIssues + milestone.closedIssues) : ''
   const due =
     milestone.dueOn === null
       ? ''
       : withIcon(statusIconEmoji('due'), t(lang, 'milestone.due', { date: milestone.dueOn.slice(0, DATE_LENGTH) }))
+  return [bar, count, due].filter(part => part !== '').join(TITLE_SEPARATOR)
+}
+
+// The overdue icon after a milestone's heading: an open milestone with open issues, exact counts and a due date before today (isOverdue).
+function overdueIconOf(view: View, milestone: Milestone): string {
+  const { now, utcOffsetMinutes } = view
   const overdue =
     milestone.dueOn !== null && milestone.countsExact && milestone.openIssues > 0 && isOverdue(milestone.dueOn, now, utcOffsetMinutes)
-      ? withIcon(statusIconEmoji('overdue'), t(lang, 'milestone.overdue'))
-      : ''
-  return [bar, count, due, overdue].filter(part => part !== '').join(TITLE_SEPARATOR)
+  return overdue ? statusIconEmoji('overdue') : ''
 }
 
 // The milestone label: its title up to the first " · " (repo-work-pane-design-spec.md section 3.1).
 function titleLabel(title: string): string {
   return title.split(TITLE_SEPARATOR)[0] ?? title
+}
+
+// A milestone's title on its heading: titleLabel, then cut at MILESTONE_TITLE_MAX characters, the ellipsis counted, at the last space before the
+// limit (Mock S delta 11, Q9, Q17).
+function headingTitleOf(title: string): string {
+  return cutAtWord(titleLabel(title), MILESTONE_TITLE_MAX)
+}
+
+// A milestone's label on its heading: the title first, then " ↗" when the heading links to the milestone's page (Mock S delta 10), then the
+// icons in order; an empty icon is left out.
+function milestoneLabelOf(view: View, number: number | null, title: string, icons: readonly string[]): string {
+  const linked = linkTargetOf(view, milestonePageOf(view.repoPage, number)) !== null
+  return joinWords([linked ? `${title} ↗` : title, ...icons])
 }
 
 function renderIssue(view: View, issue: Issue): RenderElement {
@@ -724,17 +895,18 @@ function renderIssueLine(view: View, issue: Issue): RenderElement {
   const target = linkTargetOf(view, issue.url)
   if (target !== null && 'Markdown' in ui) {
     const { Markdown } = ui
-    const link = `${LINK_MARK} [${escapeMarkdown(label)}](${target})`
+    const link = `${LINK_MARK} [${escapeMarkdown(`${label} ↗`)}](${target})`
     return <Markdown key={`line-${issue.number}`} text={emphasised ? `**${link}**` : link} />
   }
   const { Text } = ui
   return <Text key={`line-${issue.number}`} bold={emphasised}>{label}</Text>
 }
 
-// The footer's legend, a table headed Labels: one row per icon a snapshot draws, with its name and a sentence. The emoji are read from
+// The footer's legend, a table headed Labels: one row per icon the body draws, with its name and a sentence. The emoji are read from
 // action-icons.ts by name, so the legend cannot drift from the table and holds no emoji of its own. The rows run in four groups:
 // the session states, the work, the history, the project. The band-only icons (no issue, no remote, tools) are not listed, and
-// neither are the loading and failure lines, which draw without the footer.
+// neither are the loading and failure lines, which draw without the footer. The text glyphs and the missing priority icon are not rows:
+// one note line under the table says them (renderLegendNote).
 type LegendEntry = { id: string; icon: string; name: MessageKey; text: MessageKey }
 // The emoji cell's width in terminal columns: one emoji (2 columns) and two of gap. Every legend row draws one emoji, priorities included.
 const LEGEND_ICON_COLUMNS = 4
@@ -780,8 +952,15 @@ function renderLegend(view: View): RenderElement {
           </Box>
         </Box>
       ))}
+      {renderLegendNote(view)}
     </Box>
   )
+}
+
+// The note under the table, muted: what ↗, ~, #n and a missing priority icon mean, as text (Mock S delta 15). It is not an icon row.
+function renderLegendNote(view: View): RenderElement {
+  const { Text } = view.ui
+  return <Text key="legend-note" dimColor>{t(view.lang, 'legend.note')}</Text>
 }
 
 // The name in bold, then ": " and the sentence as one paragraph, so a long sentence wraps under the text column, not under the icon.
@@ -836,6 +1015,21 @@ export function dateOf(at: number, utcOffsetMinutes: number): string {
 // A due date is overdue when it falls before today's date in the host's zone. Both are YYYY-MM-DD, so they compare as strings.
 export function isOverdue(dueOn: string, now: number, utcOffsetMinutes: number): boolean {
   return dueOn.slice(0, DATE_LENGTH) < dateOf(now, utcOffsetMinutes)
+}
+
+// The whole days from today to a due date in the host's zone: 0 on the due day, negative after it. Both dates are read as UTC midnights, so
+// the difference is a whole number of days.
+export function daysUntilDue(dueOn: string, now: number, utcOffsetMinutes: number): number {
+  const due = Date.parse(`${dueOn.slice(0, DATE_LENGTH)}T00:00:00Z`)
+  const today = Date.parse(`${dateOf(now, utcOffsetMinutes)}T00:00:00Z`)
+  return Math.round((due - today) / DAY_MS)
+}
+
+// A due date is due soon when it falls from today to DUE_SOON_DAYS days ahead, in the host's zone as isOverdue reads it. A due date past
+// that window, or one that does not parse, is not due soon.
+export function isDueSoon(dueOn: string, now: number, utcOffsetMinutes: number): boolean {
+  const days = daysUntilDue(dueOn, now, utcOffsetMinutes)
+  return days >= 0 && days <= DUE_SOON_DAYS
 }
 
 // The text bar of the closed share: BAR_CELLS cells, filled for the closed part, then the percentage ("▰▰▰▰▰▰▱▱▱▱ 60%"). Empty when there

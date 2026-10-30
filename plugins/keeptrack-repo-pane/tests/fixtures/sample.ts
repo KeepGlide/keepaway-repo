@@ -47,9 +47,9 @@ export function makePr(overrides: Partial<PullRequest> = {}): PullRequest {
 
 // Three open milestones: one with open issues, one with a single open issue, one with none (ready to close).
 export const SAMPLE_MILESTONES: Milestone[] = [
-  { number: 23, title: 'Milestone B', openIssues: 6, closedIssues: 10, dueOn: null, countsExact: true },
-  { number: 22, title: 'Milestone A', openIssues: 1, closedIssues: 0, dueOn: '2026-10-31', countsExact: true },
-  { number: 21, title: 'Milestone Z', openIssues: 0, closedIssues: 1, dueOn: null, countsExact: true },
+  { number: 23, title: 'Milestone B', openIssues: 6, closedIssues: 10, dueOn: null, countsExact: true, description: null },
+  { number: 22, title: 'Milestone A', openIssues: 1, closedIssues: 0, dueOn: '2026-10-31', countsExact: true, description: null },
+  { number: 21, title: 'Milestone Z', openIssues: 0, closedIssues: 1, dueOn: null, countsExact: true, description: null },
 ]
 
 function issueOf(number: number, milestone: number | null, updatedAt: string): Issue {

@@ -3,8 +3,10 @@
 
 // countsExact: openIssues and closedIssues count the issues only, from GraphQL; false when they are REST's counts (PRs included) or
 // missing. Only an exact zero of open issues reads as all closed.
+// description: the milestone's objective (plain text, cut to OBJECTIVE_MAX); null when GitHub has none (Mock S delta 9).
 export type Milestone = {
   number: number; title: string; openIssues: number; closedIssues: number; dueOn: string | null; countsExact: boolean
+  description: string | null
 }
 
 // milestoneTitle: the title of the issue's own milestone from the issue list (open or closed), null with none (pm1-9).
@@ -21,6 +23,14 @@ export type PullRequest = {
   closes: number[]; checks: 'SUCCESS' | 'FAILURE' | 'PENDING' | 'ERROR' | 'EXPECTED' | null
 }
 
+// The Desktop's post-turn summary of a record (Desktop-internal, undocumented; SPEC section 7): blocked when the session stopped for the
+// person, and the needs text the pane draws under its row (cut to NEEDS_ACTION_MAX), null when there is none.
+export type PostTurnSummary = { blocked: boolean; needsAction: string | null }
+
+// The session's summary line (SPEC section 21): the first prompt of its transcript, cut to SUMMARY_MAX; text null when the transcript
+// has no prompt. A session with no SessionSummary draws no line (unknown yet, or the setting is off).
+export type SessionSummary = { text: string | null }
+
 export type ProjectedRecord = {
   sessionId: string; cliSessionId: string; title: string; createdAt: number; lastActivityAt: number
   isArchived: boolean; parentId: string | null; parentKind: 'fork' | 'spawn' | null; parentTitle: string | null
@@ -28,6 +38,9 @@ export type ProjectedRecord = {
   // The issue the uncut title names (DL15): `title` is cut for display, so a reference past the cut is read here first. Absent on
   // an input not projected from a record, which reads the drawn title instead.
   titleIssue?: number | null
+  // The post-turn summary (PostTurnSummary); null when the record has none or it is malformed. Absent on an input not projected from a
+  // record, which reads as null.
+  postTurn?: PostTurnSummary | null
 }
 
 export type IssueRef = { number: number; source: 'override' | 'pr' | 'branch' | 'title' | 'parent' }
@@ -52,13 +65,18 @@ export type SessionGroup = {
 
 export type SessionNode = {
   id: string; title: string; isThisWindow: boolean; kind: 'root' | 'fork' | 'spawn'; depth: number
-  parentId: string | null; createdAt: number; branch: string | null; issue: IssueRef | null
+  parentId: string | null; createdAt: number; lastActivityAt: number; branch: string | null; issue: IssueRef | null
   milestoneTitle: string | null; milestoneNumber: number | null; noMilestone: boolean; issueUrl: string | null
   // repoPage: the web page of the session's repo (GitHub or GitLab), null without a known remote; the title links to it.
   repoPage: string | null
   // logoKey: the store key of the repo's logo (host, owner and name, lowercased, from the remote); null without a repo page.
   logoKey: string | null
-  state: 'working' | 'idle' | 'waiting'; timeline: TimelineEvent[]; children: SessionNode[]
+  state: 'working' | 'idle' | 'waiting'
+  // needsAction: the needs line under a session that stopped for the person (another session, not this window); null otherwise.
+  needsAction: string | null
+  // summary: the summary line under the title (SessionSummary); null when the line is not drawn.
+  summary: SessionSummary | null
+  timeline: TimelineEvent[]; children: SessionNode[]
   group: SessionGroup | null   // set on every top of snapshot.sessions, null on derived nodes
 }
 
@@ -86,6 +104,9 @@ export type IssueDetails = {
   lastCommit: { at: number; subject: string; url: string | null } | null
   checks: string | null
   lastComment: { author: string; at: number; body: string } | null
+  // decision: the text of the newest comment by the owner, a member or a collaborator that starts with "Decisão:" or "Decision:" (bold or
+  // not), plain, cut to DECISION_MAX; null when none (Mock S delta 8).
+  decision: string | null
   startedAt: number
 }
 
@@ -109,6 +130,8 @@ export type SessionInput = ProjectedRecord & {
   commits: { at: number; subject: string; sha?: string | null }[]
   // The session's own repo remote (its common git dir's origin), null when none is known.
   remote?: RepoRemote | null
+  // The session's summary this poll has (SessionSummary); absent or null draws no line.
+  summary?: SessionSummary | null
 }
 
 // The drawn state the hooks module reads and writes (see hooks/register.tsx).

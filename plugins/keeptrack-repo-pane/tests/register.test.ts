@@ -6,9 +6,10 @@
 import type { On } from 'claude-code'
 import { expect, mock, test, type Engine } from 'claude-code/testing'
 import { actionIconEmoji } from '../hooks/action-icons'
-import { RECORD_MAX_BYTES } from '../hooks/model'
+import { RECORD_MAX_BYTES, WAITING_WINDOW_MS } from '../hooks/model'
 import { TURN_MAX_AGE_MS } from '../hooks/turn'
-import { TOOL_NAME_MAX, resetDesktopConfigCache, resetLogoMemory } from '../hooks/register'
+import { SUMMARY_RETRY_MS } from '../hooks/summary'
+import { TOOL_NAME_MAX, resetDesktopConfigCache, resetLogoMemory, resetSummaryMemory } from '../hooks/register'
 import {
   AVATAR_FETCH_SCRIPT,
   LOGO_FOLDERS,
@@ -81,6 +82,8 @@ type StubOptions = {
   issues?: string
   // The open milestones `gh api` answers (REST shape: open_issues and closed_issues count PRs too, pm1-8).
   milestones?: string
+  // The answer of `gh issue view` (its comments included); absent: ISSUE_VIEW_JSON.
+  issueView?: string
   // The issue counts GraphQL answers for the open milestones (issues only, no PRs); 'fail' is a refused query. Absent: no count answers,
   // so every milestone keeps its REST counts, not exact.
   milestoneCounts?: { number: number; open: number; closed: number }[] | 'fail'
@@ -161,6 +164,10 @@ type StubOptions = {
   glabInstalled?: boolean
   glabFails?: boolean
   glabAvatarUrl?: string
+  // The transcripts of the Desktop, by path: `head -c N` answers their first N characters; a path not given is missing (exit 1).
+  transcripts?: Record<string, string>
+  // The head read of a transcript is refused (a timeout, the engine's rejection).
+  transcriptRefuses?: boolean
 }
 type Host = {
   argvs: string[][]
@@ -199,6 +206,7 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   // The Desktop config cache belongs to one host: a test starts with none, so no test reads another test's config.
   resetDesktopConfigCache()
   resetLogoMemory()
+  resetSummaryMemory()
   const records = options.records ?? [OWN_RECORD]
   const host: Host = {
     argvs: [],
@@ -337,6 +345,13 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   on('process.run', async (_$, event) => {
     const argv = [...event.argv]
     host.argvs.push(argv)
+    if (argv[0] === 'head') {
+      if (options.transcriptRefuses === true) return refuse(REJECTION_OF.timeout)
+      const text = options.transcripts?.[argv[3] ?? '']
+      return text === undefined
+        ? valueOr(argv, processOutput('', 1, 'head: cannot open the file'))
+        : valueOr(argv, processOutput(text.slice(0, Number(argv[2]))))
+    }
     if (argv[0] === 'date') {
       if (options.dateMissing === true) return refuse('Executable not found in $PATH: "date"')
       return valueOr(argv, processOutput(options.utcOffset ?? '+0000\n'))
@@ -417,7 +432,7 @@ async function ghAnswerOf(argv: readonly string[], options: StubOptions): Promis
   if (options.viewGate !== undefined && argv.includes('view')) await options.viewGate
   if (typeof options.gh === 'object') return processOutput('', options.gh.exitCode, options.gh.stderr)
   if (options.gh === 'unreadable') return processOutput('<html>not JSON</html>')
-  if (argv.includes('view')) return processOutput(ISSUE_VIEW_JSON)
+  if (argv.includes('view')) return processOutput(options.issueView ?? ISSUE_VIEW_JSON)
   if (argv.some(arg => arg.includes('milestones('))) return milestoneCountsOf(options)
   if (argv.includes('graphql')) {
     const nodes = (options.openPrs ?? []).map(({ closes = [], closesOther = [], closesTotal, isCrossRepository = false, ...pr }) => ({
@@ -622,7 +637,7 @@ test('/keeptrack issue <n> sets this window override, issue none clears it', asy
 })
 
 // The usage toast, in English (hooks/i18n.ts toast.usage).
-const USAGE_TOAST = 'Usage: /keeptrack open | issue <n> | issue none | lang en|pt-BR|auto'
+const USAGE_TOAST = 'Usage: /keeptrack open | issue <n> | issue none | lang en|pt-BR|auto | summary on|off'
 
 test('a bad /keeptrack argument toasts and changes nothing', async ($: Engine, on) => {
   const host = stubHost(on)
@@ -1129,7 +1144,7 @@ test('pm1-9: an open issue of a closed milestone is drawn under that milestone t
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
-  expect(drawn).toContain('Milestone Old · closed')
+  expect(drawn).toContain('Milestone Old ✅ · closed')
   expect(drawn).toContain('Issue of a closed milestone')
   expect(drawn).not.toContain('No milestone / issue')
 })
@@ -1165,7 +1180,7 @@ test('S6: an override whose session no record lists, or that is 30 days old, is 
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect([...host.store.keys()]).toEqual([`override:${SESSION_ID}`])
+  expect([...host.store.keys()].filter(key => key.startsWith('override:'))).toEqual([`override:${SESSION_ID}`])
 })
 
 test('S4: a remote on another host with the same owner and name is not this repo', async ($: Engine, on) => {
@@ -1833,6 +1848,57 @@ test('waiting: no Askaway folder is read, so an Askaway question cannot light th
   expect(await bandDrawn($)).not.toContain(actionIconEmoji('waiting'))
 })
 
+// D7: a Desktop record's postTurnSummary (Desktop-internal and undocumented) makes another session wait for the person while its
+// last activity is within 24 h; its needs line is drawn under it.
+const STOPPED_SUMMARY = { status_category: 'blocked', status_detail: 'Waiting', needs_action: 'Approve the migration', summarizes_uuid: 'turn-1' }
+
+test('D7: another session whose summary says it stopped blocked, within 24 h, draws its waiting icon and its needs line', async ($: Engine, on) => {
+  const stopped = recordOf('local_7f3a0020', { title: 'Stopped session', cliSessionId: 'sess-stopped', postTurnSummary: STOPPED_SUMMARY })
+  const host = stubHost(on, { records: [OWN_RECORD, stopped] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain(`Stopped session ${actionIconEmoji('waiting')}`)
+  expect(drawn).toContain('Needs you: Approve the migration')
+  await expectClean(host, $)
+})
+
+test('D7: a malformed summary is no data: the session draws as an ordinary row with no needs line, and the poll does not fail', async ($: Engine, on) => {
+  const malformed = [
+    recordOf('local_7f3a0021', { title: 'Summary as text', cliSessionId: 'sess-a', postTurnSummary: 'blocked' }),
+    recordOf('local_7f3a0022', { title: 'Summary with no status', cliSessionId: 'sess-b', postTurnSummary: { needs_action: 'Approve' } }),
+    recordOf('local_7f3a0023', { title: 'Summary with no text', cliSessionId: 'sess-c', postTurnSummary: { status_category: 'blocked', needs_action: 7 } }),
+  ]
+  const host = stubHost(on, { records: [OWN_RECORD, ...malformed] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain('Summary as text')
+  expect(drawn).toContain('Summary with no status')
+  expect(drawn).not.toContain(`Summary as text ${actionIconEmoji('waiting')}`)
+  expect(drawn).not.toContain(`Summary with no status ${actionIconEmoji('waiting')}`)
+  // A blocked summary whose needs text is not a string still makes the session wait, with no line.
+  expect(drawn).toContain(`Summary with no text ${actionIconEmoji('waiting')}`)
+  expect(drawn).not.toContain('Needs you')
+  await expectClean(host, $)
+})
+
+test('D7: a stopped session older than 24 h takes the normal rule: no waiting icon and no needs line', async ($: Engine, on) => {
+  const stopped = recordOf('local_7f3a0024', { title: 'Old stopped session', cliSessionId: 'sess-d', postTurnSummary: STOPPED_SUMMARY })
+  const host = stubHost(on, { records: [OWN_RECORD, stopped] })
+  // The clock moves past the window before the pane opens: a poll per minute while open would make the advance slow.
+  await host.clock.advance(WAITING_WINDOW_MS + POLL_MS)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain(`Old stopped session ${actionIconEmoji('idle')}`)
+  expect(drawn).not.toContain(`Old stopped session ${actionIconEmoji('waiting')}`)
+  expect(drawn).not.toContain('Needs you')
+})
+
 // ux-8: a gh that is missing or not signed in draws its pane line, and no data error in the band (the pane already says which).
 const UNFLAGGED_GH_CASES: [string, GhMode, string][] = [
   ['gh-missing', 'missing', 'gh not found: showing sessions only'],
@@ -2019,7 +2085,7 @@ test('F21: an override stamped after the poll started survives its prune, and a 
   await host.clock.advance(1_000)
   release()
   await host.clock.settle()
-  expect([...host.store.keys()]).toEqual([`override:${SESSION_ID}`])
+  expect([...host.store.keys()].filter(key => key.startsWith('override:'))).toEqual([`override:${SESSION_ID}`])
 })
 
 test('F08: a window that maps to an issue whose view fails reads #106 in the band, never no issue', async ($: Engine, on) => {
@@ -2202,7 +2268,8 @@ test('DL7: a session with an open PR is drawn even when it is older than the 64 
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(await drawnPane($)).toContain('Old PR session')
+  // The header counts the listed sessions; the cap hides rows past 20. 65: this window, the 63 newest others and the old session its open PR keeps.
+  expect(await drawnPane($)).toContain('65 sessions')
 })
 
 test('gh3-2: the PR list asks GraphQL for isCrossRepository', async ($: Engine, on) => {
@@ -2230,7 +2297,8 @@ for (const [name, fork, drawn] of [
     await $.session.start(SESSION)
     await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
     await host.clock.settle()
-    expect((await drawnPane($)).includes('Old PR session')).toBe(drawn)
+    // As DL7: the header counts the listed sessions, which the row cap does not change (65 with the old session, 64 without).
+    expect(await drawnPane($)).toContain(`${drawn ? 65 : 64} sessions`)
   })
 }
 
@@ -2530,7 +2598,7 @@ test('F: a pane with two sessions under Recents, two open issues and two issue b
     expect(texts.filter(text => text.startsWith(`[🛠️ #${number}](https://github.com/acme/app/issues/${number})`))).toHaveLength(1)
   }
   for (const number of [3, 4]) {
-    expect(texts.filter(text => text.endsWith(`[#${number} Issue ${number}](https://github.com/acme/app/issues/${number})`))).toHaveLength(1)
+    expect(texts.filter(text => text.endsWith(`[#${number} Issue ${number} ↗](https://github.com/acme/app/issues/${number})`))).toHaveLength(1)
   }
   const keys = markdowns.map(node => node.props?.key)
   expect(new Set(keys).size).toBe(keys.length)
@@ -3057,4 +3125,237 @@ test('a failed avatar fetch is logged once, kept for an hour, and the pane still
   await host.clock.advance(LOGO_RETRY_MS)
   await host.clock.settle()
   expect(avatarCalls(host)).toHaveLength(2)
+})
+
+// ---- session summaries (SPEC section 21) ----
+
+// The transcript of this window's session: its folder is the cwd (REPO_ROOT) with every non-alphanumeric character as '-'.
+const TRANSCRIPT_OWN = `${HOME}/.claude/projects/-work-app/${SELF}.jsonl`
+// One newline-ended transcript line: a user message with this content.
+const userLine = (content: unknown): string => `${JSON.stringify({ type: 'user', message: { role: 'user', content } })}\n`
+const headCalls = (host: Host): string[][] => host.argvs.filter(argv => argv[0] === 'head')
+const summaryKeys = (host: Host): string[] => [...host.store.keys()].filter(key => key.startsWith('summary:'))
+
+test('a session row draws its summary from the head of its transcript, read by head and never by fs.read (SPEC section 21)', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine('Fix the disk full error') } })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain('Summary: Fix the disk full error')
+  expect(host.argvs).toContainEqual(['head', '-c', '262144', TRANSCRIPT_OWN])
+  expect(host.readPaths).not.toContain(TRANSCRIPT_OWN)
+  expect(summaryKeys(host)).toEqual([])
+  await expectClean(host, $)
+})
+
+test('a transcript over 4 MiB gives its summary from the head alone', async ($: Engine, on) => {
+  const huge = userLine('Map the store writes') + 'x'.repeat(5 * 1024 * 1024)
+  expect(huge.length).toBeGreaterThan(4 * 1024 * 1024)
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: huge } })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain('Summary: Map the store writes')
+  expect(host.argvs).toContainEqual(['head', '-c', '262144', TRANSCRIPT_OWN])
+  expect(host.readPaths).not.toContain(TRANSCRIPT_OWN)
+  await expectClean(host, $)
+})
+
+test('a session summary is read once: a later poll reads no transcript again', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine('Fix the disk full error') } })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  expect(headCalls(host)).toHaveLength(1)
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(headCalls(host)).toHaveLength(1)
+  expect(await drawnPane($)).toContain('Summary: Fix the disk full error')
+})
+
+test('at most five transcripts are read per poll; the rest are read on a later poll, each one once', async ($: Engine, on) => {
+  const many = Array.from({ length: 7 }, (_, index) => recordOf(`local_bbbb000${index}`, { cliSessionId: `sess-${index}` }))
+  const transcripts = Object.fromEntries(many.map((_, index) => [`${HOME}/.claude/projects/-work-app/sess-${index}.jsonl`, userLine(`Prompt ${index}`)]))
+  const host = stubHost(on, { records: [OWN_RECORD, ...many], transcripts: { ...transcripts, [TRANSCRIPT_OWN]: userLine('Own prompt') } })
+  // The session start polls alone (the pane is closed): one poll, so at most five transcripts.
+  await $.session.start(SESSION)
+  await host.clock.settle()
+  expect(headCalls(host)).toHaveLength(5)
+  // The band's slow cadence polls again and reads the three that waited.
+  await host.clock.advance(BAND_POLL_MS)
+  await host.clock.settle()
+  expect(headCalls(host)).toHaveLength(8)
+  expect(new Set(headCalls(host).map(argv => argv[3])).size).toBe(8)
+  await openPane($)
+  await host.clock.settle()
+  expect(headCalls(host)).toHaveLength(8)
+  expect(await drawnPane($)).toContain('Summary: Prompt 6')
+})
+
+test('a transcript with no prompt draws "no summary"; the line is never left empty', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine('<system-reminder>Context only</system-reminder>') } })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain('Summary: no summary')
+  expect(summaryKeys(host)).toEqual([])
+  await expectClean(host, $)
+})
+
+test('/keeptrack summary off hides the lines and stops transcript reads; on draws them again', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine('Fix the disk full error') } })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'summary off', ...COMMAND_CONTEXT })
+  expect(host.toasts).toEqual(['Session summary lines: off'])
+  expect(host.store.get('summary')).toBe(false)
+  await openPane($)
+  await host.clock.settle()
+  expect(headCalls(host)).toEqual([])
+  expect(await drawnPane($)).not.toContain('Summary:')
+  await $.command.run({ command: 'keeptrack', args: 'summary on', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(host.toasts.at(-1)).toBe('Session summary lines: on')
+  expect(await drawnPane($)).toContain('Summary: Fix the disk full error')
+  await expectClean(host, $)
+})
+
+test('/keeptrack summary with another word toasts the usage line and stores nothing', async ($: Engine, on) => {
+  const host = stubHost(on)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'summary maybe', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keeptrack', args: 'summary on off', ...COMMAND_CONTEXT })
+  expect(host.toasts).toEqual([USAGE_TOAST, USAGE_TOAST])
+  expect(host.store.has('summary')).toBe(false)
+})
+
+test('summaries are never stored: the summary:<id> keys an earlier build left are deleted once, and the setting key stays', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine('Fix the disk full error') } })
+  host.store.set('summary:old-1', { text: 'Prompt text of an earlier build', ts: 1 })
+  host.store.set('summary', true)
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  expect(host.store.has('summary:old-1')).toBe(false)
+  expect(summaryKeys(host)).toEqual([])
+  expect(host.store.get('summary')).toBe(true)
+  expect(await drawnPane($)).toContain('Summary: Fix the disk full error')
+  await expectClean(host, $)
+})
+
+test('a refused transcript read is logged once by its name, keeps the other lines, and is not read again', async ($: Engine, on) => {
+  const host = stubHost(on, { transcriptRefuses: true })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(host.logs).toHaveLength(1)
+  expect(host.logs[0]).toMatch(/^keeptrack: session summary failed \(\w+\)$/)
+  expect(host.logs.join('\n')).not.toContain(TRANSCRIPT_OWN)
+  expect(headCalls(host)).toHaveLength(1)
+  expect(await drawnPane($)).toContain('Summary: no summary')
+  expect(await drawnPane($)).toContain('Fix disk full')
+})
+
+// ---- this window's decision and the milestone objective (Mock S deltas 8 and 9) ----
+
+const OBJECTIVE = 'Preflight before install: refuse a full disk and a read-only mount, then install the store and check every write path again.'
+// OBJECTIVE cut at the last space before 100 characters, the ellipsis counted (cutAtWord).
+const OBJECTIVE_CUT = 'Preflight before install: refuse a full disk and a read-only mount, then install the store and…'
+
+test('the window draws the newest "Decision:" comment as Decided, and the milestone description cut as its Objective (Mock S deltas 8 and 9)', async ($: Engine, on) => {
+  const issueView = JSON.stringify({
+    number: ISSUE,
+    title: 'Synthetic issue',
+    url: 'https://github.com/acme/app/issues/106',
+    state: 'OPEN',
+    milestone: { number: 23, title: 'Milestone B' },
+    comments: [
+      { author: { login: 'dev-one' }, authorAssociation: 'OWNER', createdAt: '2026-10-20T16:00:00Z', body: 'Decision: the old call' },
+      { author: { login: 'rafa-tavares' }, authorAssociation: 'MEMBER', createdAt: '2026-10-20T17:00:00Z', body: 'Decisão: DISK_FULL also in backup_receipt' },
+      { author: { login: 'dev-one' }, authorAssociation: 'OWNER', createdAt: '2026-10-20T18:00:00Z', body: 'a later comment that is no decision' },
+      { author: { login: 'outsider' }, authorAssociation: 'NONE', createdAt: '2026-10-20T19:00:00Z', body: '**Decision:** spoofed call' },
+    ],
+  })
+  const milestones = JSON.stringify([{ number: 23, title: 'Milestone B', open_issues: 1, closed_issues: 0, due_on: null, description: OBJECTIVE }])
+  const issues = JSON.stringify([{ number: 1, title: 'Open one', updatedAt: '2026-10-20T16:00:00Z', url: 'https://github.com/acme/app/issues/1', milestone: { number: 23 }, labels: [] }])
+  const host = stubHost(on, { issueView, issues, milestones })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'issue 106', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  // The terminal draws each label and value as its own text node, so the heading and the value are checked apart.
+  expect(drawn).toContain('"Decided:"')
+  expect(drawn).toContain('DISK_FULL also in backup_receipt')
+  expect(drawn).not.toContain('the old call')
+  expect(drawn).toContain(`Objective: ${OBJECTIVE_CUT}`)
+  expect(drawn).not.toContain(OBJECTIVE)
+  await expectClean(host, $)
+})
+
+test('no decision comment and no description draw neither the Decided line nor the Objective line', async ($: Engine, on) => {
+  const milestones = JSON.stringify([{ number: 23, title: 'Milestone B', open_issues: 1, closed_issues: 0, due_on: null, description: '  ' }])
+  const issues = JSON.stringify([{ number: 1, title: 'Open one', updatedAt: '2026-10-20T16:00:00Z', url: 'https://github.com/acme/app/issues/1', milestone: { number: 23 }, labels: [] }])
+  const host = stubHost(on, { issues, milestones })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'issue 106', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain('"Last comment:"')
+  expect(drawn).not.toContain('"Decided:"')
+  expect(drawn).not.toContain('Objective:')
+  await expectClean(host, $)
+})
+
+// ---- a summary that is not final is read again after ten minutes, never stored (Mock S delta 7, the summary cache) ----
+
+test('a transcript that is missing is not stored: it is read again after ten minutes, and its prompt then shows', async ($: Engine, on) => {
+  const transcripts: Record<string, string> = {}
+  const host = stubHost(on, { transcripts })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  expect(headCalls(host)).toHaveLength(1)
+  expect(summaryKeys(host)).toHaveLength(0)
+  expect(await drawnPane($)).toContain('Summary: no summary')
+  // The transcript appears after the session started: no read before the retry time, then the prompt is read and stored.
+  transcripts[TRANSCRIPT_OWN] = userLine('Fix the disk full error')
+  await host.clock.advance(SUMMARY_RETRY_MS - POLL_MS)
+  await host.clock.settle()
+  expect(headCalls(host)).toHaveLength(1)
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(headCalls(host)).toHaveLength(2)
+  expect(await drawnPane($)).toContain('Summary: Fix the disk full error')
+  expect(summaryKeys(host)).toEqual([])
+  await expectClean(host, $)
+})
+
+test('a transcript with no user line yet is not stored, and is read again after ten minutes', async ($: Engine, on) => {
+  const transcripts: Record<string, string> = { [TRANSCRIPT_OWN]: `${JSON.stringify({ type: 'system', subtype: 'init' })}\n` }
+  const host = stubHost(on, { transcripts })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  expect(summaryKeys(host)).toHaveLength(0)
+  transcripts[TRANSCRIPT_OWN] = userLine('Fix the disk full error')
+  await host.clock.advance(SUMMARY_RETRY_MS)
+  await host.clock.settle()
+  expect(headCalls(host).length).toBeGreaterThanOrEqual(2)
+  expect(await drawnPane($)).toContain('Summary: Fix the disk full error')
+  expect(summaryKeys(host)).toEqual([])
+})
+
+test('a user line with no usable text is final: it is kept for the window life, and the transcript is never read again', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine('<system-reminder>Context only</system-reminder>') } })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  expect(summaryKeys(host)).toEqual([])
+  await host.clock.advance(SUMMARY_RETRY_MS * 2)
+  await host.clock.settle()
+  expect(headCalls(host)).toHaveLength(1)
+  expect(await drawnPane($)).toContain('Summary: no summary')
 })

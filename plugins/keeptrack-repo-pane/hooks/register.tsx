@@ -9,13 +9,16 @@ import { renderPane } from './pane'
 import { renderBand, type BandIssue, type BandRepo } from './band'
 import { heldButtons, type HeldButtons } from './held'
 import { IDLE_TURN, bandRedrawDue, turnEnded, turnExpired, turnStarted, turnTimedOut, turnToolNamed } from './turn'
+import { SUMMARY_KEEP_MAX, SUMMARY_RETRY_MS, TRANSCRIPT_HEAD_BYTES, hasUserLine, summaryOfTranscript, transcriptFolderOf } from './summary'
 import {
   COMMIT_SHA,
   LABEL_MAX,
   NO_DESKTOP_GROUPS,
+  OBJECTIVE_MAX,
   RECORD_MAX_BYTES,
   TEXT_MAX,
   buildTree,
+  cutAtWord,
   groupIssues,
   commitPageOf,
   isGithubHost,
@@ -25,6 +28,7 @@ import {
   logoKeyOf,
   mapLimited,
   newestCommentOf,
+  newestDecisionOf,
   parseDesktopGroups,
   parseRemote,
   parseUtcOffset,
@@ -67,6 +71,7 @@ import type {
   PullRequest,
   SessionInput,
   SessionNode,
+  SessionSummary,
   Snapshot,
 } from '../types'
 
@@ -178,7 +183,7 @@ type Entry = { path: string; size: number; mtimeMs: number }
 type Cached<T> = { size: number; mtimeMs: number; value: T }
 type Timer = ReturnType<EngineInterface['clock']['every']>
 type Commit = { at: number; subject: string; sha: string | null }
-type IssueComment = { author: string; at: number; body: string }
+type IssueComment = { author: string; association: string; at: number; body: string }
 type GhOutcome = { ok: true; stdout: string; oversized: boolean } | { ok: false; error: PaneError; kind: string }
 type GithubMemory = {
   key: string
@@ -782,6 +787,8 @@ type TreeInputs = {
   // The records up the candidates' parent chains that are not listed, and the Desktop sidebar Groups.
   ancestors: readonly ProjectedRecord[]
   desktopGroups: DesktopGroups
+  // The summary of each candidate session this poll has (SPEC section 21); a session with none is absent.
+  summaries: ReadonlyMap<string, SessionSummary>
 }
 
 function inputOf(entry: Candidate, inputs: TreeInputs, commits: ReadonlyMap<string, Commit[]>): SessionInput {
@@ -794,6 +801,7 @@ function inputOf(entry: Candidate, inputs: TreeInputs, commits: ReadonlyMap<stri
     override: inputs.overrides.get(record.sessionId) ?? null,
     waiting: inputs.ownWaiting && record.cliSessionId === inputs.thisId,
     commits: commits.get(record.sessionId) ?? [],
+    summary: inputs.summaries.get(record.sessionId) ?? null,
   }
 }
 
@@ -869,6 +877,11 @@ async function sessionsOf(
     issueFacts: issueFactsOf(github.milestones, github.issues),
     ancestors: ancestorsOf(candidates.map(entry => entry.record), scan.records),
     desktopGroups: await readDesktopGroups($),
+    // A failing store or record read leaves the lines out; it never fails the poll.
+    summaries: await summariesOf($, candidates.map(entry => entry.record)).catch((error: unknown) => {
+      logSummaryFailureOnce($, error)
+      return new Map<string, SessionSummary>()
+    }),
   }
   const keptIds = new Set(flattenNodes(treeOf(candidates, inputs, new Map())).map(node => node.id))
   const commits = await commitsOfKept($, candidates, keptIds)
@@ -878,6 +891,108 @@ async function sessionsOf(
     unreadable: scan.unreadable,
     commits,
   }
+}
+
+// ---- session summaries (SPEC section 21): the first prompt of each session, read from the head of its transcript ----
+
+// The setting in the store: `summary` is false when the person turned the lines off (`/keeptrack summary off`); absent is on.
+const SUMMARY_SETTING_KEY = 'summary'
+// Summaries are never stored (SPEC section 21). A build that stored them left `summary:<sessionId>` keys, which this window deletes once.
+const SUMMARY_KEY_PREFIX = 'summary:'
+// The transcripts read per poll; the sessions past them wait for a later poll.
+const SUMMARY_READS_PER_POLL = 5
+const TRANSCRIPT_TIMEOUT_MS = 5_000
+// A session id as a transcript file name: letters, digits and '-' only, so the path stays in its folder.
+const TRANSCRIPT_ID = /^[0-9A-Za-z-]+$/
+const SUMMARY_CHOICES: ReadonlyMap<string, boolean> = new Map([
+  ['on', true],
+  ['off', false],
+])
+// The summaries this window holds, by session id. A final one (a prompt, or a user line with no usable text) lasts the window's life; one
+// that is not final is read again once its retryAt has passed (null for a final one).
+type RememberedSummary = { summary: SessionSummary; retryAt: number | null }
+const summaryMemory = new Map<string, RememberedSummary>()
+// Whether a summary failure has been logged in this window (once, by the error's name).
+let summaryFailureLogged = false
+// Whether the leftover `summary:` keys of an earlier build have been deleted in this window.
+let storedSummariesCleared = false
+
+// Forgets this window's summaries, its failure log and its cleanup flag. The tests call it before each host starts.
+export function resetSummaryMemory(): void {
+  summaryMemory.clear()
+  summaryFailureLogged = false
+  storedSummariesCleared = false
+}
+
+// A summary failure, logged once by the error's name: a prompt or a path never reaches the log.
+function logSummaryFailureOnce($: EngineInterface, error: unknown): void {
+  if (summaryFailureLogged) return
+  summaryFailureLogged = true
+  logLine($, `session summary failed (${failureNameOf(error)})`)
+}
+
+// Remembers a summary in this window's memory; the memory keeps SUMMARY_KEEP_MAX sessions, the oldest out.
+function rememberSummary(sessionId: string, remembered: RememberedSummary): void {
+  summaryMemory.delete(sessionId)
+  summaryMemory.set(sessionId, remembered)
+  const oldest = summaryMemory.keys().next()
+  if (summaryMemory.size > SUMMARY_KEEP_MAX && !oldest.done) summaryMemory.delete(oldest.value)
+}
+
+// Deletes the `summary:<sessionId>` keys an earlier build stored, once per window. They hold prompt text, so they go; the setting key stays.
+async function clearStoredSummaries($: EngineInterface): Promise<void> {
+  if (storedSummariesCleared) return
+  for (const key of await $.store.keys()) {
+    if (key.startsWith(SUMMARY_KEY_PREFIX)) await $.store.delete(key)
+  }
+  storedSummariesCleared = true
+}
+
+// The head of a session's transcript (~/.claude/projects/<folder>/<cliSessionId>.jsonl), read with head, so a file over 4 MiB is read
+// too. null when the session has no cwd or no id a file name can carry, the file is missing, or the read is refused (logged once).
+async function transcriptHeadOf($: EngineInterface, record: ProjectedRecord): Promise<string | null> {
+  const home = await $.env.get('HOME')
+  if (!home || record.cwd === null || !TRANSCRIPT_ID.test(record.cliSessionId)) return null
+  const path = `${home}/.claude/projects/${transcriptFolderOf(record.cwd)}/${record.cliSessionId}.jsonl`
+  const run = await $.process
+    .run(['head', '-c', String(TRANSCRIPT_HEAD_BYTES), path], { timeoutMs: TRANSCRIPT_TIMEOUT_MS })
+    .catch((error: unknown) => {
+      logSummaryFailureOnce($, error)
+      return null
+    })
+  return run?.exitCode === 0 ? run.stdout : null
+}
+
+// A session's summary from its transcript, and whether it is final: the first prompt, cut, or no text when the transcript has a user line
+// with none, which is final. A missing or refused transcript, or one with no user line yet (a session that has just started), is not:
+// it is read again after SUMMARY_RETRY_MS.
+async function readSummaryOf($: EngineInterface, record: ProjectedRecord): Promise<{ summary: SessionSummary; final: boolean }> {
+  const head = await transcriptHeadOf($, record)
+  if (head === null) return { summary: { text: null }, final: false }
+  const text = summaryOfTranscript(head)
+  return { summary: { text }, final: text !== null || hasUserLine(head) }
+}
+
+// The summary of each candidate session this poll: from this window's memory, else from its transcript, which is read for at most
+// SUMMARY_READS_PER_POLL sessions (the rest wait for a later poll). A remembered summary that is not final is read again once its retry
+// time has passed. Nothing is stored. With the setting off nothing is read and no session has one.
+async function summariesOf($: EngineInterface, records: readonly ProjectedRecord[]): Promise<Map<string, SessionSummary>> {
+  const summaries = new Map<string, SessionSummary>()
+  await clearStoredSummaries($)
+  if ((await $.store.get(SUMMARY_SETTING_KEY)) === false) return summaries
+  const now = await $.clock.now()
+  const unknown: ProjectedRecord[] = []
+  for (const record of records) {
+    const remembered = summaryMemory.get(record.sessionId)
+    if (remembered === undefined || (remembered.retryAt !== null && now >= remembered.retryAt)) unknown.push(record)
+    else summaries.set(record.sessionId, remembered.summary)
+  }
+  for (const record of unknown.slice(0, SUMMARY_READS_PER_POLL)) {
+    const read = await readSummaryOf($, record)
+    rememberSummary(record.sessionId, { summary: read.summary, retryAt: read.final ? null : now + SUMMARY_RETRY_MS })
+    summaries.set(record.sessionId, read.summary)
+  }
+  return summaries
 }
 
 // The first PR of each branch, in the order gh lists them (most recently updated first).
@@ -1280,7 +1395,21 @@ function milestoneOf(raw: unknown): Milestone | null {
   const closedIssues = numberOf(childOf(raw, 'closed_issues'))
   if (number === null || title === null || openIssues === null || closedIssues === null) return null
   // REST's counts (the PRs included) are not exact until milestonesCountedOf takes the GraphQL counts.
-  return { number, title, openIssues, closedIssues, dueOn: textOf(childOf(raw, 'due_on')), countsExact: false }
+  return {
+    number,
+    title,
+    openIssues,
+    closedIssues,
+    dueOn: textOf(childOf(raw, 'due_on')),
+    countsExact: false,
+    description: objectiveOf(textOf(childOf(raw, 'description'))),
+  }
+}
+
+// A milestone's description as its objective: plain text, cut to OBJECTIVE_MAX at the last space before the limit; null when empty.
+function objectiveOf(description: string | null): string | null {
+  const text = plain(description ?? '', Number.POSITIVE_INFINITY)
+  return text === '' ? null : cutAtWord(text, OBJECTIVE_MAX)
 }
 
 function parseMilestones(text: string): Milestone[] | null {
@@ -1410,16 +1539,19 @@ type IssueView = {
   url: string
   state: IssueDetails['state']
   milestoneTitle: string | null
-  // Only the newest comment is kept, the one the pane draws (SE3).
+  // Only the newest comment is kept, the one the pane draws (SE3), and the newest decision (Mock S delta 8).
   lastComment: IssueDetails['lastComment']
+  decision: IssueDetails['decision']
 }
 
-// One comment of `gh issue view --json comments`: its login, its time and its body; null when the time does not parse.
+// One comment of `gh issue view --json comments`: its login, its author association (OWNER, MEMBER, COLLABORATOR, ...), its time and its
+// body; null when the time does not parse.
 function commentOf(raw: unknown): IssueComment | null {
   const at = Date.parse(textOf(childOf(raw, 'createdAt')) ?? '')
   if (!Number.isFinite(at)) return null
   const author = plain(textOf(childOf(childOf(raw, 'author'), 'login')) ?? '', LABEL_MAX)
-  return { author, at, body: textOf(childOf(raw, 'body')) ?? '' }
+  const association = textOf(childOf(raw, 'authorAssociation')) ?? ''
+  return { author, association, at, body: textOf(childOf(raw, 'body')) ?? '' }
 }
 
 function issueViewOf(text: string): IssueView | null {
@@ -1429,13 +1561,15 @@ function issueViewOf(text: string): IssueView | null {
   const url = textOf(childOf(raw, 'url'))
   const state = textOf(childOf(raw, 'state'))
   if (number === null || title === null || url === null || state === null) return null
+  const comments = asArray(childOf(raw, 'comments')).map(commentOf).filter(isPresent)
   return {
     number,
     title: plain(title, TEXT_MAX),
     url,
     state: state.toUpperCase() === 'OPEN' ? 'open' : 'closed',
     milestoneTitle: plain(textOf(childOf(childOf(raw, 'milestone'), 'title')) ?? '', LABEL_MAX) || null,
-    lastComment: newestCommentOf(asArray(childOf(raw, 'comments')).map(commentOf).filter(isPresent)),
+    lastComment: newestCommentOf(comments),
+    decision: newestDecisionOf(comments),
   }
 }
 
@@ -1462,6 +1596,7 @@ function detailsOf(view: IssueView, facts: WindowFacts): IssueDetails {
     lastCommit: facts.lastCommit,
     checks: null,
     lastComment: view.lastComment,
+    decision: view.decision,
     startedAt: facts.node.createdAt,
   }
 }
@@ -1944,6 +2079,16 @@ async function setLanguage($: EngineInterface, value: string): Promise<void> {
   await registerCommand($, next)
 }
 
+// /keeptrack summary on|off: stores the setting and answers in the session's language. An open pane polls at once, so the lines are
+// drawn or hidden without waiting for the next minute.
+async function setSummary($: EngineInterface, value: string): Promise<void> {
+  const choice = SUMMARY_CHOICES.get(value.toLowerCase())
+  if (choice === undefined) return toastUsage($)
+  await $.store.set(SUMMARY_SETTING_KEY, choice)
+  $.ui.toast(t(await read($, langAtom), choice ? 'toast.summaryOn' : 'toast.summaryOff'))
+  if (await read($, openAtom)) repollSoon($)
+}
+
 // The repo the band names: GitHub when the snapshot has a remote, none when it has none, unknown before the first poll.
 function bandRepoOf(snapshot: Snapshot | null): BandRepo {
   if (snapshot === null) return 'unknown'
@@ -2054,6 +2199,7 @@ async function runCommand($: EngineInterface, args: string): Promise<void> {
   if (verb === 'open') return words.length > 1 ? toastUsage($) : openPane($)
   if (verb === 'issue') return words.length > 2 ? toastUsage($) : setIssue($, value)
   if (verb === 'lang') return setLanguage($, value)
+  if (verb === 'summary') return words.length > 2 ? toastUsage($) : setSummary($, value)
   return toastUsage($)
 }
 

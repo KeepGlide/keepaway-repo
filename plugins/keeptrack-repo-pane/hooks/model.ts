@@ -8,6 +8,7 @@ import type {
   IssueGroup,
   IssueRef,
   Milestone,
+  PostTurnSummary,
   Priority,
   ProjectedRecord,
   PullRequest,
@@ -28,6 +29,11 @@ export const MAX_DEPTH = 8
 export const TIMELINE_LIMIT = 6
 // A session counts as working for this long after its last activity (repo-work-pane-design-spec.md D7, a heuristic).
 export const WORKING_WINDOW_MS = 5 * 60 * 1000
+// A session other than this window waits for the person for this long after its last activity, while its Desktop summary says it stopped
+// blocked (repo-work-pane-design-spec.md D7; owner-approved 2026-10-30). Older than this, the normal rule applies.
+export const WAITING_WINDOW_MS = 24 * 60 * 60 * 1000
+// The longest needs line of a session that waits for the person, in characters, the ellipsis included; cut at the last space before it.
+export const NEEDS_ACTION_MAX = 90
 // The longest comment preview the issue details draw, in characters, the last one an ellipsis (repo-work-pane-design-spec.md D5).
 export const COMMENT_PREVIEW_MAX = 200
 // The highest issue number an override, a branch or a title may name (repo-work-pane-design-spec.md D1).
@@ -44,6 +50,10 @@ const TITLE_NUMBER = /#(\d{1,6})\b/g
 // Text length caps of what reaches the snapshot (see plain): a title or subject 200, a label or a name 100.
 export const TEXT_MAX = 200
 export const LABEL_MAX = 100
+// The longest milestone objective (its GitHub description), in characters, the ellipsis counted (Mock S delta 9).
+export const OBJECTIVE_MAX = 100
+// The longest decision line of this window's issue, in characters, the ellipsis counted (Mock S delta 8, Q4).
+export const DECISION_MAX = 200
 
 const GIT_SUFFIX = '.git'
 
@@ -138,6 +148,32 @@ export function plain(text: string, max: number): string {
   const cleaned = spaced.replace(/\s+/g, ' ').trim()
   const characters = Array.from(cleaned)
   return characters.length <= max ? cleaned : `${characters.slice(0, max - 1).join('')}…`
+}
+
+// The grapheme segmenter: a user-perceived character, so an emoji sequence joined by zero width joiners is one. Null where Intl.Segmenter
+// is missing; then a character is a code point.
+const GRAPHEME_SEGMENTER = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null
+
+// The first `limit` characters of the text (graphemes, or code points without Intl.Segmenter). The scan stops at the limit, so a long text
+// costs no more than the characters kept.
+function leadingCharactersOf(text: string, limit: number): string[] {
+  if (GRAPHEME_SEGMENTER === null) return Array.from(text).slice(0, limit)
+  const found: string[] = []
+  for (const part of GRAPHEME_SEGMENTER.segment(text)) {
+    if (found.length === limit) break
+    found.push(part.segment)
+  }
+  return found
+}
+
+// The text cut to max characters, the ellipsis included, at the last space before the limit; a hard cut when no space falls there.
+// Text within the limit comes back as it is. A character is a grapheme, so a cut never splits an emoji sequence.
+export function cutAtWord(text: string, max: number): string {
+  const characters = leadingCharactersOf(text, max + 1)
+  if (characters.length <= max) return text
+  const head = characters.slice(0, max - 1)
+  const space = head.lastIndexOf(' ')
+  return `${(space > 0 ? head.slice(0, space) : head).join('')}…`
 }
 
 // The results of mapItem over the list, `limit` calls at a time, in order.
@@ -249,8 +285,35 @@ export function newestCommentOf(
   return newest === null ? null : { author: newest.author, at: newest.at, body: previewOf(newest.body) }
 }
 
+// A comment that carries a decision starts with this prefix, after its leading whitespace (English or Portuguese, any case), plain or in
+// bold (`**Decisão:**`).
+const DECISION_PREFIX = /^\s*(?:\*\*(?:decisão|decision):\*\*|(?:decisão|decision):)/i
+// Only a comment by the repo's owner, a member or a collaborator can carry a decision: GitHub's authorAssociation names them so. Any other
+// author's "Decision:" is someone else's text, not this issue's decision.
+const DECISION_ASSOCIATIONS: ReadonlySet<string> = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
+
+// The text of the newest decision comment of an issue (the first of equal times): the text after its prefix, as plain text cut to
+// DECISION_MAX. A comment by another author, a comment with the prefix and no text after it, is no decision. null when none is.
+export function newestDecisionOf(comments: readonly { at: number; body: string; association: string }[]): string | null {
+  let newest: { at: number; text: string } | null = null
+  for (const comment of comments) {
+    if (!DECISION_ASSOCIATIONS.has(comment.association) || !DECISION_PREFIX.test(comment.body)) continue
+    const text = plain(comment.body.replace(DECISION_PREFIX, ''), Number.POSITIVE_INFINITY)
+    if (text === '') continue
+    if (newest === null || comment.at > newest.at) newest = { at: comment.at, text }
+  }
+  return newest === null ? null : cutAtWord(newest.text, DECISION_MAX)
+}
+
 const isThisWindow = (record: SessionInput, thisCliSessionId: string | null): boolean =>
   thisCliSessionId !== null && record.cliSessionId === thisCliSessionId
+
+// Whether a session other than this window stopped for the person (D7): its Desktop summary says blocked, and its last activity is within
+// WAITING_WINDOW_MS (a future activity counts as now). This window's own state keeps its live flag, so it never counts here.
+function stoppedForYou(record: SessionInput, context: { now: number; thisCliSessionId: string | null }): boolean {
+  if (isThisWindow(record, context.thisCliSessionId)) return false
+  return record.postTurn?.blocked === true && context.now - clampTo(record.lastActivityAt, context.now) <= WAITING_WINDOW_MS
+}
 
 // A session is shown when it is not archived and was active within the cutoff, or its branch has an open PR (any age).
 function isLive(record: SessionInput, earliest: number, now: number): boolean {
@@ -420,13 +483,23 @@ type TreeContext = {
   issueFacts: ReadonlyMap<number, IssueFacts>
 }
 
-// The tops of one group in order: the top that holds this window first, then the rest by last activity, newest first, then
-// by session id.
+// Whether a session waits for the person (D7), or a session under it does. A top is ranked by this, so the cut at the group's first 20
+// tops (Mock S Q7) never hides a session that waits below it.
+function treeWaits(record: SessionInput, context: TreeContext): boolean {
+  if (record.waiting || stoppedForYou(record, context)) return true
+  return (context.childrenOf.get(record.sessionId) ?? []).some(child => treeWaits(child, context))
+}
+
+// The tops of one group in order: the top that holds this window first, then a top whose session or a session under it waits for the
+// person (D7, Q6), then the rest by last activity, newest first, then by session id.
 function sortGroupTops(tops: readonly SessionInput[], context: TreeContext): SessionInput[] {
+  const waiting = new Map(tops.map(top => [top.sessionId, treeWaits(top, context) ? 1 : 0] as const))
+  const waits = (record: SessionInput): number => waiting.get(record.sessionId) ?? 0
   const rank = (record: SessionInput): number => (record.sessionId === context.thisRootId ? 1 : 0)
   return [...tops].sort(
     (a, b) =>
       rank(b) - rank(a) ||
+      waits(b) - waits(a) ||
       clampTo(b.lastActivityAt, context.now) - clampTo(a.lastActivityAt, context.now) ||
       (a.sessionId < b.sessionId ? -1 : 1),
   )
@@ -473,6 +546,7 @@ function attach(record: SessionInput, depth: number, parentNode: SessionNode | n
     isDerived: record.parentKind !== null,
   })
   const facts = issue === null ? undefined : context.issueFacts.get(issue.number)
+  const stopped = stoppedForYou(record, context)
   const node: SessionNode = {
     id: record.sessionId,
     title: record.title,
@@ -482,6 +556,7 @@ function attach(record: SessionInput, depth: number, parentNode: SessionNode | n
     parentId: parentNode?.id ?? null,
     group: parentNode === null ? (context.groups.get(record.sessionId) ?? null) : null,
     createdAt,
+    lastActivityAt,
     branch: record.branch,
     issue,
     milestoneTitle: facts?.milestoneTitle ?? null,
@@ -490,7 +565,9 @@ function attach(record: SessionInput, depth: number, parentNode: SessionNode | n
     milestoneNumber: facts?.milestoneNumber ?? null,
     repoPage: repoPageOf(record.remote),
     logoKey: logoKeyOf(record.remote),
-    state: stateOf(lastActivityAt, context.now, record.waiting),
+    state: stateOf(lastActivityAt, context.now, record.waiting || stopped),
+    needsAction: stopped ? (record.postTurn?.needsAction ?? null) : null,
+    summary: record.summary ?? null,
     timeline: timelineOf({
       createdAt,
       kind,
@@ -704,7 +781,7 @@ export function isSessionLinkId(id: string): boolean {
 
 type JsonObject = Record<string, unknown>
 
-const isObject = (raw: unknown): raw is JsonObject => typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+export const isObject = (raw: unknown): raw is JsonObject => typeof raw === 'object' && raw !== null && !Array.isArray(raw)
 
 const isEpochMs = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
 
@@ -722,6 +799,22 @@ function commonDirOf(gitAnchors: unknown): string | null {
   if (!isObject(anchor)) return null
   const commonDir = anchor.commonDir
   return typeof commonDir === 'string' && commonDir.startsWith('/') ? commonDir : null
+}
+
+// The needs line of a post-turn summary: its text as plain text, cut to NEEDS_ACTION_MAX; null when it has no text to show, or when the
+// text is not a string or is over the field limit.
+function needsActionOf(value: unknown): string | null {
+  if (typeof value !== 'string' || isOversized(value)) return null
+  const cleaned = plain(value, FIELD_MAX_LENGTH)
+  return cleaned === '' ? null : cutAtWord(cleaned, NEEDS_ACTION_MAX)
+}
+
+// The Desktop's post-turn summary (Desktop-internal and undocumented, so each field is guarded): blocked when status_category is
+// 'blocked'. No data (null) when the field is not an object or its status_category is not a string; a needs text that is missing or
+// malformed gives no line but keeps the status.
+function postTurnOf(value: unknown): PostTurnSummary | null {
+  if (!isObject(value) || typeof value.status_category !== 'string') return null
+  return { blocked: value.status_category === 'blocked', needsAction: needsActionOf(value.needs_action) }
 }
 
 // Projects one raw Desktop session record onto the fields the pane reads (repo-work-pane-design-spec.md section 2.7) and nothing else. Returns
@@ -753,6 +846,7 @@ export function projectRecord(raw: unknown): ProjectedRecord | null {
     parentTitle: parentKind === 'spawn' && typeof spawned.title === 'string' ? plain(spawned.title, TEXT_MAX) : null,
     commonDir: commonDirOf(raw.gitAnchors),
     cwd: absolutePathOf(raw.cwd),
+    postTurn: postTurnOf(raw.postTurnSummary),
   }
 }
 

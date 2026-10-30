@@ -1,13 +1,17 @@
 import { expect, test } from 'claude-code/testing'
 import type { Issue, IssueRef, Milestone, SessionNode } from '../types'
 import {
+  DECISION_MAX,
   FIELD_MAX_LENGTH,
   LABEL_MAX,
   MAX_DEPTH,
+  NEEDS_ACTION_MAX,
   NO_DESKTOP_GROUPS,
   RECORD_MAX_BYTES,
+  WAITING_WINDOW_MS,
   WORKING_WINDOW_MS,
   buildTree,
+  cutAtWord,
   groupIssues,
   isSessionLinkId,
   issueFromBranch,
@@ -20,6 +24,7 @@ import {
   issueFactsOf,
   issueOfSession,
   mapLimited,
+  newestDecisionOf,
   parseDesktopGroups,
   parseRemote,
   parseUtcOffset,
@@ -739,6 +744,26 @@ test('P1: the tops of one group: this window first, then by newest activity, the
   ])
 })
 
+test('a top whose session under it waits for the person ranks as waiting, so the first 20 tops of a group never hide it (Mock S Q7)', () => {
+  // Twenty-one tops, the last one the least active; its only child is blocked, so it waits for the person.
+  const tops = Array.from({ length: 21 }, (_, index) =>
+    makeRecord({ sessionId: `local_f${String(index).padStart(7, '0')}`, lastActivityAt: NOW - (index + 1) * MINUTE }),
+  )
+  const last = tops[20]
+  if (last === undefined) throw new Error('the list has 21 tops')
+  const blocked = makeRecord({
+    sessionId: 'local_f9999999',
+    parentId: last.sessionId,
+    parentKind: 'fork',
+    lastActivityAt: NOW - MINUTE,
+    postTurn: { blocked: true, needsAction: 'Approve the push' },
+  })
+  const roots = buildTree([...tops, blocked], OPTS)
+  expect(roots[0]?.id).toBe(last.sessionId)
+  expect(roots[0]?.children.map(node => node.state)).toEqual(['waiting'])
+  expect(roots.slice(1).map(node => node.id)).toEqual(tops.slice(0, 20).map(record => record.sessionId))
+})
+
 test('P1: with no Desktop Group, every top sits under Recents, in the old root order', () => {
   const records = sampleSessions()
   const isMine = (record: (typeof records)[number]): number => (record.cliSessionId === 'cli-this' ? 1 : 0)
@@ -944,6 +969,127 @@ test('stateOf: a future activity counts as working', () => {
   expect(stateOf(NOW + HOUR, NOW, false)).toBe('working')
 })
 
+test('cutAtWord: text within the limit is kept, and the ellipsis counts in the limit', () => {
+  expect(cutAtWord('short text', 10)).toBe('short text')
+  expect(cutAtWord('short text!', 10)).toBe('short…')
+})
+
+test('cutAtWord: the cut falls at the last space before the limit, else it is a hard cut; characters, not units', () => {
+  expect(cutAtWord('a b c d e f g', 10)).toBe('a b c d…')
+  expect(cutAtWord('abcdefghijklmno', 10)).toBe('abcdefghi…')
+  expect(cutAtWord('\u{1F600}'.repeat(12), 10)).toBe(`${'\u{1F600}'.repeat(9)}…`)
+})
+
+test('cutAtWord: a cut never splits an emoji sequence joined by zero width joiners (one character, a grapheme)', () => {
+  // A family emoji is three people joined by two zero width joiners: five code points, one character.
+  const family = '\u{1F468}‍\u{1F469}‍\u{1F467}'
+  // Nine characters fit before the ellipsis: eight letters and the family. By code points the cut would split the family after its first person.
+  expect(cutAtWord(`abcdefgh${family}xyz`, 10)).toBe(`abcdefgh${family}…`)
+  expect(cutAtWord(`${family}${family}`, 2)).toBe(`${family}${family}`)
+  expect(cutAtWord(`${family}${family}`, 1)).toBe('…')
+})
+
+test('projectRecord reads postTurnSummary: blocked from status_category, the needs text cleaned of control characters and whitespace', () => {
+  const blocked = projectRecord(
+    makeRawRecord({ postTurnSummary: { status_category: 'blocked', status_detail: 'Waiting', needs_action: '  Approve\n the   push ', summarizes_uuid: 'turn-1' } }),
+  )
+  expect(blocked?.postTurn).toEqual({ blocked: true, needsAction: 'Approve the push' })
+  const completed = projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'completed', needs_action: 'Nothing' } }))
+  expect(completed?.postTurn).toEqual({ blocked: false, needsAction: 'Nothing' })
+})
+
+test('projectRecord: a missing or malformed postTurnSummary is no data, and the record is still projected', () => {
+  for (const postTurnSummary of [undefined, null, 'blocked', ['blocked'], { needs_action: 'Approve' }, { status_category: 1 }]) {
+    const projected = projectRecord(makeRawRecord({ postTurnSummary }))
+    expect(projected).not.toBeNull()
+    expect(projected?.postTurn).toBeNull()
+  }
+})
+
+test('projectRecord: a needs text that is not a string, is blank, or is over the field limit gives no line; the status still counts', () => {
+  expect(projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'blocked', needs_action: 42 } }))?.postTurn).toEqual({
+    blocked: true,
+    needsAction: null,
+  })
+  expect(projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'blocked', needs_action: ' \n ' } }))?.postTurn).toEqual({
+    blocked: true,
+    needsAction: null,
+  })
+  const oversized = 'a '.repeat(FIELD_MAX_LENGTH)
+  expect(projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'blocked', needs_action: oversized } }))?.postTurn).toEqual({
+    blocked: true,
+    needsAction: null,
+  })
+})
+
+test('projectRecord cuts the needs line at NEEDS_ACTION_MAX (90 characters, the ellipsis counted), at the last space before the limit', () => {
+  expect(NEEDS_ACTION_MAX).toBe(90)
+  const spaced = projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'blocked', needs_action: `${'x'.repeat(80)} ${'y'.repeat(30)}` } }))
+  expect(spaced?.postTurn?.needsAction).toBe(`${'x'.repeat(80)}…`)
+  const hard = projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'blocked', needs_action: 'z'.repeat(120) } }))
+  expect(hard?.postTurn?.needsAction).toBe(`${'z'.repeat(89)}…`)
+  const exact = projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'blocked', needs_action: 'q'.repeat(90) } }))
+  expect(exact?.postTurn?.needsAction).toBe('q'.repeat(90))
+})
+
+// A Desktop summary of a session that stopped for the person, as projectRecord reads it.
+const STOPPED = { blocked: true, needsAction: 'Approve the push' }
+
+test('buildTree: a session that stopped blocked within 24 h is waiting for you, and its row carries the needs line (D7)', () => {
+  const [node] = buildTree([makeRecord({ sessionId: 'local_aaaa0301', lastActivityAt: NOW - 3 * HOUR, postTurn: STOPPED })], OPTS)
+  expect(node?.state).toBe('waiting')
+  expect(node?.needsAction).toBe('Approve the push')
+})
+
+test('buildTree: the waiting window ends at 24 h: at the limit the session waits, past it the normal rule applies', () => {
+  const [atLimit] = buildTree([makeRecord({ sessionId: 'local_aaaa0302', lastActivityAt: NOW - WAITING_WINDOW_MS, postTurn: STOPPED })], OPTS)
+  expect(atLimit?.state).toBe('waiting')
+  const [past] = buildTree([makeRecord({ sessionId: 'local_aaaa0303', lastActivityAt: NOW - WAITING_WINDOW_MS - 1, postTurn: STOPPED })], OPTS)
+  expect(past?.state).toBe('idle')
+  expect(past?.needsAction).toBeNull()
+})
+
+test('buildTree: waiting wins over working for a stopped session with recent activity', () => {
+  const [node] = buildTree([makeRecord({ sessionId: 'local_aaaa0304', lastActivityAt: NOW - MINUTE, postTurn: STOPPED })], OPTS)
+  expect(node?.state).toBe('waiting')
+})
+
+test('buildTree: this window keeps its live rule: its own summary does not make it waiting, and its row has no needs line', () => {
+  const mine = { ...OPTS, thisCliSessionId: 'cli-this' }
+  const [live] = buildTree([makeRecord({ sessionId: 'local_aaaa0305', cliSessionId: 'cli-this', lastActivityAt: NOW - 3 * HOUR, postTurn: STOPPED })], mine)
+  expect(live?.state).toBe('idle')
+  expect(live?.needsAction).toBeNull()
+  const [flagged] = buildTree(
+    [makeRecord({ sessionId: 'local_aaaa0309', cliSessionId: 'cli-this', lastActivityAt: NOW - 3 * HOUR, waiting: true, postTurn: STOPPED })],
+    mine,
+  )
+  expect(flagged?.state).toBe('waiting')
+  expect(flagged?.needsAction).toBeNull()
+})
+
+test('buildTree: no summary, a summary that did not block, and a blocked one with no needs text (no line, still waiting)', () => {
+  const sessions = [
+    makeRecord({ sessionId: 'local_aaaa0306', lastActivityAt: NOW - 3 * HOUR, postTurn: null }),
+    makeRecord({ sessionId: 'local_aaaa0307', lastActivityAt: NOW - 3 * HOUR, postTurn: { blocked: false, needsAction: 'Nothing' } }),
+    makeRecord({ sessionId: 'local_aaaa0308', lastActivityAt: NOW - 3 * HOUR, postTurn: { blocked: true, needsAction: null } }),
+  ]
+  const byId = new Map(buildTree(sessions, OPTS).map(node => [node.id, node] as const))
+  expect(byId.get('local_aaaa0306')).toMatchObject({ state: 'idle', needsAction: null })
+  expect(byId.get('local_aaaa0307')).toMatchObject({ state: 'idle', needsAction: null })
+  expect(byId.get('local_aaaa0308')).toMatchObject({ state: 'waiting', needsAction: null })
+})
+
+test('buildTree: in a group, this window\'s top stays first, then a session waiting for you, then the rest by activity (Q6)', () => {
+  const sessions = [
+    makeRecord({ sessionId: 'local_aaaa0401', lastActivityAt: NOW - 2 * HOUR, postTurn: STOPPED }),
+    makeRecord({ sessionId: 'local_aaaa0402', cliSessionId: 'cli-this', lastActivityAt: NOW - 10 * HOUR }),
+    makeRecord({ sessionId: 'local_aaaa0403', lastActivityAt: NOW - MINUTE }),
+    makeRecord({ sessionId: 'local_aaaa0404', lastActivityAt: NOW - 25 * HOUR, postTurn: STOPPED }),
+  ]
+  const roots = buildTree(sessions, { ...OPTS, thisCliSessionId: 'cli-this' })
+  expect(roots.map(node => node.id)).toEqual(['local_aaaa0402', 'local_aaaa0401', 'local_aaaa0403', 'local_aaaa0404'])
+})
+
 test('isSessionLinkId accepts a local session id, a uuid form, and rejects the rest', () => {
   expect(isSessionLinkId('local_7f3a')).toBe(true)
   expect(isSessionLinkId('local_0a1b2c3d-4e5f-6789-abcd-ef0123456789')).toBe(true)
@@ -973,8 +1119,9 @@ test('projectRecord keeps exactly the fields of section 2.7 and drops the rest',
     parentTitle: null,
     commonDir: '/srv/synthetic/repo/.git',
     cwd: '/srv/synthetic/repo',
+    postTurn: null,
   })
-  expect(Object.keys(projected ?? {})).toHaveLength(12)
+  expect(Object.keys(projected ?? {})).toHaveLength(13)
 })
 
 test('projectRecord reads a fork parent from forkedFromSessionId and a spawn parent with its title', () => {
@@ -1041,6 +1188,7 @@ const dueMilestone = (number: number, dueOn: string | null): Milestone => ({
   closedIssues: 0,
   dueOn,
   countsExact: true,
+  description: null,
 })
 
 test('priorityOf: P0 to P3 and the critical, high, medium and low words map to P0 to P3', () => {
@@ -1199,4 +1347,63 @@ test('pm1-9: a closed group carries its milestone number, the target of its head
   expect(closedGroup?.closedTitle).toBe('Old milestone')
   expect(closedGroup?.closedNumber).toBe(40)
   expect(groups.filter(group => group.closedTitle === null).every(group => group.closedNumber === null)).toBe(true)
+})
+
+// ---- the decision of this window's issue (Mock S delta 8, Q4) ----
+
+test('newestDecisionOf: the newest comment that starts with "Decisão:" or "Decision:" (any case, after leading space) gives its text', () => {
+  const comments = [
+    { at: NOW + MINUTE, body: 'Decision: the old one', association: 'MEMBER' },
+    { at: NOW + 5 * MINUTE, body: 'a chatty comment, not a decision', association: 'MEMBER' },
+    { at: NOW + 3 * MINUTE, body: '  DECISÃO: DISK_FULL também em backup_receipt', association: 'MEMBER' },
+    { at: NOW + 4 * MINUTE, body: 'Nota: Decision: the prefix is not leading', association: 'MEMBER' },
+  ]
+  expect(newestDecisionOf(comments)).toBe('DISK_FULL também em backup_receipt')
+  expect(newestDecisionOf([])).toBeNull()
+  expect(newestDecisionOf([{ at: NOW, body: 'no prefix here', association: 'OWNER' }])).toBeNull()
+})
+
+test('newestDecisionOf: only a comment by the owner, a member or a collaborator is a decision; any other association is ignored', () => {
+  const body = 'Decision: use the store'
+  for (const association of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
+    expect(newestDecisionOf([{ at: NOW, body, association }])).toBe('use the store')
+  }
+  for (const association of ['CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', 'FIRST_TIMER', 'NONE', '']) {
+    expect(newestDecisionOf([{ at: NOW, body, association }])).toBeNull()
+  }
+  // A newer comment by a stranger does not replace the owner's decision.
+  const comments = [
+    { at: NOW, body: 'Decision: kept by the owner', association: 'OWNER' },
+    { at: NOW + MINUTE, body: 'Decision: spoofed', association: 'NONE' },
+  ]
+  expect(newestDecisionOf(comments)).toBe('kept by the owner')
+})
+
+test('newestDecisionOf: a prefix in bold (**Decisão:** or **Decision:**) is a decision prefix; the bold closes before the text', () => {
+  expect(newestDecisionOf([{ at: NOW, body: '**Decisão:** use the store', association: 'MEMBER' }])).toBe('use the store')
+  expect(newestDecisionOf([{ at: NOW, body: '  **DECISION:** kept', association: 'COLLABORATOR' }])).toBe('kept')
+  // A bold word that is not the prefix, or a prefix with no text after the bold, is no decision.
+  expect(newestDecisionOf([{ at: NOW, body: '**Note** Decision: not leading', association: 'OWNER' }])).toBeNull()
+  expect(newestDecisionOf([{ at: NOW, body: '**Decision:**', association: 'OWNER' }])).toBeNull()
+})
+
+test('newestDecisionOf: the text is plain (whitespace collapsed, control characters out), and a prefix with no text is no decision', () => {
+  expect(newestDecisionOf([{ at: NOW, body: 'Decisão:\n  use   the\u0007 store  ', association: 'MEMBER' }])).toBe('use the store')
+  // An empty decision is skipped: the older one with text is the decision.
+  const comments = [
+    { at: NOW, body: 'Decision: kept', association: 'MEMBER' },
+    { at: NOW + MINUTE, body: 'Decision:', association: 'MEMBER' },
+    { at: NOW + 2 * MINUTE, body: 'Decisão:   \n ', association: 'MEMBER' },
+  ]
+  expect(newestDecisionOf(comments)).toBe('kept')
+  expect(newestDecisionOf([{ at: NOW, body: 'Decision:', association: 'MEMBER' }])).toBeNull()
+})
+
+test('newestDecisionOf: a decision longer than DECISION_MAX is cut at the last space before the limit, the ellipsis counted', () => {
+  const long = `Decision: ${'a'.repeat(190)} ${'b'.repeat(30)}`
+  const decision = newestDecisionOf([{ at: NOW, body: long, association: 'OWNER' }])
+  expect(decision).toBe(`${'a'.repeat(190)}…`)
+  expect(Array.from(decision ?? '').length).toBeLessThanOrEqual(DECISION_MAX)
+  // Exactly the limit is kept whole.
+  expect(newestDecisionOf([{ at: NOW, body: `Decision: ${'c'.repeat(DECISION_MAX)}`, association: 'OWNER' }])).toBe('c'.repeat(DECISION_MAX))
 })

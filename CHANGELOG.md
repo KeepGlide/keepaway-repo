@@ -8,6 +8,34 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+## [0.2.0-beta.19] - 2026-10-30
+
+### Added
+- A `Summary:` / `Resumo:` line under each session's title, on the desktop and in the terminal: the session's first real prompt, read from the head of its transcript, cleaned and cut to 93 characters (`hooks/summary.ts`, SPEC section 21), or `no summary` / `sem resumo`. `/keeptrack summary on|off` (default on) hides the lines and stops the transcript reads.
+- Another session that stopped for you is waiting for you: its Desktop post-turn summary (`postTurnSummary`, Desktop-internal) says `blocked` and its last activity is within 24 hours. Its row draws ⏳, and under its title a `Needs you:` / `Precisa de você:` line with the summary's `needs_action`, plain text, cut to 90 characters with the ellipsis counted, at the last space before the limit. A missing or malformed summary is no data: no waiting state, no line (SPEC sections 7 and 9, D7).
+- `cutAtWord` in `hooks/model.ts`: the cut at the last space before a limit, the ellipsis counted, a hard cut when there is no space. A character is a grapheme where `Intl.Segmenter` exists, so an emoji sequence is never split.
+- A hero above the sessions (SPEC section 20): risk chips for overdue milestones and for milestones due within 14 days (exact counts, host zone), a chip for the other sessions that stopped for you (count, issue numbers, age of one), then the closed issues of the open milestones in bold, the bar with its percentage, the issues left and the sessions working. In English and pt-BR.
+- `daysUntilDue` and `isDueSoon` in `hooks/pane.tsx`, beside `isOverdue`; `SessionNode.lastActivityAt` in `types/index.d.ts`.
+- A `Decided:` / `Decidido:` line in this window's block, after its details: the text after the prefix of the newest `Decisão:` or `Decision:` comment of the issue, plain (the prefix may be bold, `**Decisão:**`), cut to 200 characters (`newestDecisionOf`, SPEC sections 6 and 11). Only a comment by the owner, a member or a collaborator counts. No decision, no line.
+- The milestone's objective: its GitHub description, under the milestone heading as `Objective:` / `Objetivo:`, plain, cut to 100 characters with the ellipsis counted; no line when the description is empty (SPEC section 11).
+
+### Changed
+- A session group past 20 top-level sessions draws the first 20 and a `+k more` / `+k mais` line; the header still counts every listed session (SPEC sections 11 and 16).
+- An issue title and a milestone heading end with ↗ on the desktop where their link is drawn; a milestone heading reads its title first, then its icons, the title cut at the first ` · ` and at 40 characters, the ellipsis counted (SPEC sections 11 and 16).
+- The Labels table lists only the icons the body draws: ↗, ~, #n and the missing priority icon are explained in one muted note line under it. A closed PR keeps its ☑️ row.
+- The overdue marker moves from a milestone's progress line to its heading, after 🎯, so the progress line names no state (SPEC sections 19 and 20).
+- In each group, the top holding this window stays first, then a top whose session, or a session under it, waits for you, then the rest by activity (SPEC section 3).
+- The Labels legend's ⏳ sentence says what the icon means now: this window's session waits for an approval, or another session stopped and needs an answer (last activity less than 24 hours ago), in English and pt-BR.
+
+### Fixed
+- SPEC section 19 said the loading line draws ⏳; the code draws no icon there, and the SPEC now says so.
+- The due-soon chip reads `due today` / `vence hoje` on the due day instead of `due in 0 days` (SPEC section 20).
+- A session whose transcript is not written yet is no longer stored as `no summary` for good: a missing or refused transcript, or one with no user line yet, is kept in memory only and read again after 10 minutes. Nothing is stored: the summary lives in this window's memory (SPEC section 21).
+- Summaries are no longer written to the store. The `summary:<sessionId>` keys an earlier unreleased build left are deleted once per window; the `summary` setting stays (SPEC section 21).
+- A transcript head with unclosed `<system-reminder>`, command or paste tags no longer costs quadratic time (about 700 ms on 256 KiB); the tags are scanned in one pass (`hooks/summary.ts`).
+- A whole transcript keeps its last line, even with no newline after it; only a head cut at 256 KiB drops its last line.
+- A top whose session under it waits for you ranks as waiting, so the first 20 tops of a group never hide it (SPEC section 3).
+
 ## [0.2.0-beta.18] - 2026-10-30
 
 ### Security

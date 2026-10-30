@@ -47,7 +47,7 @@
 
 ## 📌 Status
 
-Beta (`0.2.0-beta.18`). The project follows [SemVer](https://semver.org/): while the version is `0.y.z`, any release may change behavior without notice.
+Beta (`0.2.0-beta.19`). The project follows [SemVer](https://semver.org/): while the version is `0.y.z`, any release may change behavior without notice.
 
 ## 💡 Why it exists
 
@@ -61,7 +61,7 @@ It does **not** change anything on GitHub or in your repository. It does not tra
 
 - **`/keeptrack`** opens the pane (`/keeptrack open` does the same). `/keeptrack issue <n>` sets the issue of this window, `/keeptrack issue none` clears it, and `/keeptrack lang en|pt-BR|auto` sets the language.
 - **This window first**: the session of the window with its issue's details and timeline.
-- **Sessions grouped as in the Desktop sidebar**: the group label on top, in plain bold text, then its sessions. A session filed in a Desktop sidebar Group (its own, or its root's) is drawn under the Group's name; every session without a Group is listed under one group labelled `Recents`, as the Desktop sidebar names them. The label is `Recents` in both languages, because the Desktop app has no translated label, and a Desktop Group named "Recents" keeps its own label next to it. Each top session is a titled `├`/`└` row with its state, issue and milestone, and its derived sessions (fork or spawn) are nested under it at 1, 3 and 5 cells. This window's group comes first, then the named Groups by newest activity, then `Recents`; inside a group, this window's session comes first, then the newest. Each session title links to its Desktop session.
+- **Sessions grouped as in the Desktop sidebar**: the group label on top, in plain bold text, then its sessions. A session filed in a Desktop sidebar Group (its own, or its root's) is drawn under the Group's name; every session without a Group is listed under one group labelled `Recents`, as the Desktop sidebar names them. The label is `Recents` in both languages, because the Desktop app has no translated label, and a Desktop Group named "Recents" keeps its own label next to it. Each top session is a titled `├`/`└` row with its state, issue and milestone, and its derived sessions (fork or spawn) are nested under it at 1, 3 and 5 cells. This window's group comes first, then the named Groups by newest activity, then `Recents`; inside a group, this window's session comes first, then the sessions waiting for you, then the newest. Each session title links to its Desktop session.
 - **Ended sessions are not listed**: an archived Desktop session leaves the tree at once, unless it is this window's own session. An archived root is not drawn: its live derived sessions are rows of their group (`Recents` when they have no Group), with the parent's title in their timeline.
 - **Open issues by milestone**: the open issues that no session works on, grouped by open milestone, with the milestone progress. Milestones sort by due date, earliest first; inside a group the issues sort by priority (`P0` to `P3`, read from the labels), and each row carries its tag.
 - **A band above the prompt** with the state of this window: running or idle, the current tool or MCP server with its icon, the number of agents, the elapsed time, a waiting-for-you state, a data-error state, the milestone progress and the issue number. The band shows the state by its icon alone, with no word.
@@ -69,6 +69,10 @@ It does **not** change anything on GitHub or in your repository. It does not tra
 - **English and Brazilian Portuguese** in the pane and the band.
 - **Repo logo**: on the desktop, a session row shows its repo's logo (16 px) before the title when the repo has one: a PNG or JPEG logo file in the checkout (no SVG), else GitHub's contents, else the avatar of a GitHub organization that owns the repo; a GitLab repo gets its project's avatar through `glab`. A remote named by an ssh alias is read as the host the alias resolves to. Nothing is drawn otherwise.
 - **Links**: a session title opens its GitHub or GitLab page when the session's remote is known, and an `open session` link opens the session itself. On the desktop, milestones, commits, PRs and issues link to their pages.
+- **Risks first**: above the sessions, chips for an overdue milestone (⚠️), a milestone due within 14 days (📅, `due today` on the day) and the other sessions that stopped waiting for you (⏳, with their issue numbers); then `14 of 24 closed in the open milestones`, the bar, the issues left and the sessions working.
+- **Waiting sessions**: another session whose last turn stopped needing you (the Desktop's post-turn summary, last activity under 24 h) shows ⏳ and a `Needs you:` line of up to 90 characters, and sorts right after this window's session. A group lists 20 top sessions, then `+k more`.
+- **Summary of each session**: a `Summary:` line with the session's first prompt, cleaned and cut to 93 characters. `/keeptrack summary off` hides it.
+- **Decisions and objectives**: this window's block shows `Decided:` from the newest issue comment by the owner, a member or a collaborator that starts with `Decision:` or `Decisão:`; each milestone shows its description as `Objective:`.
 - **Icons after the title**: state (🟢 working, ⏳ waiting for you, 💤 idle, with no state word), the active mark (▶️ this window), the history (🕘 timeline: 📝 commit, 🔀 PR, 🚀 session), issues to do (📋) or in progress (🛠️), milestones (🎯) with a text progress bar, due date (📅) and overdue marker (⚠️), and priorities (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3). A legend at the foot of the pane, in a bordered block, names each one. The full table is in [SPEC section 19](plugins/keeptrack-repo-pane/SPEC.md). The screenshots still show the design from before the icons.
 
 ## 📸 Screenshots
@@ -191,7 +195,7 @@ Ground rules:
 | 1 | Check that gh is signed in | `gh auth status` | Exit 0 and a line `Logged in to github.com`. If not, the human runs `gh auth login`. |
 | 2 | Check that the repository has a GitHub remote | `git remote get-url origin` | Exit 0 and a URL whose host is `github.com`, or an SSH alias with `github` in its name (for example `git@github-<label>:<owner>/<repo>.git`). Otherwise the pane shows `no GitHub remote for this repo`. |
 | 3 🧑 | Add the marketplace, unless `claude plugin marketplace list` already shows `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Exit 0, and `claude plugin marketplace list` shows `sophia-mods` with `Source: Folder (<path>)`. |
-| 4 🧑 | Install the plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Exit 0, and `claude plugin list` shows `keeptrack-repo-pane@sophia-mods` with `Version: 0.2.0-beta.18` and `Status: ✔ enabled`. |
+| 4 🧑 | Install the plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Exit 0, and `claude plugin list` shows `keeptrack-repo-pane@sophia-mods` with `Version: 0.2.0-beta.19` and `Status: ✔ enabled`. |
 | 5 | Check that the command is registered | In a Desktop session, `/keeptrack bogus` | A toast with the usage line `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto`. Nothing changes. |
 | 6 | Open the pane | `/keeptrack` | A pane titled `KeepTrack` opens. It shows `Loading the repo...`, then the open issues by milestone, or an error line from [Troubleshooting](#-troubleshooting). |
 | 7 | Switch the language to Portuguese | `/keeptrack lang pt-BR` | The pane and the band switch to Portuguese. While loading, the pane shows `Carregando o repo...`. |
@@ -246,6 +250,7 @@ Restart Claude Code, or run `/reload-plugins`, afterwards. What the mod leaves b
 | `/keeptrack issue <n>` | Sets the issue of this window, from 1 to 999999. Stored per session as `override:<session id>` for 30 days. Only a Desktop session can set it; any other window gets a toast. |
 | `/keeptrack issue none` | Clears the issue of this window. |
 | `/keeptrack lang en\|pt-BR\|auto` | Stores the language (case does not matter) and switches it at once. `auto` removes the stored choice and follows the environment. |
+| `/keeptrack summary on\|off` | Shows or hides the `Summary:` line of each session (on by default). Off, no transcript is read. |
 | Any other argument | A toast with the usage line. Nothing changes. Extra words after `open` or `issue <n>` (for example `/keeptrack open now`) count as another argument. |
 
 ## 🎛️ Configuration
@@ -282,8 +287,8 @@ Fixed in the code, not configurable:
 
 ## 🔒 Security and privacy
 
-- **What leaves the machine:** only `gh` calls to GitHub, to read milestones, open issues, open pull requests, the milestone totals and one issue's details. There are no paid calls and no calls to other services.
-- **What is read locally:** the git remote, branch and log of the repository and of its sessions, the Desktop session records, and the Desktop config (its sidebar Groups only).
+- **What leaves the machine:** only `gh` calls to GitHub, to read milestones, open issues, open pull requests, the milestone totals and one issue's details. There are no paid calls and no calls to other services. For repo logos, GitHub's contents and owner type through `gh`, the organization avatar from `avatars.githubusercontent.com` (https only), and the GitLab avatar through `glab`.
+- **What is read locally:** the git remote, branch and log of the repository and of its sessions, the Desktop session records, and the Desktop config (its sidebar Groups only). With summaries on, the first 256 KiB of each listed session's transcript, for its first prompt; the summary stays in memory and is never stored.
 - **What is written:** only the state of the mod (the open flag, the language and the issue set by `/keeptrack issue`). Nothing is written to GitHub or to the repository.
 - To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
@@ -321,16 +326,17 @@ Known limitations, as the code does them today:
 
 | Category | Tests |
 |---|---|
-| Rules: remote parsing, session tree, issue groups, timelines, record projection, UTC offset parsing (`tests/model.test.ts`) | 103 |
-| Hooks module: poll, pane command, timers, close and host UTC offset (`tests/register.test.ts`) | 184 |
+| Rules: remote parsing, session tree, issue groups, timelines, record projection, UTC offset parsing (`tests/model.test.ts`) | 122 |
+| Hooks module: poll, pane command, timers, close and host UTC offset (`tests/register.test.ts`) | 201 |
 | Band: status line, states and Open button (`tests/band.test.ts`) | 41 |
-| Pane: snapshot drawing, host clock and due dates (`tests/pane.test.ts`) | 88 |
+| Pane: snapshot drawing, host clock and due dates (`tests/pane.test.ts`) | 107 |
 | Language: English and pt-BR dictionaries (`tests/i18n.test.ts`) | 10 |
 | Turn transitions of the band (`tests/turn.test.ts`) | 8 |
 | Repo logo: file lookup, raster checks and the avatar fetch script (`tests/repo-logo.test.ts`) | 15 |
-| **Total** | **449** |
+| Summary: transcript cleanup, cuts and the linear tag scan (`tests/summary.test.ts`) | 16 |
+| **Total** | **520** |
 
-Counts from `claude plugin test plugins/keeptrack-repo-pane` on the Unreleased tree (the row order and the legend): 449 pass, 0 fail, 7 files. The look self-check (`scripts/keeptrack-look-selftest.sh`) is a shell script and is not counted.
+Counts from `claude plugin test plugins/keeptrack-repo-pane` on the Unreleased tree (the row order and the legend): 520 pass, 0 fail, 8 files. The look self-check (`scripts/keeptrack-look-selftest.sh`) is a shell script and is not counted.
 
 ## 🔧 Development
 
