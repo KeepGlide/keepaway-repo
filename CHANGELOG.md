@@ -8,6 +8,16 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+## [0.2.0-beta.14] - 2026-10-30
+
+### Changed
+
+- Session rows put the title first, then the state icon (🟢, ⏳, 💤) and the active marker (▶️, 🔄) after it. The state word is gone from the rows, in both languages; this window's details keep their `State` line (`hooks/pane.tsx`, SPEC section 11).
+
+### Added
+
+- A legend at the foot of the pane, above the `Updated` line: every icon the pane draws, with its meaning in English and pt-BR. The emoji come from `hooks/action-icons.ts`, so the legend cannot drift from the table (`hooks/pane.tsx`, `hooks/i18n.ts`, SPEC section 19).
+
 ## [0.2.0-beta.13] - 2026-10-30
 
 ### Changed

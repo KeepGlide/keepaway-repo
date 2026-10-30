@@ -13,6 +13,7 @@ import type {
   IssueRef,
   Milestone,
   PaneError,
+  Priority,
   PullRequest,
   SessionGroup,
   SessionNode,
@@ -95,6 +96,8 @@ const BAR_CELLS = 10
 const PERCENT_MAX = 100
 // The text with its icon before it; an empty icon leaves the text as it is.
 const withIcon = (icon: string, text: string): string => (icon === '' ? text : `${icon} ${text}`)
+// The non-empty parts of a line, apart by one space: a title and the icons after it.
+const joinWords = (parts: readonly string[]): string => parts.filter(part => part !== '').join(' ')
 const STATE_KEY: Readonly<Record<SessionNode['state'], MessageKey>> = {
   working: 'state.working',
   idle: 'state.idle',
@@ -204,6 +207,7 @@ function renderSnapshot(view: View, snapshot: Snapshot): RenderElement[] {
     ...renderErrors(view, snapshot),
     ...renderSessionGroups(view, snapshot),
     ...issues,
+    renderLegend(view),
     renderFooter(view, snapshot),
   ]
 }
@@ -330,14 +334,13 @@ function renderOtherSession(view: View, node: SessionNode, place: RowPlace): Ren
   )
 }
 
-// The title line (branch glyph, state glyph and its word, title) and the breadcrumb under it. The glyph is a visual cue; the
-// word beside it carries the state on every row, not only this window's (ux4-1).
+// The title line (branch glyph, title with its icons after it) and the breadcrumb under it. The state is an icon alone, with no
+// state word, on every row; the footer's legend names each icon (SPEC section 19).
 function renderSessionHead(view: View, node: SessionNode, place: RowPlace): RenderElement {
   const { Box, Text } = view.ui
   return (
     <Box key={`head-${node.id}`} flexDirection="row" gap={1}>
       <Text key="branch">{place.branch}</Text>
-      <Text key="state">{withIcon(actionIconEmoji(STATE_ICON[node.state]), t(view.lang, STATE_KEY[node.state]))}</Text>
       <Box key="title-block" flexDirection="column" flexGrow={1}>
         {renderSessionTitle(view, node, node.isThisWindow)}
         {renderCrumb(view, node, place)}
@@ -347,20 +350,20 @@ function renderSessionHead(view: View, node: SessionNode, place: RowPlace): Rend
 }
 
 // The title is a link to the session where the Desktop draws Markdown and the id is a session id; the Desktop opens it.
-// Elsewhere (the terminal, or an id that is not a session link) it is plain Text, without the arrow. The active marker leads the
-// title, outside the link.
+// Elsewhere (the terminal, or an id that is not a session link) it is plain Text, without the arrow. The icons follow the title,
+// outside the link: the state icon, then the active marker, then this window's words.
 function renderSessionTitle(view: View, node: SessionNode, isThis: boolean): RenderElement {
   const { ui, lang } = view
-  const active = activeMarkerOf(node)
+  const icons = joinWords([actionIconEmoji(STATE_ICON[node.state]), activeMarkerOf(node)])
   const marker = isThis ? t(lang, 'session.thisWindow') : ''
   if (view.desktop && 'Markdown' in ui && isSessionLinkId(node.id)) {
     const { Markdown } = ui
     const anchor = `[${escapeMarkdown(`${node.title} ↗`)}](#${node.id})`
     const linked = isThis ? `**${anchor}**` : anchor
-    return <Markdown key={`title-${node.id}`} text={withIcon(active, isThis ? `${linked} ${escapeMarkdown(marker)}` : linked)} />
+    return <Markdown key={`title-${node.id}`} text={joinWords([linked, icons, escapeMarkdown(marker)])} />
   }
   const { Text } = ui
-  return <Text key={`title-${node.id}`} bold={isThis}>{withIcon(active, isThis ? `${node.title} ${marker}` : node.title)}</Text>
+  return <Text key={`title-${node.id}`} bold={isThis}>{joinWords([node.title, icons, marker])}</Text>
 }
 
 // The marker of an active row: this window's row (the activeWindow icon), and a session working now (the activeSession icon).
@@ -627,6 +630,44 @@ function renderIssueLine(view: View, issue: Issue): RenderElement {
   }
   const { Text } = ui
   return <Text key={`line-${issue.number}`} bold={emphasised}>{label}</Text>
+}
+
+// The footer's legend: each icon a snapshot draws, with its meaning. The emoji are read from action-icons.ts by name, so the legend
+// cannot drift from the table and holds no emoji of its own. The band-only icons (no issue, no remote, tools) are not listed, and
+// neither are the loading and failure lines, which draw without the footer.
+type LegendEntry = { id: string; icon: string; meaning: MessageKey }
+const PRIORITIES: readonly Priority[] = ['P0', 'P1', 'P2', 'P3']
+const LEGEND_ENTRIES: readonly LegendEntry[] = [
+  { id: 'working', icon: actionIconEmoji('working'), meaning: 'state.working' },
+  { id: 'waiting', icon: actionIconEmoji('waiting'), meaning: 'legend.waiting' },
+  { id: 'idle', icon: actionIconEmoji('idle'), meaning: 'state.idle' },
+  { id: 'this-window', icon: statusIconEmoji('activeWindow'), meaning: 'legend.thisWindow' },
+  { id: 'working-now', icon: statusIconEmoji('activeSession'), meaning: 'legend.workingNow' },
+  { id: 'issue', icon: actionIconEmoji('inProgress'), meaning: 'legend.issue' },
+  { id: 'milestone', icon: actionIconEmoji('milestone'), meaning: 'legend.milestone' },
+  { id: 'issues', icon: statusIconEmoji('issues'), meaning: 'legend.issues' },
+  { id: 'sessions', icon: statusIconEmoji('sessions'), meaning: 'legend.sessions' },
+  { id: 'history', icon: statusIconEmoji('history'), meaning: 'legend.history' },
+  { id: 'commit', icon: statusIconEmoji('commit'), meaning: 'legend.commit' },
+  { id: 'pr', icon: statusIconEmoji('pr'), meaning: 'legend.pr' },
+  { id: 'session', icon: statusIconEmoji('session'), meaning: 'legend.sessionEvent' },
+  { id: 'done', icon: statusIconEmoji('done'), meaning: 'legend.done' },
+  { id: 'closed', icon: statusIconEmoji('closed'), meaning: 'legend.closed' },
+  { id: 'due', icon: statusIconEmoji('due'), meaning: 'legend.due' },
+  { id: 'warning', icon: actionIconEmoji('error'), meaning: 'legend.warning' },
+  { id: 'priority', icon: PRIORITIES.map(priority => priorityEmoji(priority)).join(' '), meaning: 'legend.priority' },
+]
+
+// The legend: one entry per icon, wrapping on a narrow surface. Each key is the entry's id, so it is the same on every draw.
+function renderLegend(view: View): RenderElement {
+  const { Box, Text } = view.ui
+  return (
+    <Box key="legend" flexDirection="row" flexWrap="wrap" gap={1}>
+      {LEGEND_ENTRIES.map(entry => (
+        <Text key={`legend-${entry.id}`}>{`${entry.icon} ${t(view.lang, entry.meaning)}`}</Text>
+      ))}
+    </Box>
+  )
 }
 
 function renderFooter(view: View, snapshot: Snapshot): RenderElement {

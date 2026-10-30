@@ -1,4 +1,4 @@
-# KeepTrack: spec (as built, v0.2.0-beta.13)
+# KeepTrack: spec (as built, v0.2.0-beta.14)
 
 Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepTrack, the command is `/keeptrack`.
 
@@ -283,7 +283,7 @@ A poll never throws into the engine: a failed job is logged by its error name on
 
 Inside one highlighted block (the engine's user-message background, `DETAILS_FILL`):
 
-1. Title row: the session title as a link to `#local_<id>` on the desktop (plain text on the terminal), `← this window`.
+1. Title row: the session title as a link to `#local_<id>` on the desktop (plain text on the terminal), then its icons: the state icon, the active marker and, on this window's row, `← this window`.
 2. Breadcrumb (section 10).
 3. Detail lines `Heading: text` (only when `thisIssue` is drawn): State, Branch, PR, Last commit, Checks, Last comment,
    Next step, Started. Each heading is bold; each line is a separate row. "Next step" reads `no next step` (pt-BR `nenhum registrado`) while no value exists, which is
@@ -295,8 +295,7 @@ Inside one highlighted block (the engine's user-message background, `DETAILS_FIL
 Nothing folds. Each group draws its label line, then each top as a titled row (`├`, and `└` on the last) with its derived
 rows nested under it; deeper derived rows nest under their parent, indent capped at two levels (W1, section 9).
 
-Each session row's title line reads the branch glyph, then the state glyph with its word (`🟢 working`, `💤 idle`,
-`⏳ waiting for you`; pt-BR `trabalhando`, `ociosa`, `esperando você`), then the title, on every row, with the active marker before it (`▶️` on this window's row, `🔄` on a session working now). The sessions section draws
+Each session row's title line reads the branch glyph, then the title, then the state icon (`🟢` working, `⏳` waiting for you, `💤` idle) and the active marker after it (`▶️` on this window's row, `🔄` on a session working now), on every row. A row carries no state word, in either language: the footer's legend names each icon (section 19). The state word stays in this window's details (`State:`, item 3 above). The sessions section draws
 nothing when no session is listed: no heading, no label, no empty row.
 
 Below the sessions, the open issues that no session works on are drawn by milestone, under the heading `📋 Issues without session` (pt-BR `Issues sem sessão`). Each milestone group is bold, with its title
@@ -312,7 +311,7 @@ each issue's own milestone field (pm1-9).
 
 Open milestone groups sort by due date, earliest first (an overdue one leads), then by number, newest first. A milestone with no due date, or one whose date does not parse, comes after the dated ones, by number, newest first. Inside every group the issues sort by priority, P0 first and unlabelled last, then newest first (a stable sort, so the newest-first order holds within a priority). A priority comes from the issue's labels, case-insensitive: `P0` to `P3`, or `priority: critical|high|medium|low` with the `priority/…`, `priority-…` and `prio…` variants, read as P0 to P3 (critical is P0, low is P3); when several labels name one, the highest wins (`priorityOf`, `hooks/model.ts`). The row draws the priority icon and the tag before its number (`🟠 P1 #12 title`, icons in section 19); P0 and P1 rows draw bold (`EMPHASISED_PRIORITIES`, `hooks/look.ts`). The session line does not carry the tag: its breadcrumb reads IssueFacts, which would have to widen for it.
 
-The pane's footer reads `Updated <age> · gh · <owner/name>` (pt-BR `Atualizado <age> · gh · <owner/name>`). The age uses the same
+The pane's footer reads `Updated <age> · gh · <owner/name>` (pt-BR `Atualizado <age> · gh · <owner/name>`), the last line, below the legend (section 19). The age uses the same
 scale as the rows: `just now` (pt-BR `agora`) under one minute, then `N min ago` (`há N min`), `N h ago` (`há N h`) or `N d ago`
 (`há N d`).
 
@@ -358,7 +357,7 @@ Run from the mod folder:
 3. `scripts/keeptrack-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
    `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only (it holds every emoji of KeepTrack). `scripts/keeptrack-look-selftest.sh` runs the gate on a copy and checks those cases.
 4. `agentic-mod-release-tool.sh keeptrack-repo-pane --check` must pass before the mod is installed (CLAUDE.md rule 6a).
-   The mod is published as 0.2.0-beta.13 and installed from `sophia-mods` (README, Installation).
+   The mod is published as 0.2.0-beta.14 and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
 or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`, `parseUtcOffset`) and do not depend on the zone the test process runs in; the register test answers `date +%z` through the process stub, including a refused call.
@@ -521,6 +520,12 @@ PT), and the icon sits before its word. The pane draws its emoji as text on both
 | Priority P0 / P1 / P2 / P3 | 🔴 / 🟠 / 🟡 / ⚪ | issue row, before the tag |
 | Band: no issue, no remote, tool, MCP | 📭, 🚫, 🔧, 🔌 | band words (section 18) |
 
+- Legend (the footer's block above `Updated`): one entry per icon a snapshot draws, the emoji taken by name from `action-icons.ts`
+  (`LEGEND_ENTRIES`, `hooks/pane.tsx`) and the meaning from `legend.*` in `hooks/i18n.ts` (EN and PT). The four priority tags share one
+  entry. The band-only rows (📭, 🚫, ⭕, 🔧, 🔌) are not listed, and neither are the loading and failure lines (⏳, ❌), which draw
+  without the footer. Keys: `legend`, and `legend-<id>` per entry, the same on every draw. A session row's state icon is text inside
+  `title-<session id>`; the separate `state` element is gone. `tests/pane.test.ts` checks that the legend lists every icon a snapshot
+  draws, and no other, in both languages.
 - Progress bar: ten cells of plain characters, `▰` filled and `▱` empty, then the rounded percentage (`▰▰▰▰▰▰▱▱▱▱ 60%`). It is drawn
   only from exact counts (`countsExact`); a milestone with inexact counts draws its progress line without a bar (`progressBarOf`).
 - Overdue: an open milestone with open issues and exact counts whose due date (GitHub's calendar date) is before today's date in the
