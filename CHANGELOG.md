@@ -8,6 +8,17 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+## [0.2.0-beta.17] - 2026-10-30
+
+### Added
+- The `open session: <title>` link names its session (the title cut at 40 characters), so a screen reader tells the links apart.
+- The pane's session titles link to the repo's GitHub or GitLab page when the session's remote is known. An `open session` link after the icons keeps the session openable; with no known remote the title opens the session, as before.
+- On the desktop, milestone headings and the breadcrumb's milestone link to the GitHub milestone page; commit and PR timeline events link to their commit or PR page; the PR line of this window's details links to the PR.
+
+### Changed
+- The loading line is plain text: the ⏳ icon stays for waiting for you.
+- The Labels legend is a bordered block with one row per priority (🔴 P0 to ⚪ P3). The icon column is four columns and never shrinks, so every row's text starts at the same x, a wrapped sentence keeps its icon on the first line, and the gap is small.
+
 ## [0.2.0-beta.16] - 2026-10-30
 
 ### Changed

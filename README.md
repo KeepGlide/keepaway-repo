@@ -47,7 +47,7 @@
 
 ## 📌 Status
 
-Beta (`0.2.0-beta.16`). The project follows [SemVer](https://semver.org/): while the version is `0.y.z`, any release may change behavior without notice.
+Beta (`0.2.0-beta.17`). The project follows [SemVer](https://semver.org/): while the version is `0.y.z`, any release may change behavior without notice.
 
 ## 💡 Why it exists
 
@@ -67,7 +67,8 @@ It does **not** change anything on GitHub or in your repository. It does not tra
 - **A band above the prompt** with the state of this window: running or idle, the current tool or MCP server with its icon, the number of agents, the elapsed time, a waiting-for-you state, a data-error state, the milestone progress and the issue number. The band shows the state by its icon alone, with no word.
 - **An Open button** on the band, with the KeepGlide mark before it (the mark shows on Desktop only).
 - **English and Brazilian Portuguese** in the pane and the band.
-- **Icons after the title**: state (🟢 working, ⏳ waiting for you, 💤 idle, with no state word), the active marks (▶️ this window, 🔄 a session working now), the history (🕘 timeline: 📝 commit, 🔀 PR, 🚀 session), issues to do (📋) or in progress (🛠️), milestones (🎯) with a text progress bar, due date (📅) and overdue marker (⚠️), and priorities (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3). A legend at the foot of the pane names each one. The full table is in [SPEC section 19](plugins/keeptrack-repo-pane/SPEC.md). The screenshots still show the design from before the icons.
+- **Links**: a session title opens its GitHub or GitLab page when the session's remote is known, and an `open session` link opens the session itself. On the desktop, milestones, commits, PRs and issues link to their pages.
+- **Icons after the title**: state (🟢 working, ⏳ waiting for you, 💤 idle, with no state word), the active marks (▶️ this window, 🔄 a session working now), the history (🕘 timeline: 📝 commit, 🔀 PR, 🚀 session), issues to do (📋) or in progress (🛠️), milestones (🎯) with a text progress bar, due date (📅) and overdue marker (⚠️), and priorities (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3). A legend at the foot of the pane, in a bordered block, names each one. The full table is in [SPEC section 19](plugins/keeptrack-repo-pane/SPEC.md). The screenshots still show the design from before the icons.
 
 ## 📸 Screenshots
 
@@ -189,7 +190,7 @@ Ground rules:
 | 1 | Check that gh is signed in | `gh auth status` | Exit 0 and a line `Logged in to github.com`. If not, the human runs `gh auth login`. |
 | 2 | Check that the repository has a GitHub remote | `git remote get-url origin` | Exit 0 and a URL whose host is `github.com`, or an SSH alias with `github` in its name (for example `git@github-<label>:<owner>/<repo>.git`). Otherwise the pane shows `no GitHub remote for this repo`. |
 | 3 🧑 | Add the marketplace, unless `claude plugin marketplace list` already shows `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Exit 0, and `claude plugin marketplace list` shows `sophia-mods` with `Source: Folder (<path>)`. |
-| 4 🧑 | Install the plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Exit 0, and `claude plugin list` shows `keeptrack-repo-pane@sophia-mods` with `Version: 0.2.0-beta.16` and `Status: ✔ enabled`. |
+| 4 🧑 | Install the plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Exit 0, and `claude plugin list` shows `keeptrack-repo-pane@sophia-mods` with `Version: 0.2.0-beta.17` and `Status: ✔ enabled`. |
 | 5 | Check that the command is registered | In a Desktop session, `/keeptrack bogus` | A toast with the usage line `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto`. Nothing changes. |
 | 6 | Open the pane | `/keeptrack` | A pane titled `KeepTrack` opens. It shows `Loading the repo...`, then the open issues by milestone, or an error line from [Troubleshooting](#-troubleshooting). |
 | 7 | Switch the language to Portuguese | `/keeptrack lang pt-BR` | The pane and the band switch to Portuguese. While loading, the pane shows `Carregando o repo...`. |

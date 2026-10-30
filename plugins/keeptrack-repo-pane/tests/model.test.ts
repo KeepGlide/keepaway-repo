@@ -12,7 +12,11 @@ import {
   isSessionLinkId,
   issueFromBranch,
   issueFromTitle,
+  PAGE_URL,
+  commitPageOf,
   isGithubHost,
+  milestonePageOf,
+  repoPageOf,
   issueFactsOf,
   issueOfSession,
   mapLimited,
@@ -470,7 +474,7 @@ test('buildTree: the timeline of a fork names its parent by title', () => {
   const parent = makeRecord({ sessionId: 'local_aaaa0120', title: 'Synthetic parent' })
   const child = makeRecord({ sessionId: 'local_aaaa0121', parentId: 'local_aaaa0120', parentKind: 'fork' })
   const roots = buildTree([parent, child], OPTS)
-  expect(roots[0]?.children[0]?.timeline).toEqual([{ at: NOW - 2 * HOUR, kind: 'session', text: 'Synthetic parent' }])
+  expect(roots[0]?.children[0]?.timeline).toEqual([{ at: NOW - 2 * HOUR, kind: 'session', text: 'Synthetic parent', url: null }])
 })
 
 test('buildTree: children are ordered oldest first', () => {
@@ -883,7 +887,7 @@ test('timelineOf: events come newest first, with the session creation last', () 
 test('timelineOf: a PR event carries its number, a space and its title', () => {
   const pr = makePr({ number: 106, title: 'Synthetic fix', createdAt: new Date(50).toISOString() })
   const events = timelineOf({ createdAt: 10, kind: 'root', parentTitle: null, pr, commits: [] })
-  expect(events[0]).toEqual({ at: 50, kind: 'pr', text: '106 Synthetic fix' })
+  expect(events[0]).toEqual({ at: 50, kind: 'pr', text: '106 Synthetic fix', url: null })
 })
 
 test('timelineOf: the default cap keeps the 6 newest events and drops the oldest', () => {
@@ -1115,4 +1119,71 @@ test('parseUtcOffset reads the ±HHMM of date +%z in minutes east of UTC; any ot
   for (const garbage of ['', 'UTC', '-03:00', '0300', '+9900', '+0075', '+14', 'Mon Oct 26']) {
     expect(parseUtcOffset(garbage)).toBeNull()
   }
+})
+
+test('PAGE_URL accepts https pages on github.com and on GitLab hosts, and nothing that could end a link', () => {
+  for (const url of ['https://github.com/acme/app', 'https://gitlab.com/acme/app/-/commit/abc1234', 'https://gitlab.example.test/acme/app']) {
+    expect(PAGE_URL.test(url)).toBe(true)
+  }
+  for (const url of ['http://github.com/acme/app', 'https://github.com/acme/app)x', 'https://example.com/acme/app', 'https://github.com/a b']) {
+    expect(PAGE_URL.test(url)).toBe(false)
+  }
+})
+
+test('repoPageOf: GitHub (also an alias that names it), GitLab and self-hosted GitLab hosts; none for another host or no remote', () => {
+  const remote = (host: string) => ({ host, owner: 'acme', name: 'app' })
+  expect(repoPageOf(remote('github.com'))).toBe('https://github.com/acme/app')
+  expect(repoPageOf(remote('github-work'))).toBe('https://github.com/acme/app')
+  expect(repoPageOf(remote('gitlab.com'))).toBe('https://gitlab.com/acme/app')
+  expect(repoPageOf(remote('gitlab.example.test'))).toBe('https://gitlab.example.test/acme/app')
+  expect(repoPageOf(remote('git.example.test'))).toBeNull()
+  expect(repoPageOf(null)).toBeNull()
+})
+
+test('commitPageOf: /commit/<sha> on GitHub, /-/commit/<sha> on GitLab; no page for a value that is not a commit id', () => {
+  const sha = '0123456789abcdef0123456789abcdef01234567'
+  expect(commitPageOf({ host: 'github.com', owner: 'acme', name: 'app' }, sha)).toBe(`https://github.com/acme/app/commit/${sha}`)
+  expect(commitPageOf({ host: 'gitlab.com', owner: 'acme', name: 'app' }, sha)).toBe(`https://gitlab.com/acme/app/-/commit/${sha}`)
+  expect(commitPageOf({ host: 'github.com', owner: 'acme', name: 'app' }, 'not-a-sha')).toBeNull()
+  expect(commitPageOf({ host: 'github.com', owner: 'acme', name: 'app' }, undefined)).toBeNull()
+})
+
+test('milestonePageOf: the GitHub milestone page of a GitHub repo page, none for GitLab or without a number', () => {
+  expect(milestonePageOf('https://github.com/acme/app', 23)).toBe('https://github.com/acme/app/milestone/23')
+  expect(milestonePageOf('https://gitlab.com/acme/app', 23)).toBeNull()
+  expect(milestonePageOf('https://github.com/acme/app', null)).toBeNull()
+})
+
+test('timelineOf: a commit with its id and a PR carry their page; a session event has none', () => {
+  const remote = { host: 'github.com', owner: 'acme', name: 'app' }
+  const sha = '0123456789abcdef0123456789abcdef01234567'
+  const pr = { number: 7, title: 'Synthetic PR', url: 'https://github.com/acme/app/pull/7', createdAt: '1970-01-01T00:00:10Z' } as never
+  const events = timelineOf({ createdAt: 1000, kind: 'root', parentTitle: null, pr, commits: [{ at: 2000, subject: 'c', sha }], remote })
+  expect(events.find(event => event.kind === 'commit')?.url).toBe(`https://github.com/acme/app/commit/${sha}`)
+  expect(events.find(event => event.kind === 'pr')?.url).toBe('https://github.com/acme/app/pull/7')
+  expect(events.find(event => event.kind === 'session')?.url).toBeNull()
+})
+
+test('a GitLab remote whose owner has an underscore or nested groups is not parsed, so its sessions get no repo link', () => {
+  expect(repoPageOf(parseRemote('https://gitlab.com/group_x/app.git'))).toBeNull()
+  expect(repoPageOf(parseRemote('git@gitlab.com:group/sub/app.git'))).toBeNull()
+})
+
+test('commitPageOf: only a full hash git log %H prints (40 or 64 hex) makes a commit link; a 7-char or a 52-char id gives none', () => {
+  const remote = { host: 'github.com', owner: 'acme', name: 'app' }
+  const sha = '0123456789abcdef0123456789abcdef01234567'
+  expect(commitPageOf(remote, sha)).toBe(`https://github.com/acme/app/commit/${sha}`)
+  expect(commitPageOf(remote, sha.slice(0, 7))).toBeNull()
+  expect(commitPageOf(remote, `${sha}${sha.slice(0, 12)}`)).toBeNull()
+  const sha256 = `${sha}${sha.slice(0, 24)}`
+  expect(commitPageOf(remote, sha256)).toBe(`https://github.com/acme/app/commit/${sha256}`)
+})
+
+test('pm1-9: a closed group carries its milestone number, the target of its heading link', () => {
+  const closed = { ...SAMPLE_ISSUES[0], milestone: 40, milestoneTitle: 'Old milestone' }
+  const groups = groupIssues(SAMPLE_MILESTONES, [closed], new Set(), false)
+  const closedGroup = groups.find(group => group.closedTitle !== null)
+  expect(closedGroup?.closedTitle).toBe('Old milestone')
+  expect(closedGroup?.closedNumber).toBe(40)
+  expect(groups.filter(group => group.closedTitle === null).every(group => group.closedNumber === null)).toBe(true)
 })

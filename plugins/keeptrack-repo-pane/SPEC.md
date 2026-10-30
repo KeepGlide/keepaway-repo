@@ -1,4 +1,4 @@
-# KeepTrack: spec (as built, v0.2.0-beta.16)
+# KeepTrack: spec (as built, v0.2.0-beta.17)
 
 Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepTrack, the command is `/keeptrack`.
 
@@ -10,7 +10,7 @@ where it differs from that record (section 9).
 ## 1. Purpose
 
 - Show, at a glance, what this window is working on, which issue it belongs to and which milestone that issue is in.
-- Show the other Desktop sessions of the same repo in Askaway's tree: the group on top (a Desktop sidebar Group, else
+- Show the other Desktop sessions of the same repo as a tree: the group on top (a Desktop sidebar Group, else
   `Recents`, the Desktop sidebar's label), then each top session and its derived sessions (fork or spawn). Ended sessions are never listed.
 - Show the open issues that no session works on, grouped by open milestone; the issues of a closed milestone are grouped under
   that milestone's title and marked as closed.
@@ -273,20 +273,20 @@ A poll never throws into the engine: a failed job is logged by its error name on
 - Breadcrumb: `#n · <milestone> · <origin>`. The origin is the drawn parent's: `derived from #m` (a derived session drawn
   under a listed parent with an issue) or `derived` (its drawn parent has none, or it is a top of its group: its parent ended,
   is a context ancestor or sits in another group); a session with no parent link has no origin. With no issue: `no issue`. The milestone part is the title of the issue's milestone, open or closed; it is omitted when no title is known, never drawn as `no milestone` (ux-1).
-  On the desktop `#n` links to the issue page when it is a https://github.com page. The milestone is its title up to the first
+  On the desktop `#n` links to the issue page when it is a https://github.com page; the milestone part links to the GitHub milestone page (`milestonePageOf`). The milestone is its title up to the first
   ` · `.
 - Timeline: the 6 newest events of the session, always drawn, never folded. The timeline of this window's block has a `🕘 Timeline` heading (drawn only with events); other sessions' timelines have none, so the heading is not repeated down the pane. Kinds, each with its icon: commit (`📝`, subject as plain text),
   PR (`🔀`, `PR #n opened: <title>`, from the PR's `createdAt`), session (`🚀`, `started`, `forked from <title>`, or
-  `spawned from <title>`, the title of the session's own parent, an ended one included). Commits are the branch's own last 5, newest first, empty on the default branch.
+  `spawned from <title>`, the title of the session's own parent, an ended one included). Commits are the branch's own last 5, newest first, empty on the default branch. On the desktop a commit event links to its commit page (GitHub `/commit/<sha>`, GitLab `/-/commit/<sha>`, the id read with `%H` from `git log`, which must be a full hash per `COMMIT_SHA`, 40 hex digits or 64 in a SHA-256 repo; an abbreviated id gets no link) and a PR event to its PR page; each link passes `PAGE_URL` (model.ts).
 
 ## 11. This window's block
 
 Inside one highlighted block (the engine's user-message background, `DETAILS_FILL`):
 
-1. Title row: the session title as a link to `#local_<id>` on the desktop (plain text on the terminal), then its icons: the state icon, the active marker and, on this window's row, `← this window`.
+1. Title row: on the desktop the session title links to the repo's page (GitHub or GitLab, when the session's remote is known and its page passes `PAGE_URL`), with a small `open session: <title>` link (the title cut at 40 characters) to `#local_<id>` after the icons; the ↗ after the title marks the external page; with no known remote the title links to `#local_<id>` as before. Plain text on the terminal, then its icons: the state icon, the active marker and, on this window's row, `← this window`.
 2. Breadcrumb (section 10).
 3. Detail lines `Heading: text` (only when `thisIssue` is drawn): State, Branch, PR, Last commit, Checks, Last comment,
-   Next step, Started. Each heading is bold; each line is a separate row. "Next step" reads `no next step` (pt-BR `nenhum registrado`) while no value exists, which is
+   Next step, Started. Each heading is bold; each line is a separate row. On the desktop the PR line links to the PR's page. "Next step" reads `no next step` (pt-BR `nenhum registrado`) while no value exists, which is
    always so far, since no snapshot field feeds it. "Started" is `hh:mm · <age>`, or `YYYY-MM-DD hh:mm · <age>` once the start is over a day old (ux-9).
    Every clock time (Started and the timeline times, section 10) is the host's wall clock: `clockOf` and `dateOf` in `hooks/pane.tsx` shift the instant by the host's UTC offset (the `date +%z` read of section 4) and read the UTC getters, so the runtime's own zone never decides the digits. Ages (`N min ago`) are offset-free and unchanged.
 4. Timeline (section 10).
@@ -307,7 +307,8 @@ whose open issues all sit on sessions draws one line instead of its issues, `<ti
 `<title> · all closed · ready to close` (pt-BR `todas fechadas · pronto para fechar`), drawn only from exact counts (`Milestone.countsExact`); a milestone with inexact counts draws its title and progress line, with the noun `items` (`{closed} of {total} items closed`, pt-BR `{closed} de {total} itens fechados`), since REST's counts include PRs (ux-5). Issues with no milestone sit under
 `No milestone / issue` (pt-BR `Sem milestone / issue`). The issues of a closed milestone are not in that group: they are grouped
 under the closed milestone's title, marked `<title> · closed` (pt-BR `<title> · fechado`) with no progress line, the title read from
-each issue's own milestone field (pm1-9).
+each issue's own milestone field (pm1-9). On the desktop every milestone heading links to its GitHub milestone page (`milestonePageOf`):
+the open, the all-closed and the closed one; a closed group's number is its issue's own milestone number (`IssueGroup.closedNumber`).
 
 Open milestone groups sort by due date, earliest first (an overdue one leads), then by number, newest first. A milestone with no due date, or one whose date does not parse, comes after the dated ones, by number, newest first. Inside every group the issues sort by priority, P0 first and unlabelled last, then newest first (a stable sort, so the newest-first order holds within a priority). A priority comes from the issue's labels, case-insensitive: `P0` to `P3`, or `priority: critical|high|medium|low` with the `priority/…`, `priority-…` and `prio…` variants, read as P0 to P3 (critical is P0, low is P3); when several labels name one, the highest wins (`priorityOf`, `hooks/model.ts`). The row draws the priority icon and the tag before its number (`🟠 P1 #12 title`, icons in section 19); P0 and P1 rows draw bold (`EMPHASISED_PRIORITIES`, `hooks/look.ts`). The session line does not carry the tag: its breadcrumb reads IssueFacts, which would have to widen for it.
 
@@ -357,7 +358,7 @@ Run from the mod folder:
 3. `scripts/keeptrack-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
    `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only (it holds every emoji of KeepTrack). `scripts/keeptrack-look-selftest.sh` runs the gate on a copy and checks those cases.
 4. `agentic-mod-release-tool.sh keeptrack-repo-pane --check` must pass before the mod is installed (CLAUDE.md rule 6a).
-   The mod is published as 0.2.0-beta.16 and installed from `sophia-mods` (README, Installation).
+   The mod is published as 0.2.0-beta.17 and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
 or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`, `parseUtcOffset`) and do not depend on the zone the test process runs in; the register test answers `date +%z` through the process stub, including a refused call.
@@ -395,11 +396,15 @@ or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`
 gh is called with `--repo owner/name` and no host (`hooks/register.tsx`), so gh's default host answers (github.com unless gh is configured
 otherwise): a GitHub Enterprise host whose name contains `github` is read from github.com. This is accepted by the owner.
 
+- GitLab links: a GitLab remote links the session title and the commit events only. Issues, milestones and PRs come from GitHub, so they have no GitLab page to link to.
+- Namespaces: the shared remote parser takes one owner of letters, digits and hyphens. A GitLab remote whose owner has `_` or nested groups (`group/sub/app`) is not parsed, so its sessions get no repo link (no link is better than a wrong one).
+- Remote cache: `remoteCache` (register.tsx) keeps a definite remote answer per common dir for the life of the window; a `git remote set-url` is seen only after the window reloads.
+
 ## 17. Desktop check (for Sophia)
 
 Done in the Claude Desktop with the mod installed, not by the build:
 
-1. Light and dark theme: text readable, the highlighted block's fill visible, the logo violet, the KeepGlide mark at the header's right.
+1. Light and dark theme: the Labels block is bordered, its icon column is aligned and each priority has its row; a session title opens its repo page and `open session` opens the session; text readable, the highlighted block's fill visible, the logo violet, the KeepGlide mark at the header's right.
 2. A 360 px wide pane and a wide one: no horizontal scroll; long titles and commit subjects wrap.
 3. The session title opens its session; the `#n` in the breadcrumb and the GitHub line open the issue page in the browser.
 4. The first click on the highlighted block works (a block that grows must not swallow the first click on a button below it).
@@ -521,14 +526,14 @@ PT), and the icon sits before its word. The pane draws its emoji as text on both
 | Priority P0 / P1 / P2 / P3 | 🔴 / 🟠 / 🟡 / ⚪ | issue row, before the tag |
 | Band: no issue, no remote, tool, MCP | 📭, 🚫, 🔧, 🔌 | band words (section 18) |
 
-- Legend (the footer's block above `Updated`), a table headed `Labels` (`legend.title`, both languages): a bold heading row, then one
-  row per icon a snapshot draws. Each row is the emoji in a fixed-width cell (`LEGEND_ICON_COLUMNS`, 12 columns), then its name in bold,
+- Legend (the footer's block above `Updated`), a table headed `Labels` (`legend.title`, both languages) in a bordered block with padding (`borderStyle` round, dimmed border, one column across and one row above and below), its icon column fixed so it never shrinks and each row aligned to its first line: a bold heading row, then one
+  row per icon a snapshot draws. Each row is the emoji in a fixed-width cell (`LEGEND_ICON_COLUMNS`, 4 columns: one emoji and its gap), then its name in bold,
   `: `, and a sentence on when the icon appears (one paragraph, so a long sentence wraps under the name, not under the emoji). The
   rows run in four groups: session states (🟢 ⏳ 💤 ▶️ 🔄), work (📋 🛠️ ✅ ☑️), history (🕘 📝 🔀 🚀), project (🎯 📅 ⚠️ priorities 🖥️).
   The emoji are taken by name from `action-icons.ts`
   (`LEGEND_ENTRIES`, `hooks/pane.tsx`) and the name and the sentence from `legend.<id>.name` and `legend.<id>.text` in `hooks/i18n.ts` (EN and
   PT). The desktop draws the row as one Markdown line (`**name**: sentence`); the terminal draws the name as a bold `Text` nested in a
-  `Text`. The four priority tags share one entry. The band-only rows (📭, 🚫, ⭕, 🔧, 🔌) are not listed, and neither are the loading and failure lines (⏳, ❌), which draw
+  `Text`. Each priority is its own row (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3), named `priority P0` to `priority P3`. The band-only rows (📭, 🚫, ⭕, 🔧, 🔌) are not listed, and neither are the loading and failure lines (⏳, ❌), which draw
   without the footer. Keys: `legend`, `legend-heading`, `legend-<id>` per row, and `legend-<id>-text` for its sentence, the same on every draw. A session row's state icon is text inside
   `title-<session id>`; the separate `state` element is gone. `tests/pane.test.ts` checks that the legend lists every icon a snapshot
   draws, and no other, in both languages.

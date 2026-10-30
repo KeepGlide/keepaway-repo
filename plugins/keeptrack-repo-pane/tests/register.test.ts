@@ -29,6 +29,8 @@ const BAND_POLL_MS = 300_000
 const DAY_MS = 24 * 60 * 60 * 1000
 const BAND_TICK_MS = 30_000
 const ISSUE = 106
+// How many of the first git remote reads of the failing common dir fail (the membership read and the candidate read of one poll).
+const FIRST_READS_FAILING = 2
 const ISSUE_VIEW_ARGV = ['gh', 'issue', 'view', String(ISSUE), '--repo', 'acme/app', '--json', 'number,title,url,state,milestone,comments']
 const ISSUE_VIEW_JSON = JSON.stringify({
   number: ISSUE,
@@ -263,7 +265,7 @@ function stubHost(on: On, options: StubOptions = {}): Host {
     return { value: content }
   })
   on('fs.exists', (_$, event) => ({ value: files.has(event.path) || folders.has(event.path) }))
-  const failedOnce = new Set<string>()
+  const failedReads = new Map<string, number>()
   on('process.run', async (_$, event) => {
     const argv = [...event.argv]
     host.argvs.push(argv)
@@ -277,8 +279,8 @@ function stubHost(on: On, options: StubOptions = {}): Host {
       return valueOr(argv, options.gh === 'cut' && answer !== undefined ? { ...answer, isStdoutTruncated: true } : answer)
     }
     const gitDir = argv[argv.indexOf('--git-dir') + 1]
-    if (gitDir === options.failFirstRemoteOf && argv.includes('get-url') && !failedOnce.has(gitDir)) {
-      failedOnce.add(gitDir)
+    if (gitDir === options.failFirstRemoteOf && argv.includes('get-url') && (failedReads.get(gitDir) ?? 0) < FIRST_READS_FAILING) {
+      failedReads.set(gitDir, (failedReads.get(gitDir) ?? 0) + 1)
       return refuse('process timed out after 5000 ms')
     }
     if (options.originTimesOut === true && argv.includes('get-url') && argv.at(-1) === 'origin') {
@@ -923,6 +925,18 @@ test('W3: a git call that failed is asked again on the next poll, not kept as a 
   const later = await drawnPane($)
   expect(later).toContain('Sibling worktree session')
   expect(later).not.toContain(GIT_FAILED_LINE)
+})
+
+test('a remote read that succeeds is cached: the next poll asks git nothing for it', async ($: Engine, on) => {
+  const cached = recordOf('local_7f3a0010', { title: 'Cached worktree session', cwd: '/work/cached', gitAnchors: [{ commonDir: '/work/cached/.git' }] })
+  const host = stubHost(on, { records: [OWN_RECORD, cached] })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const asksAtOpen = remoteAsks(host, '/work/cached/.git')
+  expect(asksAtOpen).toBeGreaterThan(0)
+  await host.clock.advance(POLL_MS)
+  expect(remoteAsks(host, '/work/cached/.git')).toBe(asksAtOpen)
 })
 
 test('CR1: a record whose cwd is outside any git repo is not a candidate and sets no git-failed', async ($: Engine, on) => {
@@ -2179,13 +2193,74 @@ test('DL11: a detached HEAD is no branch and no git failure', async ($: Engine, 
 })
 
 test('DL13: a last commit with an empty subject is still a commit', async ($: Engine, on) => {
-  const host = stubHost(on, { log: '1700000000\t' })
+  const host = stubHost(on, { log: `${'a'.repeat(40)}\t1700000000\t` })
   await $.session.start(SESSION)
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   // Each timeline row is keyed by its session and index: the session's start, plus the commit.
   const rows = (await drawnPane($)).split(`event-${SESSION_ID}-`).length - 1
   expect(rows).toBe(2)
+})
+
+const COMMIT_SHA = '0123456789abcdef0123456789abcdef01234567'
+const COMMIT_LINK = `](https://github.com/acme/app/commit/${COMMIT_SHA})`
+
+// The window's session drawn with the given git log answer: the timeline of this window, after a `/keeptrack open`.
+async function drawnAfterOpen(on: On, $: Engine, surface: 'desktop' | 'terminal', log: string): Promise<string> {
+  const host = stubHost(on, { log })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  return drawnPane($, surface)
+}
+
+test('a commit id from git log reaches its commit link: the 40-hex id read with %H links to /commit/<id> on the desktop', async ($: Engine, on) => {
+  const host = stubHost(on, { log: `${COMMIT_SHA}\t1700000000\tfix the thing` })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(host.argvs.some(argv => argv.includes('--format=%H%x09%ct%x09%s'))).toBe(true)
+  expect(await drawnPane($, 'desktop')).toContain(COMMIT_LINK)
+})
+
+test('a tab inside a commit subject survives the git log parse: its words are drawn, the id and the time stay put', async ($: Engine, on) => {
+  const drawn = await drawnAfterOpen(on, $, 'terminal', `${COMMIT_SHA}\t1700000000\tfix\tthe thing`)
+  expect(drawn).toContain('fix the thing')
+})
+
+test('a 7-char commit id gives no commit link on the desktop; its commit row is still drawn', async ($: Engine, on) => {
+  const drawn = await drawnAfterOpen(on, $, 'desktop', `${COMMIT_SHA.slice(0, 7)}\t1700000000\tshort id`)
+  expect(drawn).toContain('short id')
+  expect(drawn).not.toContain('/commit/')
+})
+
+test('a 64-hex commit id (SHA-256 repo) links to its commit page on the desktop', async ($: Engine, on) => {
+  const sha256 = `${COMMIT_SHA}${COMMIT_SHA.slice(0, 24)}`
+  const drawn = await drawnAfterOpen(on, $, 'desktop', `${sha256}\t1700000000\tlong id`)
+  expect(drawn).toContain('long id')
+  expect(drawn).toContain(`/commit/${sha256}`)
+})
+
+test('a 52-hex commit id is no full hash: no commit link; its commit row is still drawn', async ($: Engine, on) => {
+  const drawn = await drawnAfterOpen(on, $, 'desktop', `${COMMIT_SHA}${COMMIT_SHA.slice(0, 12)}\t1700000000\todd id`)
+  expect(drawn).toContain('odd id')
+  expect(drawn).not.toContain('/commit/')
+})
+
+test('two sessions with two origins each draw their own repo page: each title links to its own origin', async ($: Engine, on) => {
+  const OTHER_FOLDER = '/work/app-b'
+  const OTHER = recordOf('local_7f3a0002', {
+    title: 'Second origin',
+    cwd: OTHER_FOLDER,
+    gitAnchors: [{ commonDir: `${OTHER_FOLDER}/.git` }],
+  })
+  const host = stubHost(on, { records: [OWN_RECORD, OTHER], remotes: { [`${OTHER_FOLDER}/.git`]: 'https://github.com/Acme/App.git' } })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const desktop = await drawnPane($, 'desktop')
+  expect(desktop).toContain('[Second origin ↗](https://github.com/Acme/App)')
+  expect(desktop).toContain('[Fix disk full ↗](https://github.com/acme/app)')
 })
 
 test('SP5-1: /keeptrack open or issue with extra words toasts usage and changes nothing', async ($: Engine, on) => {

@@ -41,7 +41,6 @@ export type StatusIconKey =
   | 'closed'
   | 'due'
   | 'overdue'
-  | 'loading'
   | 'loadFailed'
 
 // The icon's size on the desktop, in CSS pixels: small beside the band's text.
@@ -90,7 +89,6 @@ const STATUS_EMOJI: Readonly<Record<StatusIconKey, string>> = {
   closed: '☑️',
   due: '📅',
   overdue: '⚠️',
-  loading: '⏳',
   loadFailed: '❌',
 }
 

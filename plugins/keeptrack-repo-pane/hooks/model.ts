@@ -11,6 +11,7 @@ import type {
   Priority,
   ProjectedRecord,
   PullRequest,
+  RepoRemote,
   SessionGroup,
   SessionInput,
   SessionNode,
@@ -70,6 +71,40 @@ export function parseRemote(url: string | null): Remote | null {
 
 // A host the pane treats as GitHub: github.com, or an ssh alias that names GitHub (its host contains "github").
 export const isGithubHost = (host: string): boolean => host === 'github.com' || host.includes('github')
+
+// A host the pane treats as GitLab: gitlab.com, or a self-hosted one whose name contains "gitlab".
+export const isGitlabHost = (host: string): boolean => host === 'gitlab.com' || host.includes('gitlab')
+
+// A web page the pane may draw as a link: https on github.com, or on a GitLab host (isGitlabHost), with no character that could end the
+// link's target. Every link target passes this check before it is drawn (pane.tsx).
+export const PAGE_URL = /^https:\/\/(?:github\.com|(?:[a-z0-9-]+\.)*[a-z0-9-]*gitlab[a-z0-9-]*(?:\.[a-z0-9-]+)+)\/[^\s()<>[\]"']+$/
+
+// The shape of a commit id: the full hash git log %H prints, 40 lowercase hex digits (SHA-1) or 64 (SHA-256 repos). The git reader
+// (register.tsx) and the links share it.
+export const COMMIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
+
+// The web page of a repo: https://github.com/<owner>/<name> for a GitHub remote, https://<host>/<owner>/<name> for a GitLab one; else null.
+export function repoPageOf(remote: RepoRemote | null | undefined): string | null {
+  if (remote === null || remote === undefined) return null
+  const base = isGithubHost(remote.host) ? 'https://github.com' : isGitlabHost(remote.host) ? `https://${remote.host}` : null
+  const page = base === null ? null : `${base}/${remote.owner}/${remote.name}`
+  return page !== null && PAGE_URL.test(page) ? page : null
+}
+
+// The commit page of a repo: GitHub's /commit/<sha>, GitLab's /-/commit/<sha>. null without a repo page or with an id that is not a commit.
+export function commitPageOf(remote: RepoRemote | null | undefined, sha: string | null | undefined): string | null {
+  const page = repoPageOf(remote)
+  if (page === null || remote === null || remote === undefined || sha === undefined || sha === null || !COMMIT_SHA.test(sha)) return null
+  const commit = `${page}${isGithubHost(remote.host) ? '' : '/-'}/commit/${sha}`
+  return PAGE_URL.test(commit) ? commit : null
+}
+
+// The milestone page of a GitHub repo page: <repo page>/milestone/<number>. null without a GitHub page or a number.
+export function milestonePageOf(repoPage: string | null, number: number | null): string | null {
+  if (repoPage === null || number === null || !repoPage.startsWith('https://github.com/')) return null
+  const page = `${repoPage}/milestone/${number}`
+  return PAGE_URL.test(page) ? page : null
+}
 
 // A C0 or C1 control character (the escape character included): a terminal acts on it. Also a format character (Unicode
 // category Cf, bidi overrides and isolates included), which reorders what the terminal shows; the zero width joiner stays,
@@ -176,6 +211,7 @@ export function issueFactsOf(milestones: readonly Milestone[], issues: readonly 
         url: issue.url,
         milestoneTitle: issue.milestone === null ? null : (issue.milestoneTitle ?? titles.get(issue.milestone) ?? null),
         noMilestone: issue.milestone === null,
+        milestoneNumber: issue.milestone,
       },
     ]),
   )
@@ -274,7 +310,7 @@ function cutTooDeep(kept: ReadonlySet<string>, parentOf: Map<string, string>): v
 // The title a spawn link gives the session it names; '' for a fork, a root or a spawn link without a title.
 const spawnTitleOf = (record: ProjectedRecord): string => (record.parentKind === 'spawn' ? (record.parentTitle ?? '') : '')
 
-// The family root id of a session (Askaway's family_of): the top of its fork and spawn links, at most MAX_DEPTH hops up. A
+// The family root id of a session: the top of its fork and spawn links, at most MAX_DEPTH hops up. A
 // missing root is named by the spawn link that names it, else the top present record is the root. The missing parent is read
 // before the hop cap, so a top present record MAX_DEPTH hops up is still the root. A cycle, or a root more than MAX_DEPTH hops
 // up, makes the session its own family.
@@ -339,7 +375,7 @@ function attachmentsOf(kept: ReadonlySet<string>, chain: ReadonlyMap<string, Pro
 }
 
 // A session in another group than its parent's (Recents counts as one group) is cut from it and becomes a top of its own group
-// (Askaway's per-session Group rule).
+// (the per-session Group rule).
 function cutAcrossGroups(parentOf: Map<string, string>, groups: ReadonlyMap<string, SessionGroup>): void {
   for (const [id, parentId] of [...parentOf]) {
     if (groups.get(id)?.key !== groups.get(parentId)?.key) parentOf.delete(id)
@@ -434,6 +470,8 @@ function attach(record: SessionInput, depth: number, parentNode: SessionNode | n
     milestoneTitle: facts?.milestoneTitle ?? null,
     noMilestone: facts?.noMilestone ?? false,
     issueUrl: facts?.url ?? null,
+    milestoneNumber: facts?.milestoneNumber ?? null,
+    repoPage: repoPageOf(record.remote),
     state: stateOf(lastActivityAt, context.now, record.waiting),
     timeline: timelineOf({
       createdAt,
@@ -441,6 +479,7 @@ function attach(record: SessionInput, depth: number, parentNode: SessionNode | n
       parentTitle: parentRecord?.title ?? record.parentTitle,
       pr: record.pr,
       commits: record.commits,
+      remote: record.remote,
     }),
     children: [],
   }
@@ -568,6 +607,7 @@ export function groupIssues(milestones: Milestone[], issues: Issue[], linked: Re
     .map(milestone => ({
       milestone,
       closedTitle: null,
+      closedNumber: null,
       issues: issueOrder(unlinked.filter(issue => issue.milestone === milestone.number)),
       claimsLinked: !issuesPartial && issues.filter(issue => issue.milestone === milestone.number).length === milestone.openIssues,
     }))
@@ -575,7 +615,7 @@ export function groupIssues(milestones: Milestone[], issues: Issue[], linked: Re
   const loose = issueOrder(
     unlinked.filter(issue => issue.milestone === null || (!listed.has(issue.milestone) && issue.milestoneTitle === null)),
   )
-  if (loose.length > 0) groups.push({ milestone: null, closedTitle: null, issues: loose, claimsLinked: false })
+  if (loose.length > 0) groups.push({ milestone: null, closedTitle: null, closedNumber: null, issues: loose, claimsLinked: false })
   return groups
 }
 
@@ -592,6 +632,7 @@ function closedGroupsOf(listed: ReadonlySet<number>, unlinked: readonly Issue[])
     .map(([number, title]) => ({
       milestone: null,
       closedTitle: title,
+      closedNumber: number,
       issues: issueOrder(unlinked.filter(issue => issue.milestone === number)),
       claimsLinked: false,
     }))
@@ -606,19 +647,26 @@ export function timelineOf(
     kind: 'root' | 'fork' | 'spawn'
     parentTitle: string | null
     pr: PullRequest | null
-    commits: { at: number; subject: string }[]
+    commits: { at: number; subject: string; sha?: string | null }[]
+    remote?: RepoRemote | null
   },
   limit: number = TIMELINE_LIMIT,
 ): TimelineEvent[] {
-  const events: TimelineEvent[] = input.commits.map(commit => ({ at: commit.at, kind: 'commit' as const, text: commit.subject }))
+  const events: TimelineEvent[] = input.commits.map(commit => ({
+    at: commit.at,
+    kind: 'commit' as const,
+    text: commit.subject,
+    url: commitPageOf(input.remote, commit.sha),
+  }))
   if (input.pr !== null) {
     const openedAt = Date.parse(input.pr.createdAt)
     if (Number.isFinite(openedAt)) {
-      events.push({ at: openedAt, kind: 'pr', text: `${input.pr.number} ${plain(input.pr.title, TEXT_MAX)}` })
+      const url = PAGE_URL.test(input.pr.url) ? input.pr.url : null
+      events.push({ at: openedAt, kind: 'pr', text: `${input.pr.number} ${plain(input.pr.title, TEXT_MAX)}`, url })
     }
   }
   const origin = input.kind === 'root' ? '' : plain(input.parentTitle ?? '', TEXT_MAX)
-  events.push({ at: input.createdAt, kind: 'session', text: origin })
+  events.push({ at: input.createdAt, kind: 'session', text: origin, url: null })
   return events.sort((a, b) => b.at - a.at).slice(0, limit)
 }
 

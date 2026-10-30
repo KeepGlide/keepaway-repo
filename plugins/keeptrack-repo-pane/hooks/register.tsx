@@ -10,6 +10,7 @@ import { renderBand, type BandIssue, type BandRepo } from './band'
 import { heldButtons, type HeldButtons } from './held'
 import { IDLE_TURN, bandRedrawDue, turnEnded, turnExpired, turnStarted, turnTimedOut, turnToolNamed } from './turn'
 import {
+  COMMIT_SHA,
   LABEL_MAX,
   NO_DESKTOP_GROUPS,
   RECORD_MAX_BYTES,
@@ -149,7 +150,7 @@ type Entry = { path: string; size: number; mtimeMs: number }
 // A file's projected value, kept while its size and mtime stay the same.
 type Cached<T> = { size: number; mtimeMs: number; value: T }
 type Timer = ReturnType<EngineInterface['clock']['every']>
-type Commit = { at: number; subject: string }
+type Commit = { at: number; subject: string; sha: string | null }
 type IssueComment = { author: string; at: number; body: string }
 type GhOutcome = { ok: true; stdout: string; oversized: boolean } | { ok: false; error: PaneError; kind: string }
 type GithubMemory = {
@@ -540,16 +541,19 @@ async function commitsOf($: EngineInterface, cwd: string, branch: string): Promi
   const origin = await gitOut($, ['-C', cwd, 'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
   if (origin === null || origin.replace(/^origin\//, '') === branch) return []
   // Not trimmed: a commit with an empty subject ends in its tab, and trimming would drop it (parseCommits needs the tab).
-  const run = await gitRun($, ['-C', cwd, 'log', `-${COMMIT_LIMIT}`, '--format=%ct%x09%s'])
+  const run = await gitRun($, ['-C', cwd, 'log', `-${COMMIT_LIMIT}`, '--format=%H%x09%ct%x09%s'])
   return run !== null && run.exitCode === 0 ? parseCommits(run.stdout) : []
 }
 
 // Lines of `%ct<TAB>%s`: epoch seconds, then the subject (which may hold tabs of its own).
+// One commit per line: its full id, the commit time in seconds, the subject. A line whose time does not parse is skipped; an id that is
+// not a commit id is kept empty, so its commit has no page to link to.
 function parseCommits(text: string): Commit[] {
   return text.split('\n').flatMap(line => {
-    const tab = line.indexOf('\t')
-    const seconds = Number(line.slice(0, Math.max(tab, 0)))
-    return tab > 0 && Number.isFinite(seconds) ? [{ at: seconds * 1000, subject: plain(line.slice(tab + 1), TEXT_MAX) }] : []
+    const [sha = '', seconds = '', ...subject] = line.split('\t')
+    const at = Number(seconds)
+    if (seconds === '' || !Number.isFinite(at)) return []
+    return [{ at: at * 1000, subject: plain(subject.join('\t'), TEXT_MAX), sha: COMMIT_SHA.test(sha) ? sha : null }]
   })
 }
 
@@ -588,8 +592,16 @@ const sameRepo = (left: Repo, right: Repo): boolean =>
 // `other` when the folder is definitely not a repository.
 type Membership = 'member' | 'other' | 'unknown'
 
+// The common git dir of a record's repo: the one the Desktop recorded, else git's answer for its folder (`ok` false when git could not
+// answer). A record with neither a common dir nor a folder has no dir.
+async function commonDirOfRecord($: EngineInterface, record: ProjectedRecord): Promise<{ ok: boolean; dir: string | null }> {
+  if (record.commonDir !== null) return { ok: true, dir: record.commonDir }
+  if (record.cwd === null) return { ok: true, dir: null }
+  return commonDirOfCwd($, record.cwd)
+}
+
 async function membershipOf($: EngineInterface, record: ProjectedRecord, context: RepoContext): Promise<Membership> {
-  const known = record.commonDir !== null || record.cwd === null ? { ok: true, dir: record.commonDir } : await commonDirOfCwd($, record.cwd)
+  const known = await commonDirOfRecord($, record)
   if (!known.ok) return 'unknown'
   if (known.dir === null) return 'other'
   const commonDir = known.dir
@@ -599,7 +611,8 @@ async function membershipOf($: EngineInterface, record: ProjectedRecord, context
   return remote !== null && sameRepo(remote, context.repo) ? 'member' : 'other'
 }
 
-type Candidate = { record: ProjectedRecord; branch: string | null; gitFailed: boolean }
+// The remote is the record's own repo's origin (remoteOfRecord), null when it has none or git could not answer.
+type Candidate = { record: ProjectedRecord; branch: string | null; gitFailed: boolean; remote: Repo | null }
 
 // This window's record always, then the other live records of this repo by newest activity: the membership of the newest
 // MEMBERSHIP_SCAN_FACTOR * CANDIDATE_MAX of them is checked, a bounded number of git calls (repo-work-pane-design-spec.md D2, D2b).
@@ -655,10 +668,19 @@ function ancestorsOf(admitted: readonly ProjectedRecord[], records: readonly Pro
 async function withBranches($: EngineInterface, records: readonly ProjectedRecord[]): Promise<Candidate[]> {
   return mapLimited(records, GIT_CONCURRENCY, async (record): Promise<Candidate> => {
     const { cwd } = record
-    if (cwd === null) return { record, branch: null, gitFailed: false }
+    const remote = await remoteOfRecord($, record)
+    if (cwd === null) return { record, branch: null, gitFailed: false, remote }
     const head = await branchOf($, cwd)
-    return { record, branch: head.branch, gitFailed: head.failed }
+    return { record, branch: head.branch, gitFailed: head.failed, remote }
   })
+}
+
+// The remote of a record's own repo: the origin of its common git dir (remoteOf, cached per dir). null when it has none or git could
+// not answer, so the session keeps no repo link until a later poll reads it.
+async function remoteOfRecord($: EngineInterface, record: ProjectedRecord): Promise<Repo | null> {
+  const dir = (await commonDirOfRecord($, record)).dir
+  if (dir === null) return null
+  return (await remoteOf($, dir)) ?? null
 }
 
 type TreeInputs = {
@@ -679,6 +701,7 @@ function inputOf(entry: Candidate, inputs: TreeInputs, commits: ReadonlyMap<stri
   return {
     ...record,
     branch,
+    remote: entry.remote,
     pr: branch === null ? null : (inputs.prsByBranch.get(branch) ?? null),
     override: inputs.overrides.get(record.sessionId) ?? null,
     waiting: inputs.ownWaiting && record.cliSessionId === inputs.thisId,

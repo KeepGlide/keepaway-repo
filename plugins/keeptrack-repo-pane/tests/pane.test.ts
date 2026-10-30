@@ -4,7 +4,7 @@ import { priorityEmoji, statusIconEmoji } from '../hooks/action-icons'
 import { TEXT_MAX, buildTree, groupIssues, type DesktopGroups } from '../hooks/model'
 import { t } from '../hooks/i18n'
 import { DETAILS_FILL } from '../hooks/look'
-import type { PaneError, SessionNode, Snapshot } from '../types'
+import type { PaneError, SessionNode, Snapshot, TimelineEvent } from '../types'
 import {
   HOUR,
   MINUTE,
@@ -649,7 +649,8 @@ const legendRowsOf = (tree: unknown): Drawn[] => nodesOf(tree).filter(node => LE
 // Text for the name in a Text, then the sentence after ": ".
 const legendPartsOf = (tree: unknown): string[][] =>
   legendRowsOf(tree).map(row => {
-    const [cell, meaning] = row.props.children as Drawn[]
+    const [cell, text] = row.props.children as Drawn[]
+    const meaning = ((text as Drawn).props.children as Drawn[])[0] as Drawn
     if (meaning.tag === 'Markdown') {
       const [, name = '', sentence = ''] = /^\*\*(.+?)\*\*: (.*)$/.exec(String(meaning.props.text)) ?? []
       return [textOf(cell), plainMarkdown(name), plainMarkdown(sentence)]
@@ -677,7 +678,10 @@ test('the legend is a Labels table: a bold heading, then one row per icon in gro
     ['🎯', 'milestone', 'a GitHub milestone, with the share of its issues already closed.'],
     ['📅', 'due date', "the milestone's deadline."],
     ['⚠️', 'attention', 'an error, a partial list, or a milestone past its due date with issues still open.'],
-    ['🔴 🟠 🟡 ⚪', 'priority', "P0 critical, P1 high, P2 medium, P3 low, from the issue's labels."],
+    ['🔴', 'priority P0', 'critical, from the issue labels.'],
+    ['🟠', 'priority P1', 'high, from the issue labels.'],
+    ['🟡', 'priority P2', 'medium, from the issue labels.'],
+    ['⚪', 'priority P3', 'low, from the issue labels.'],
     ['🖥️', 'sessions', 'how many sessions of this repo are listed.'],
   ]
   const portuguese = [
@@ -697,7 +701,10 @@ test('the legend is a Labels table: a bold heading, then one row per icon in gro
     ['🎯', 'milestone', 'um milestone do GitHub, com a parte das issues já fechadas.'],
     ['📅', 'prazo', 'a data limite do milestone.'],
     ['⚠️', 'atenção', 'um erro, uma lista parcial ou um milestone com prazo vencido e issues ainda abertas.'],
-    ['🔴 🟠 🟡 ⚪', 'prioridade', 'P0 crítica, P1 alta, P2 média, P3 baixa, pelos rótulos da issue.'],
+    ['🔴', 'prioridade P0', 'crítica, pelos rótulos da issue.'],
+    ['🟠', 'prioridade P1', 'alta, pelos rótulos da issue.'],
+    ['🟡', 'prioridade P2', 'média, pelos rótulos da issue.'],
+    ['⚪', 'prioridade P3', 'baixa, pelos rótulos da issue.'],
     ['🖥️', 'sessões', 'quantas sessões deste repositório estão listadas.'],
   ]
   for (const tree of [drawDesktop({ lang: 'en' }), drawTerminal({ lang: 'en' })]) {
@@ -716,12 +723,28 @@ test('the legend is a Labels table: a bold heading, then one row per icon in gro
 test('each legend row is a fixed-width icon cell, then its name and sentence, on both surfaces', () => {
   for (const tree of [drawDesktop(), drawTerminal()]) {
     for (const row of legendRowsOf(tree)) {
-      const [cell, meaning] = row.props.children as Drawn[]
+      const [cell, text] = row.props.children as Drawn[]
       expect(cell?.tag).toBe('Box')
-      // The four priority emoji (11 columns) fit in the cell.
-      expect(Number(cell?.props.width)).toBeGreaterThanOrEqual(11)
-      expect(['Markdown', 'Text']).toContain(meaning?.tag)
+      // One emoji (2 columns) and its gap fill the cell, and the cell never shrinks.
+      expect(Number(cell?.props.width)).toBe(4)
+      expect(cell?.props.flexShrink).toBe(0)
+      expect(row.props.alignItems).toBe('flex-start')
+      // The sentence sits in its own flexible column, so a wrapped sentence cannot squeeze the icon cell.
+      expect(text?.props.flexGrow).toBe(1)
+      expect(text?.props.flexShrink).toBe(1)
+      const meaning = ((text as Drawn).props.children as Drawn[])[0] as Drawn
+      expect(['Markdown', 'Text']).toContain(meaning.tag)
     }
+  }
+})
+
+test('the legend is a bordered block with padding, on both surfaces', () => {
+  for (const tree of [drawDesktop(), drawTerminal()]) {
+    const block = keyed(tree, 'legend')
+    expect(block?.props.borderStyle).toBe('round')
+    expect(block?.props.borderDimColor).toBe(true)
+    expect(Number(block?.props.paddingX)).toBeGreaterThanOrEqual(1)
+    expect(Number(block?.props.paddingY)).toBeGreaterThanOrEqual(1)
   }
 })
 
@@ -784,7 +807,7 @@ test('a milestone with one open issue on sessions reads its count in the singula
     issueGroups: [
       {
         milestone: { number: 32, title: 'Milestone R', openIssues: 1, closedIssues: 0, dueOn: null, countsExact: true },
-        closedTitle: null,
+        closedTitle: null, closedNumber: null,
         issues: [],
         claimsLinked: true,
       },
@@ -801,7 +824,7 @@ test('an open milestone whose open issues all sit on sessions names them, with i
     issueGroups: [
       {
         milestone: { number: 31, title: 'Milestone Q', openIssues: 2, closedIssues: 1, dueOn: null, countsExact: true },
-        closedTitle: null,
+        closedTitle: null, closedNumber: null,
         issues: [],
         claimsLinked: true,
       },
@@ -819,7 +842,7 @@ test('rev-g1-5: a one-line milestone whose list does not back its count draws it
     issueGroups: [
       {
         milestone: { number: 33, title: 'Milestone S', openIssues: 2, closedIssues: 0, dueOn: null, countsExact: true },
-        closedTitle: null,
+        closedTitle: null, closedNumber: null,
         issues: [],
         claimsLinked: false,
       },
@@ -833,7 +856,7 @@ test('rev-g1-5: a one-line milestone whose list does not back its count draws it
 
 test('pm1-9: the issues of a closed milestone sit under its title, marked closed, in both languages', () => {
   const snapshot = snapshotWith({
-    issueGroups: [{ milestone: null, closedTitle: 'Milestone Y', issues: SAMPLE_ISSUES.slice(0, 1), claimsLinked: false }],
+    issueGroups: [{ milestone: null, closedTitle: 'Milestone Y', closedNumber: 40, issues: SAMPLE_ISSUES.slice(0, 1), claimsLinked: false }],
   })
   expect(drawnTexts(drawDesktop({ snapshot }))).toContain('✅ Milestone Y · closed')
   const pt = drawnTexts(drawDesktop({ snapshot, lang: 'pt' }))
@@ -920,13 +943,13 @@ test('no-github mode draws the sessions and the no-remote line, and no issue sec
 test('ux4-2: a first poll that settled with no snapshot draws the failure line, not Loading, in both languages', () => {
   const texts = drawnTexts(drawDesktop({ snapshot: null, loadFailed: true }))
   expect(texts).toContain('❌ Could not read the repo: state unknown')
-  expect(texts).not.toContain('⏳ Loading the repo...')
+  expect(texts).not.toContain('Loading the repo...')
   expect(drawnTexts(drawDesktop({ snapshot: null, loadFailed: true, lang: 'pt' }))).toContain('❌ Não foi possível ler o repo: estado desconhecido')
 })
 
 test('a snapshot not yet read draws the loading line only', () => {
   const texts = drawnTexts(drawDesktop({ snapshot: null }))
-  expect(texts).toContain('⏳ Loading the repo...')
+  expect(texts).toContain('Loading the repo...')
   expect(texts.some(text => text.startsWith('Synthetic session'))).toBe(false)
   expect(texts).not.toContain('Recents')
 })
@@ -1019,7 +1042,7 @@ test('the pane never draws "on this machine", in either language (sp-6)', () => 
 // A snapshot whose one open issue (the first sample issue) carries these labels, drawn in no milestone group.
 const snapshotWithLabels = (labels: string[]): Snapshot => {
   const issues = SAMPLE_ISSUES.slice(0, 1).map(issue => ({ ...issue, labels }))
-  return snapshotWith({ issueGroups: [{ milestone: null, closedTitle: null, issues, claimsLinked: false }] })
+  return snapshotWith({ issueGroups: [{ milestone: null, closedTitle: null, closedNumber: null, issues, claimsLinked: false }] })
 }
 
 // The issue row of a drawn tree: the element keyed `line-<issue number>` (the only element whose key starts with `line-`).
@@ -1070,7 +1093,7 @@ test('the started line draws the host clock, with the host date once the start i
 
 test('a GitHub due date is a calendar date: it is drawn from its UTC date, never shifted into the host zone', () => {
   const milestone = { number: 22, title: 'Milestone D', openIssues: 1, closedIssues: 0, dueOn: '2025-10-31T00:00:00Z', countsExact: true }
-  const snapshot = snapshotWith({ issueGroups: [{ milestone, closedTitle: null, issues: [], claimsLinked: true }] })
+  const snapshot = snapshotWith({ issueGroups: [{ milestone, closedTitle: null, closedNumber: null, issues: [], claimsLinked: true }] })
   const texts = drawnTexts(drawDesktop({ snapshot, utcOffsetMinutes: -180 }))
   expect(texts.some(text => text.includes('2025-10-31'))).toBe(true)
   expect(texts.some(text => text.includes('2025-10-30'))).toBe(false)
@@ -1121,7 +1144,7 @@ test('isOverdue compares the due date with today in the host zone: an earlier da
 // The overdue marker and the bar need exact counts: an inexact milestone draws neither, and a closed one is never overdue.
 const milestoneSnapshot = (milestone: Snapshot['milestones'][number]): Snapshot =>
   snapshotWith({
-    issueGroups: [{ milestone, closedTitle: null, issues: [], claimsLinked: false }],
+    issueGroups: [{ milestone, closedTitle: null, closedNumber: null, issues: [], claimsLinked: false }],
   })
 
 test('an open milestone past its due date reads ⚠️ overdue after its 📅 due date, with its bar; a future date does not (ux-overdue)', () => {
@@ -1140,4 +1163,133 @@ test('a milestone with no open issue left, or with inexact counts, is never over
   const inexactTexts = drawnTexts(drawDesktop({ snapshot: inexact }))
   expect(inexactTexts).toContain('1 of 2 items closed · 📅 due 2026-10-01')
   expect(inexactTexts.some(text => text.includes('▰') || text.includes('▱'))).toBe(false)
+})
+
+// The sample snapshot with every session's repo page set, as a repo with a known remote draws it.
+const linkedSnapshot = (): Snapshot => {
+  const withPage = (node: SessionNode): SessionNode => ({
+    ...node,
+    repoPage: 'https://github.com/acme/app',
+    children: node.children.map(withPage),
+  })
+  const base = snapshotWith()
+  return { ...base, sessions: base.sessions.map(withPage) }
+}
+
+test('a session title links to its repo page on the desktop, with a separate open-session link; plain on the terminal', () => {
+  const desktop = JSON.stringify(drawDesktop({ snapshot: linkedSnapshot() }))
+  expect(desktop).toContain('](https://github.com/acme/app)')
+  // The colon of the label is escaped (escapeMarkdown), so the check reads the label's words and the target.
+  expect(desktop).toContain('open session')
+  expect(desktop).toContain('Synthetic session one](#local_7f3a0001)')
+  const terminal = JSON.stringify(drawTerminal({ snapshot: linkedSnapshot() }))
+  expect(terminal).not.toContain('https://github.com/acme/app')
+  expect(terminal).not.toContain('open session')
+})
+
+test('without a known remote no repo link is drawn and the title keeps its session link, as before', () => {
+  const desktop = JSON.stringify(drawDesktop())
+  expect(desktop).not.toContain('[open session]')
+  expect(desktop).not.toContain('](https://github.com/acme/app)')
+  expect(desktop).toContain('](#local_7f3a0001)')
+})
+
+test('a milestone heading links to its GitHub milestone page on the desktop, and a plain bold Text on the terminal', () => {
+  const desktop = JSON.stringify(drawDesktop())
+  expect(desktop).toMatch(/\]\(https:\/\/github\.com\/synthetic-owner\/synthetic-repo\/milestone\/\d+\)/)
+  const terminal = JSON.stringify(drawTerminal())
+  expect(terminal).not.toContain('/milestone/')
+})
+
+const REPO_PAGE = 'https://github.com/synthetic-owner/synthetic-repo'
+const COMMIT_SHA = '0123456789abcdef0123456789abcdef01234567'
+const PR_URL = `${REPO_PAGE}/pull/7`
+// Markup and a newline in a name: escaped in the link text, which keeps every character.
+const HOSTILE = 'Ship [v1] (beta) *now* \\ back\nnext'
+const ESCAPED = 'Ship \\[v1\\] \\(beta\\) \\*now\\* \\\\ back next'
+
+// The raw text of every Markdown block drawn, in order.
+const markdownTextsOf = (tree: unknown): string[] =>
+  nodesOf(tree)
+    .filter(node => node.tag === 'Markdown')
+    .map(node => String(node.props.text))
+
+// The sample snapshot with this window's timeline and PR replaced, so a test names the events it draws.
+const withWindowTimeline = (timeline: TimelineEvent[], overrides: Partial<Snapshot> = {}): Snapshot => {
+  const base = snapshotWith(overrides)
+  const [first = base.sessions[0], ...rest] = base.sessions
+  return { ...base, sessions: [{ ...first, timeline } as SessionNode, ...rest] }
+}
+
+test('each milestone heading links to its own milestone page on the desktop: open, all closed and closed (pm1-9)', () => {
+  const [, open, allClosed] = SAMPLE_MILESTONES
+  const snapshot = snapshotWith({
+    issueGroups: [
+      { milestone: open, closedTitle: null, closedNumber: null, issues: SAMPLE_ISSUES.slice(0, 1), claimsLinked: false },
+      { milestone: allClosed, closedTitle: null, closedNumber: null, issues: [], claimsLinked: false },
+      { milestone: null, closedTitle: 'Old milestone', closedNumber: 40, issues: SAMPLE_ISSUES.slice(1, 2), claimsLinked: false },
+    ],
+  })
+  const desktop = drawDesktop({ snapshot })
+  expect(String(keyed(desktop, 'milestone-22')?.props.text)).toContain(`](${REPO_PAGE}/milestone/22)`)
+  expect(String(keyed(desktop, 'milestone-21')?.props.text)).toContain(`](${REPO_PAGE}/milestone/21)`)
+  expect(String(keyed(desktop, 'milestone-closed-Old milestone')?.props.text)).toContain(`](${REPO_PAGE}/milestone/40)`)
+  expect(JSON.stringify(drawTerminal({ snapshot }))).not.toContain('/milestone/')
+})
+
+test('a hostile milestone name, commit subject, PR title and crumb label are escaped in their link text; the target stays as built', () => {
+  const [, open] = SAMPLE_MILESTONES
+  const hostile = { ...open, title: HOSTILE }
+  const snapshot = withWindowTimeline(
+    [
+      { at: NOW, kind: 'commit', text: HOSTILE, url: `${REPO_PAGE}/commit/${COMMIT_SHA}` },
+      { at: NOW - 1, kind: 'pr', text: `7 ${HOSTILE}`, url: PR_URL },
+    ],
+    {
+      milestones: [hostile],
+      issueGroups: [{ milestone: hostile, closedTitle: null, closedNumber: null, issues: SAMPLE_ISSUES.slice(0, 1), claimsLinked: false }],
+    },
+  )
+  const [first] = snapshot.sessions
+  const windowSession = { ...first, milestoneTitle: HOSTILE, milestoneNumber: 22, repoPage: REPO_PAGE } as SessionNode
+  const desktop = drawDesktop({ snapshot: { ...snapshot, sessions: [windowSession, ...snapshot.sessions.slice(1)] } })
+  expect(String(keyed(desktop, 'milestone-22')?.props.text)).toContain(`${ESCAPED}](${REPO_PAGE}/milestone/22)`)
+  const texts = markdownTextsOf(desktop).join('\n')
+  expect(texts).toContain(ESCAPED)
+  expect(texts).toContain(`](${REPO_PAGE}/commit/${COMMIT_SHA})`)
+  expect(texts).toContain(`](${PR_URL})`)
+  expect(String(keyed(desktop, `crumb-${THIS_WINDOW}`)?.props.text)).toContain(`[${ESCAPED}](${REPO_PAGE}/milestone/22)`)
+})
+
+test('desktop: the commit event, the PR event and the PR detail line each link to their page; the terminal draws them plain', () => {
+  const snapshot = withWindowTimeline(
+    [
+      { at: NOW, kind: 'commit', text: 'Synthetic commit', url: `${REPO_PAGE}/commit/${COMMIT_SHA}` },
+      { at: NOW - 1, kind: 'pr', text: '7 Synthetic PR', url: PR_URL },
+    ],
+    { thisIssue: { ...SAMPLE_THIS_ISSUE, pr: { number: 7, title: 'Synthetic PR', state: 'OPEN', reviewDecision: null, url: PR_URL } } },
+  )
+  const desktop = drawDesktop({ snapshot })
+  const texts = markdownTextsOf(desktop).join('\n')
+  expect(texts).toContain(`](${REPO_PAGE}/commit/${COMMIT_SHA})`)
+  expect(texts).toContain(`](${PR_URL})`)
+  const prValue = nodesOf(keyed(desktop, 'detail-pr')).find(node => node.props.key === 'value')
+  expect(String(prValue?.props.text)).toContain('#7 Synthetic PR')
+  expect(String(prValue?.props.text)).toContain(`](${PR_URL})`)
+  const terminal = JSON.stringify(drawTerminal({ snapshot }))
+  expect(terminal).not.toContain(PR_URL)
+  expect(terminal).not.toContain(`/commit/${COMMIT_SHA}`)
+})
+
+test('each session title links to its own repo page: two sessions with two origins, each its own page', () => {
+  const pages: Record<string, string> = {
+    'Synthetic session one': 'https://github.com/acme/app',
+    'Synthetic docs': 'https://gitlab.example.test/acme/app',
+  }
+  const withPage = (node: SessionNode): SessionNode => ({ ...node, repoPage: pages[node.title] ?? null, children: node.children.map(withPage) })
+  const base = snapshotWith()
+  const texts = markdownTextsOf(drawDesktop({ snapshot: { ...base, sessions: base.sessions.map(withPage) } })).join('\n')
+  expect(texts).toContain('[Synthetic session one ↗](https://github.com/acme/app)')
+  expect(texts).toContain('[Synthetic docs ↗](https://gitlab.example.test/acme/app)')
+  expect(texts).not.toContain('Synthetic docs ↗](https://github.com/acme/app)')
 })

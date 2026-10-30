@@ -32,12 +32,16 @@ export type ProjectedRecord = {
 
 export type IssueRef = { number: number; source: 'override' | 'pr' | 'branch' | 'title' | 'parent' }
 
-export type TimelineEvent = { at: number; kind: 'commit' | 'pr' | 'session'; text: string }
+// url: the commit's or the PR's web page, null when the event has none (a session event, or no repo page).
+export type TimelineEvent = { at: number; kind: 'commit' | 'pr' | 'session'; text: string; url: string | null }
+
+// A repo's remote as the mod reads it: the host (lower case), owner and name. Never drawn; a link is built from it.
+export type RepoRemote = { host: string; owner: string; name: string }
 
 // What the breadcrumb of a session row reads from its issue: the GitHub page and the milestone title, both from the open issues
 // list (an issue outside that list has no entry). noMilestone is true only when the issue has no milestone; a null title with
 // noMilestone false means the title is unknown, so the trail omits the part (ux-1).
-export type IssueFacts = { url: string; milestoneTitle: string | null; noMilestone: boolean }
+export type IssueFacts = { url: string; milestoneTitle: string | null; noMilestone: boolean; milestoneNumber: number | null }
 
 // The group a tree top is drawn under: a Desktop sidebar Group (the session's, else its family root's), else Recents.
 export type SessionGroup = {
@@ -49,15 +53,24 @@ export type SessionGroup = {
 export type SessionNode = {
   id: string; title: string; isThisWindow: boolean; kind: 'root' | 'fork' | 'spawn'; depth: number
   parentId: string | null; createdAt: number; branch: string | null; issue: IssueRef | null
-  milestoneTitle: string | null; noMilestone: boolean; issueUrl: string | null
+  milestoneTitle: string | null; milestoneNumber: number | null; noMilestone: boolean; issueUrl: string | null
+  // repoPage: the web page of the session's repo (GitHub or GitLab), null without a known remote; the title links to it.
+  repoPage: string | null
   state: 'working' | 'idle' | 'waiting'; timeline: TimelineEvent[]; children: SessionNode[]
   group: SessionGroup | null   // set on every top of snapshot.sessions, null on derived nodes
 }
 
 // milestone null with closedTitle null = "Sem milestone / issue". closedTitle set = the issues of a closed milestone, drawn under its
 // title and marked closed (pm1-9; its counts are not read, so no milestone record). claimsLinked: the one-line "all in sessions" claim
-// may be drawn, since the list is complete and holds every open issue the milestone counts (rev-g1-5).
-export type IssueGroup = { milestone: Milestone | null; closedTitle: string | null; issues: Issue[]; claimsLinked: boolean }
+// may be drawn, since the list is complete and holds every open issue the milestone counts (rev-g1-5). closedNumber: that closed
+// milestone's number, which its heading links to; null whenever closedTitle is null.
+export type IssueGroup = {
+  milestone: Milestone | null
+  closedTitle: string | null
+  closedNumber: number | null
+  issues: Issue[]
+  claimsLinked: boolean
+}
 
 export type PaneError = 'gh-missing' | 'gh-auth' | 'gh-rate-limit' | 'gh-timeout' | 'gh-failed' | 'no-remote' | 'records-unreadable' | 'git-failed'
 
@@ -90,7 +103,9 @@ export type SessionInput = ProjectedRecord & {
   pr: PullRequest | null
   override: number | null
   waiting: boolean
-  commits: { at: number; subject: string }[]
+  commits: { at: number; subject: string; sha?: string | null }[]
+  // The session's own repo remote (its common git dir's origin), null when none is known.
+  remote?: RepoRemote | null
 }
 
 // The drawn state the hooks module reads and writes (see hooks/register.tsx).
