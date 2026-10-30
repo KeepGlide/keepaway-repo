@@ -30,7 +30,6 @@ export type ActionIconKey =
 
 export type StatusIconKey =
   | 'activeWindow'
-  | 'activeSession'
   | 'issues'
   | 'sessions'
   | 'history'
@@ -78,7 +77,6 @@ const ICONS: Readonly<Record<ActionIconKey, { emoji: string; paths: readonly str
 
 const STATUS_EMOJI: Readonly<Record<StatusIconKey, string>> = {
   activeWindow: '▶️',
-  activeSession: '🔄',
   issues: '📋',
   sessions: '🖥️',
   history: '🕘',

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { clockOf, dateOf, isOverdue, progressBarOf, renderPane, type PaneContext } from '../hooks/pane'
 import { priorityEmoji, statusIconEmoji } from '../hooks/action-icons'
-import { TEXT_MAX, buildTree, groupIssues, type DesktopGroups } from '../hooks/model'
+import { TEXT_MAX, WORKING_WINDOW_MS, buildTree, groupIssues, type DesktopGroups } from '../hooks/model'
 import { t } from '../hooks/i18n'
 import { DETAILS_FILL } from '../hooks/look'
 import type { PaneError, SessionNode, Snapshot, TimelineEvent } from '../types'
@@ -280,7 +280,7 @@ test('a session title is escaped before it goes into its link', () => {
       ),
     }),
   })
-  expect(sessionLinksIn(tree)).toEqual(['[Fix \\[x\\]\\(y\\) \\*now\\* ↗](#local_aaaa1111) 🟢 🔄'])
+  expect(sessionLinksIn(tree)).toEqual(['[Fix \\[x\\]\\(y\\) \\*now\\* ↗](#local_aaaa1111) 🟢'])
 })
 
 test('derived rows nest under their parents, one level deeper, with branch glyphs', () => {
@@ -438,7 +438,7 @@ test('an ended root draws no row and no label; its live derived sessions are tit
     { now: NOW, cutoffMs: 24 * HOUR, thisCliSessionId: null },
   )
   const tree = drawDesktop({ snapshot: snapshotWith({ sessions }) })
-  expect(sessionLinksIn(tree)).toEqual(['[Fork A ↗](#local_a0000002) 🟢 🔄', '[Spawn B ↗](#local_a0000003) 🟢 🔄'])
+  expect(sessionLinksIn(tree)).toEqual(['[Fork A ↗](#local_a0000002) 🟢', '[Spawn B ↗](#local_a0000003) 🟢'])
   expect(keyed(tree, 'session-local_a0000001') === undefined).toBe(true)
   expect(drawnTexts(keyed(tree, 'head-local_a0000002'))[0]).toBe('├')
   expect(drawnTexts(keyed(tree, 'head-local_a0000003'))[0]).toBe('└')
@@ -458,7 +458,7 @@ test('a top without a group is drawn under Recents as a titled └ row', () => {
   const tree = drawDesktop({ snapshot: snapshotWith({ sessions: [loose] }) })
   expect(textOf(groupLabelIn(tree, 'recents')?.props.children)).toBe('Recents')
   expect(drawnTexts(keyed(tree, 'head-local_b0000003'))[0]).toBe('└')
-  expect(sessionLinksIn(tree)).toEqual(['[Loose top ↗](#local_b0000003) 🟢 🔄'])
+  expect(sessionLinksIn(tree)).toEqual(['[Loose top ↗](#local_b0000003) 🟢'])
 })
 
 test("on the terminal the Recents label and this window's title are plain bold Text, with no link", () => {
@@ -664,9 +664,8 @@ test('the legend is a Labels table: a bold heading, then one row per icon in gro
   const english = [
     ['🟢', 'working', 'the session is running a turn or a tool right now.'],
     ['⏳', 'waiting for you', 'the session asked you to approve a tool and is paused until you answer.'],
-    ['💤', 'idle', 'the session is open but not running anything.'],
+    ['💤', 'idle', 'no activity recorded in the Desktop app for more than 5 minutes.'],
     ['▶️', 'this window', 'the session of the window you are in.'],
-    ['🔄', 'session working now', 'another session of this repo that is running right now.'],
     ['📋', 'open issues', 'GitHub issues still open; under "Issues without session", no session is on them yet (to do).'],
     ['🛠️', 'issue of a session', 'an issue a session is working on (in progress).'],
     ['✅', 'done', 'a closed issue, a merged PR, or a milestone with every issue closed.'],
@@ -687,9 +686,8 @@ test('the legend is a Labels table: a bold heading, then one row per icon in gro
   const portuguese = [
     ['🟢', 'trabalhando', 'a sessão está executando um turno ou uma ferramenta agora.'],
     ['⏳', 'esperando você', 'a sessão pediu sua aprovação para uma ferramenta e está parada até você responder.'],
-    ['💤', 'ociosa', 'a sessão está aberta, mas não está executando nada.'],
+    ['💤', 'ociosa', 'sem atividade registrada no app Desktop há mais de 5 minutos.'],
     ['▶️', 'esta janela', 'a sessão da janela em que você está.'],
-    ['🔄', 'sessão trabalhando agora', 'outra sessão deste repositório que está executando agora.'],
     ['📋', 'issues abertas', 'issues do GitHub ainda abertas; em "Issues sem sessão", nenhuma sessão está nelas ainda (a fazer).'],
     ['🛠️', 'issue de uma sessão', 'uma issue em que uma sessão está trabalhando (em andamento).'],
     ['✅', 'feito', 'uma issue fechada, um PR mesclado ou um milestone com todas as issues fechadas.'],
@@ -1100,13 +1098,20 @@ test('a GitHub due date is a calendar date: it is drawn from its UTC date, never
 })
 
 // The icon vocabulary (action-icons.ts): the marker, the timeline, the due date and the priority tags are pinned by their emoji here.
-test('active rows carry a marker: this window ▶️, a session working now 🔄, an idle row none', () => {
+test('the active marker is this window ▶️ alone: a session working now carries its 🟢 and no 🔄, an idle row none', () => {
   const texts = drawnTexts(drawTerminal())
   expect(texts).toContain('Synthetic session one 🟢 ▶️ ← this window')
-  expect(texts).toContain('Synthetic fork 🟢 🔄')
+  expect(texts).toContain('Synthetic fork 🟢')
   expect(texts).toContain('Synthetic docs 💤')
+  expect(texts.some(text => text.includes('🔄'))).toBe(false)
   expect(statusIconEmoji('activeWindow')).toBe('▶️')
-  expect(statusIconEmoji('activeSession')).toBe('🔄')
+})
+
+test('the idle legend names the working window in minutes: no activity for more than that long', () => {
+  const minutes = WORKING_WINDOW_MS / 60_000
+  const texts = drawnTexts(drawTerminal())
+  expect(texts.some(text => text.includes(`no activity recorded in the Desktop app for more than ${minutes} minutes.`))).toBe(true)
+  expect(texts.some(text => text.includes('🔄') || text.includes('session working now'))).toBe(false)
 })
 
 test('the timeline has a 🕘 heading, and its events carry the icon of their kind: PR 🔀, session 🚀', () => {
@@ -1292,4 +1297,23 @@ test('each session title links to its own repo page: two sessions with two origi
   expect(texts).toContain('[Synthetic session one ↗](https://github.com/acme/app)')
   expect(texts).toContain('[Synthetic docs ↗](https://gitlab.example.test/acme/app)')
   expect(texts).not.toContain('Synthetic docs ↗](https://github.com/acme/app)')
+})
+
+test('an exact milestone with no issue at all reads "no issues" with no done icon and no ready to close; one with closed issues still reads all closed', () => {
+  const empty = milestoneSnapshot({ number: 50, title: 'Milestone E', openIssues: 0, closedIssues: 0, dueOn: null, countsExact: true })
+  const texts = drawnTexts(drawDesktop({ snapshot: empty }))
+  expect(texts).toContain('🎯 Milestone E · no issues')
+  expect(texts.some(text => text.includes('Milestone E') && text.includes('ready to close'))).toBe(false)
+  expect(texts.some(text => text.startsWith('✅ Milestone E'))).toBe(false)
+  expect(drawnTexts(drawDesktop({ snapshot: empty, lang: 'pt' }))).toContain('🎯 Milestone E · sem issues')
+  const closed = milestoneSnapshot({ number: 51, title: 'Milestone F', openIssues: 0, closedIssues: 2, dueOn: null, countsExact: true })
+  expect(drawnTexts(drawDesktop({ snapshot: closed }))).toContain('✅ Milestone F · all closed · ready to close')
+})
+
+test('the Last commit line links to its commit page on the desktop, and is plain text on the terminal', () => {
+  const sha = 'a'.repeat(40)
+  const commitUrl = `${REPO_PAGE}/commit/${sha}`
+  const snapshot = snapshotWith({ thisIssue: { ...SAMPLE_THIS_ISSUE, lastCommit: { at: 1, subject: 'Synthetic commit', url: commitUrl } } })
+  expect(JSON.stringify(drawDesktop({ snapshot }))).toContain(`](${commitUrl})`)
+  expect(JSON.stringify(drawTerminal({ snapshot }))).not.toContain('/commit/')
 })

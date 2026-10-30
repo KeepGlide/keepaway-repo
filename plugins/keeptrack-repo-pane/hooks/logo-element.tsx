@@ -32,6 +32,13 @@ export function renderKeepTrackMark(ui: Ui, desktop: boolean): RenderElement | f
   return false
 }
 
+// A repo's own logo (repo-logo.ts) beside a session's title, LOGO_SIZE pixels square. Desktop only: the terminal draws no picture.
+export function renderRepoLogo(ui: Ui, desktop: boolean, source: string, alt: string): RenderElement | false {
+  if (!desktop || !('Svg' in ui)) return false
+  const { Svg } = ui
+  return <Svg key="repo-logo" source={source} alt={alt} width={LOGO_SIZE} height={LOGO_SIZE} />
+}
+
 // The KeepGlide mark at `size` CSS pixels square. Desktop only: the terminal draws no picture, so it gets false.
 export function renderKeepGlide(ui: Ui, desktop: boolean, key: string, size: number): RenderElement | false {
   if (!desktop || !('Svg' in ui)) return false

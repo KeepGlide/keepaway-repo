@@ -69,6 +69,16 @@ export function parseRemote(url: string | null): Remote | null {
   return remoteOf(text, URL_REMOTE) ?? remoteOf(text, SCP_REMOTE)
 }
 
+// The host ssh connects to for an alias, from the `hostname` line of `ssh -G <alias>` (the alias itself when no Host block names it).
+// Null when the answer has no such line or the value is not a plain host name (lower case, no leading dash, no colon, no space).
+const SSH_HOSTNAME_KEY = 'hostname '
+const SSH_HOST_NAME = /^[a-z0-9][a-z0-9._-]{0,252}$/
+export function sshHostnameOf(text: string): string | null {
+  const line = text.split('\n').find(entry => entry.startsWith(SSH_HOSTNAME_KEY))
+  const host = (line ?? '').slice(SSH_HOSTNAME_KEY.length).trim().toLowerCase()
+  return SSH_HOST_NAME.test(host) ? host : null
+}
+
 // A host the pane treats as GitHub: github.com, or an ssh alias that names GitHub (its host contains "github").
 export const isGithubHost = (host: string): boolean => host === 'github.com' || host.includes('github')
 
@@ -89,6 +99,13 @@ export function repoPageOf(remote: RepoRemote | null | undefined): string | null
   const base = isGithubHost(remote.host) ? 'https://github.com' : isGitlabHost(remote.host) ? `https://${remote.host}` : null
   const page = base === null ? null : `${base}/${remote.owner}/${remote.name}`
   return page !== null && PAGE_URL.test(page) ? page : null
+}
+
+// The key of a repo's logo in the store: the remote's host, owner and name, lowercased, so the GitHub remote of an enterprise host never
+// shares the github.com page's logo. Null when the remote has no repo page (repoPageOf), so it has no logo either.
+export function logoKeyOf(remote: RepoRemote | null | undefined): string | null {
+  if (remote === null || remote === undefined || repoPageOf(remote) === null) return null
+  return `${remote.host}/${remote.owner}/${remote.name}`.toLowerCase()
 }
 
 // The commit page of a repo: GitHub's /commit/<sha>, GitLab's /-/commit/<sha>. null without a repo page or with an id that is not a commit.
@@ -472,6 +489,7 @@ function attach(record: SessionInput, depth: number, parentNode: SessionNode | n
     issueUrl: facts?.url ?? null,
     milestoneNumber: facts?.milestoneNumber ?? null,
     repoPage: repoPageOf(record.remote),
+    logoKey: logoKeyOf(record.remote),
     state: stateOf(lastActivityAt, context.now, record.waiting),
     timeline: timelineOf({
       createdAt,

@@ -8,7 +8,17 @@ import { expect, mock, test, type Engine } from 'claude-code/testing'
 import { actionIconEmoji } from '../hooks/action-icons'
 import { RECORD_MAX_BYTES } from '../hooks/model'
 import { TURN_MAX_AGE_MS } from '../hooks/turn'
-import { TOOL_NAME_MAX, resetDesktopConfigCache } from '../hooks/register'
+import { TOOL_NAME_MAX, resetDesktopConfigCache, resetLogoMemory } from '../hooks/register'
+import {
+  AVATAR_FETCH_SCRIPT,
+  LOGO_FOLDERS,
+  LOGO_LOCK_MS,
+  LOGO_RETRY_MS,
+  LOGO_STORE_MAX,
+  LOGO_TTL_MS,
+  logoLockKeyOf,
+  logoStoreKeyOf,
+} from '../hooks/repo-logo'
 
 const HOME = '/test-home'
 const RECORDS = '/test-records'
@@ -45,6 +55,8 @@ const SECRET_TITLE = 'Keep this secret title out of the log'
 const DESKTOP_CONFIG_DIR = `${HOME}/.config/Claude`
 const DESKTOP_CONFIG_NAME = 'claude_desktop_config.json'
 const DESKTOP_CONFIG_PATH = `${DESKTOP_CONFIG_DIR}/${DESKTOP_CONFIG_NAME}`
+// The store key of the repo's logo (the page of acme/app's GitHub remote).
+const LOGO_STORE_KEY = logoStoreKeyOf('github.com/acme/app')
 
 type RawRecord = Record<string, unknown>
 // 'cut': gh answers as usual, but the engine says it cut the stdout at its cap (isStdoutTruncated).
@@ -119,6 +131,36 @@ type StubOptions = {
   // The answer of `date +%z`, the host's UTC offset; `dateMissing` makes the host refuse the call (no date binary).
   utcOffset?: string
   dateMissing?: boolean
+  // The repo logo lookups (SPEC section 11). Absent, the repo's logo is stored as none and never ages out, so the poll tests above make
+  // no lookup; lookLogos runs them for real.
+  lookLogos?: boolean
+  // ssh -G of an alias answers its `hostname` as sshHosts names it (an alias it does not name answers itself, as ssh does); sshFails
+  // makes ssh missing, so every alias lookup fails (SPEC section 16).
+  sshHosts?: Record<string, string>
+  sshFails?: boolean
+  // ssh -G runs out of time: the call is rejected, as the engine rejects a process that times out.
+  sshTimesOut?: boolean
+  // The files of the session's checkout (REPO_ROOT), by path: fs.list lists them, fs.read gives their text or, as bytes, their base64.
+  checkout?: Record<string, Uint8Array>
+  // The files GitHub's contents answers for, by path (a path the repo does not hold answers 404).
+  contents?: Record<string, Uint8Array>
+  // The stderr of every contents call that fails, e.g. 'gh: Server Error (HTTP 500)'.
+  contentsFailure?: string
+  // The owner's account (`gh api users/<owner>`): its type (default User) and its avatar URL.
+  ownerType?: 'Organization' | 'User'
+  ownerAvatarUrl?: string
+  // What the avatar fetch (curl through base64) answers: the base64 of the picture; absent, the fetch failed and answers nothing.
+  avatarBase64?: string
+  // The listed entries that are symbolic links, by path: a link is never a logo (the engine's FsEntry isLink).
+  links?: string[]
+  // The store refuses every read, write and delete of a logo key (logo:, logo-lock:): the pane must go on.
+  logoStoreRefuses?: boolean
+  // `glab --version` times out (the engine's process timeout): the answer is asked again, not kept.
+  glabTimesOut?: boolean
+  // glab is installed, answers the project's JSON with `glabAvatarUrl`, or fails (`glabFails`).
+  glabInstalled?: boolean
+  glabFails?: boolean
+  glabAvatarUrl?: string
 }
 type Host = {
   argvs: string[][]
@@ -156,6 +198,7 @@ const recordPath = (sessionId: string): string => `${RECORDS}/org/user/${session
 function stubHost(on: On, options: StubOptions = {}): Host {
   // The Desktop config cache belongs to one host: a test starts with none, so no test reads another test's config.
   resetDesktopConfigCache()
+  resetLogoMemory()
   const records = options.records ?? [OWN_RECORD]
   const host: Host = {
     argvs: [],
@@ -190,15 +233,35 @@ function stubHost(on: On, options: StubOptions = {}): Host {
       [...files.keys()].map(path => ({ name: path.slice(path.lastIndexOf('/') + 1), kind: 'file' as const })),
     ],
   ])
+  // The checkout: its files are listed in their folder, and every logo folder lists as empty, not refused.
+  const checkoutFiles = options.checkout ?? {}
+  for (const folder of [REPO_ROOT, ...LOGO_FOLDERS.filter(name => name !== '.').map(name => `${REPO_ROOT}/${name}`)]) {
+    folders.set(folder, folders.get(folder) ?? [])
+  }
+  for (const path of Object.keys(checkoutFiles)) {
+    const folder = path.slice(0, path.lastIndexOf('/'))
+    folders.set(folder, [...(folders.get(folder) ?? []), { name: path.slice(path.lastIndexOf('/') + 1), kind: 'file' }])
+  }
   mock.env(on, { HOME, KEEPTRACK_DESKTOP_SESSIONS: RECORDS, ...options.env })
   on('command.register', (_$, event) => ({ value: { command: event.name } }))
   on('session.start', (_$, event) => ({ cwd: event.cwd }))
-  on('store.get', (_$, event) => ({ value: host.store.get(event.key) }))
+  // Without lookLogos the repo's logo reads as stored none that never ages out, kept out of host.store so the store keeps what the test wrote.
+  const seededLogo = { source: null, at: Number.MAX_SAFE_INTEGER, failed: false }
+  // The logo keys (logo: and logo-lock:) are refused when the test says so; every other key is kept as before.
+  const refusesKey = (key: string): boolean => options.logoStoreRefuses === true && key.startsWith('logo')
+  on('store.get', (_$, event) => {
+    if (refusesKey(event.key)) return refuse('logo store unavailable')
+    return {
+      value: host.store.get(event.key) ?? (options.lookLogos !== true && event.key === LOGO_STORE_KEY ? seededLogo : undefined),
+    }
+  })
   on('store.set', (_$, event) => {
+    if (refusesKey(event.key)) return refuse('logo store unavailable')
     host.store.set(event.key, event.value)
     return { value: undefined }
   })
   on('store.delete', (_$, event) => {
+    if (refusesKey(event.key)) return refuse('logo store unavailable')
     host.store.delete(event.key)
     return { value: undefined }
   })
@@ -254,11 +317,16 @@ function stubHost(on: On, options: StubOptions = {}): Host {
     }
     const sizeOf = (name: string): number => options.sizes?.[`${event.path}/${name}`] ?? 100
     const mtimeOf = (name: string): number => options.mtimes?.[`${event.path}/${name}`] ?? 1
-    return { value: entries.map(entry => ({ ...entry, size: sizeOf(entry.name), mtimeMs: mtimeOf(entry.name), isLink: false })) }
+    const isLinkOf = (name: string): boolean => options.links?.includes(`${event.path}/${name}`) === true
+    return { value: entries.map(entry => ({ ...entry, size: sizeOf(entry.name), mtimeMs: mtimeOf(entry.name), isLink: isLinkOf(entry.name) })) }
   })
   on('fs.read', (_$, event) => {
     host.reads += 1
     host.readPaths.push(event.path)
+    const checkoutBytes = checkoutFiles[event.path]
+    if (checkoutBytes !== undefined) {
+      return { value: event.as === 'bytes' ? { base64: base64Of(checkoutBytes) } : new TextDecoder().decode(checkoutBytes) }
+    }
     const content =
       event.path === DESKTOP_CONFIG_PATH ? options.desktopConfig : files.get(event.path)
     if (content === undefined || options.unreadable?.includes(event.path) === true) return refuse(`fs.read refused: ${event.path}`)
@@ -273,7 +341,23 @@ function stubHost(on: On, options: StubOptions = {}): Host {
       if (options.dateMissing === true) return refuse('Executable not found in $PATH: "date"')
       return valueOr(argv, processOutput(options.utcOffset ?? '+0000\n'))
     }
+    if (argv[0] === 'ssh') {
+      if (options.sshFails === true) return refuse('Executable not found in $PATH: "ssh"')
+      if (options.sshTimesOut === true) return refuse(REJECTION_OF.timeout)
+      const alias = argv[2] ?? ''
+      return valueOr(argv, processOutput(`user git\nhostname ${options.sshHosts?.[alias] ?? alias}\nport 22\n`))
+    }
     if (argv[0] === 'gh' && (options.gh === 'missing' || options.gh === 'timeout')) return refuse(REJECTION_OF[options.gh])
+    if (argv[0] === 'glab') {
+      if (options.glabTimesOut === true && argv[1] === '--version') return refuse(REJECTION_OF.timeout)
+      return valueOr(argv, glabAnswerOf(argv, options))
+    }
+    // The avatar fetch: curl through base64, so the answer is the base64 text (empty when the fetch failed).
+    if (argv[0] === 'sh') {
+      return options.avatarBase64 === undefined
+        ? valueOr(argv, processOutput('', 0, 'curl: (6) Could not resolve host'))
+        : valueOr(argv, processOutput(options.avatarBase64))
+    }
     if (argv[0] === 'gh') {
       const answer = await ghAnswerOf(argv, options)
       return valueOr(argv, options.gh === 'cut' && answer !== undefined ? { ...answer, isStdoutTruncated: true } : answer)
@@ -292,6 +376,14 @@ function stubHost(on: On, options: StubOptions = {}): Host {
 }
 
 type ProcessOutput = ReturnType<typeof processOutput>
+
+// glab on the host: `glab --version` finds it, `glab api` answers the project's JSON (or fails). Without glab the call is refused (undefined).
+function glabAnswerOf(argv: readonly string[], options: StubOptions): ProcessOutput | undefined {
+  if (options.glabInstalled !== true) return undefined
+  if (argv[1] === '--version') return processOutput('glab version 1.0.0\n')
+  if (options.glabFails === true) return processOutput('', 1, 'glab: 401 Unauthorized')
+  return processOutput(JSON.stringify({ path: 'app', avatar_url: options.glabAvatarUrl ?? null }))
+}
 // A host command that cannot start or runs out of time rejects its call (the engine's process.run contract). A hook that
 // throws is skipped instead, and the kit then rejects with "no implementation", so the rejection is answered with a deny,
 // which rejects the caller with its text. The missing-binary text is the runtime's own spawn error.
@@ -347,8 +439,28 @@ async function ghAnswerOf(argv: readonly string[], options: StubOptions): Promis
     return processOutput(JSON.stringify({ data: { repository: { pullRequests: { totalCount: options.prTotal ?? nodes.length, nodes } } } }))
   }
   if (argv.includes('list')) return processOutput(options.issues ?? '[]')
+  const contentsPath = /repos\/[^/]+\/[^/]+\/contents\/(.+)$/.exec(argv[2] ?? '')
+  if (argv[1] === 'api' && contentsPath !== null) return contentsAnswerOf(contentsPath[1] ?? '', options)
+  if (argv[1] === 'api' && (argv[2] ?? '').startsWith('users/')) return ownerAnswerOf(argv, options)
   if (argv[1] === 'api') return processOutput(options.milestones ?? '[]')
   return undefined
+}
+
+// Base64 of bytes, with btoa, since the test runtime has no Node Buffer.
+const base64Of = (bytes: ArrayLike<number>): string => btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''))
+// GitHub's contents answer for a path: the file as base64 JSON when the test gives it, else 404 (a path the repo does not hold).
+function contentsAnswerOf(path: string, options: StubOptions) {
+  if (options.contentsFailure !== undefined) return processOutput('', 1, options.contentsFailure)
+  const bytes = options.contents?.[path]
+  if (bytes === undefined) return processOutput('', 1, 'gh: Not Found (HTTP 404)')
+  const content = base64Of(bytes)
+  return processOutput(JSON.stringify({ type: 'file', size: bytes.byteLength, encoding: 'base64', content }))
+}
+
+// The owner's account answer: its type for `--jq .type`, its avatar URL for `--jq .avatar_url`.
+function ownerAnswerOf(argv: readonly string[], options: StubOptions) {
+  if (argv.includes('.type')) return processOutput(`${options.ownerType ?? 'User'}\n`)
+  return processOutput(`${options.ownerAvatarUrl ?? 'https://avatars.githubusercontent.com/u/1?v=4'}\n`)
 }
 
 // The stdout of a git call the module makes, for the argv of that call.
@@ -2446,4 +2558,503 @@ test('the host UTC offset comes from date +%z at session.start and on each poll;
   options.dateMissing = true
   await host.clock.advance(POLL_MS)
   expect(await drawnPane($)).toContain(clockAtEpochZeroIn(runtimeOffset))
+})
+
+// ---- repo logos (SPEC section 11): the lookup, its cache and its drawing ----
+
+const TINY_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+const LOGO_BYTES = Uint8Array.from(atob(TINY_PNG), char => char.charCodeAt(0))
+const JPEG_BYTES = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 0xff, 0xd9])
+const LOGO_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3"/></svg>'
+const SVG_BYTES = new TextEncoder().encode(LOGO_SVG)
+const TRUNCATED_PNG = LOGO_BYTES.slice(0, -4)
+// The drawn picture of TINY_PNG: the frame pictureDocumentOf builds around it.
+const LOGO_FRAME = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><image href="data:image/png;base64,${TINY_PNG}" width="1" height="1"/></svg>`
+const openPane = async ($: Engine): Promise<void> => {
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+}
+// The repo logo's drawn picture: the Svg the desktop draws with the logo's alt text (the KeepGlide mark is another Svg).
+const repoLogoOf = (tree: DrawnNode): DrawnNode[] => nodesOf(tree).filter(node => node.type === 'Svg' && node.props?.alt === 'acme/app logo')
+// The gh calls that ask GitHub for a path's contents (the logo lookup's, not the poll's).
+const contentsCalls = (host: Host): number =>
+  host.argvs.filter(argv => argv[0] === 'gh' && (argv[2] ?? '').includes('/contents/')).length
+// The logo store lines the window logged: each operation once.
+const logoStoreLogs = (host: Host): string[] => host.logs.filter(line => line.startsWith('keeptrack: logo store'))
+
+test('a logo file in the checkout is drawn before the title on the desktop, and GitHub is not asked', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, checkout: { [`${REPO_ROOT}/logo.png`]: LOGO_BYTES } })
+  await openPane($)
+  await host.clock.settle()
+  const logo = repoLogoOf(await drawnTree($, 'desktop'))[0]
+  expect(logo?.type).toBe('Svg')
+  expect(logo?.props).toMatchObject({ source: LOGO_FRAME, alt: 'acme/app logo', width: 16, height: 16 })
+  expect(contentsCalls(host)).toBe(0)
+  expect(host.denies).toEqual([])
+  expect(host.logs).toEqual([])
+})
+
+test('the terminal draws no logo, though the checkout has one', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, checkout: { [`${REPO_ROOT}/logo.png`]: LOGO_BYTES } })
+  await openPane($)
+  await host.clock.settle()
+  expect(repoLogoOf(await drawnTree($, 'terminal'))).toEqual([])
+  expect(await drawnPane($)).toContain('Fix disk full')
+})
+
+test('a logo the checkout lacks comes from GitHub at the root, the first name it holds, in three calls at most', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, contents: { 'logo.jpeg': JPEG_BYTES } })
+  await openPane($)
+  await host.clock.settle()
+  expect(contentsCalls(host)).toBe(3)
+  expect(repoLogoOf(await drawnTree($, 'desktop'))[0]?.props).toMatchObject({ source: expect.stringContaining('data:image/jpeg;base64,') })
+})
+
+test('GitHub is asked for the first three names only: a logo under assets/ is found in the checkout, not on GitHub', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, contents: { 'assets/logo.png': LOGO_BYTES } })
+  await openPane($)
+  await host.clock.settle()
+  expect(contentsCalls(host)).toBe(3)
+  expect(repoLogoOf(await drawnTree($, 'desktop'))).toEqual([])
+})
+
+test('a repo with no logo is stored as none, and not asked again on each poll', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true })
+  await openPane($)
+  await host.clock.settle()
+  expect(contentsCalls(host)).toBe(3)
+  expect(host.store.get(LOGO_STORE_KEY)).toMatchObject({ source: null, failed: false })
+  expect(repoLogoOf(await drawnTree($, 'desktop'))).toEqual([])
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(contentsCalls(host)).toBe(3)
+})
+
+test('an SVG in the checkout is ignored, and the lookup goes on to GitHub', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, checkout: { [`${REPO_ROOT}/logo.svg`]: SVG_BYTES } })
+  await openPane($)
+  await host.clock.settle()
+  expect(repoLogoOf(await drawnTree($, 'desktop'))).toEqual([])
+  expect(contentsCalls(host)).toBe(3)
+})
+
+test('a truncated PNG in the checkout is not drawn, and the lookup goes on to GitHub', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, checkout: { [`${REPO_ROOT}/logo.png`]: TRUNCATED_PNG } })
+  await openPane($)
+  await host.clock.settle()
+  expect(repoLogoOf(await drawnTree($, 'desktop'))).toEqual([])
+  expect(contentsCalls(host)).toBe(3)
+})
+
+test('a symbolic link named as a logo is never read: the lookup goes on to GitHub', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, checkout: { [`${REPO_ROOT}/logo.png`]: LOGO_BYTES }, links: [`${REPO_ROOT}/logo.png`] })
+  await openPane($)
+  await host.clock.settle()
+  expect(repoLogoOf(await drawnTree($, 'desktop'))).toEqual([])
+  expect(host.readPaths).not.toContain(`${REPO_ROOT}/logo.png`)
+  expect(contentsCalls(host)).toBe(3)
+})
+
+test('the store key is the remote in lower case, the github.com page is not its key on an enterprise host', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, rootRemote: 'git@github.com:Acme/App.git' })
+  await openPane($)
+  await host.clock.settle()
+  expect(host.store.has('logo:github.com/acme/app')).toBe(true)
+})
+
+test('an enterprise GitHub remote asks GitHub for no logo: its key is its own host, and no owner or contents call runs', async ($: Engine, on) => {
+  const host = stubHost(on, {
+    lookLogos: true,
+    remotes: { [`${REPO_ROOT}/.git`]: 'git@github.example.test:acme/app.git' },
+    ownerType: 'Organization',
+    ownerAvatarUrl: ORG_AVATAR,
+    avatarBase64: TINY_PNG,
+  })
+  await openPane($)
+  await host.clock.settle()
+  expect(contentsCalls(host)).toBe(0)
+  expect(host.argvs.some(argv => argv[0] === 'gh' && (argv[2] ?? '').startsWith('users/'))).toBe(false)
+  expect(host.store.has('logo:github.example.test/acme/app')).toBe(true)
+})
+
+test('a failed lookup is logged by its kind, kept for an hour, and the pane still draws its sessions', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, contentsFailure: 'gh: Server Error (HTTP 500)' })
+  await openPane($)
+  await host.clock.settle()
+  expect(host.logs).toContain('keeptrack: logo lookup failed (HTTP 5xx)')
+  expect(contentsCalls(host)).toBe(1)
+  expect(host.store.get(LOGO_STORE_KEY)).toMatchObject({ source: null, failed: true })
+  expect(await drawnPane($)).toContain('Fix disk full')
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(contentsCalls(host)).toBe(1)
+  await host.clock.advance(LOGO_RETRY_MS)
+  await host.clock.settle()
+  expect(contentsCalls(host)).toBe(2)
+})
+
+test('a store that refuses its writes and reads is logged once per operation, and the pane still draws; no lookup repeats', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, logoStoreRefuses: true })
+  await openPane($)
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain('Fix disk full')
+  const lines = logoStoreLogs(host)
+  expect(lines.length).toBeGreaterThan(0)
+  expect(new Set(lines).size).toBe(lines.length)
+  expect(contentsCalls(host)).toBe(3)
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(contentsCalls(host)).toBe(3)
+  expect(logoStoreLogs(host)).toEqual(lines)
+})
+
+test('the store keeps at most LOGO_STORE_MAX repo logos: the oldest ones of the other repos go first', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true })
+  // Twenty-one other repos, each fresh: the one written first is the oldest.
+  for (let index = 0; index <= LOGO_STORE_MAX; index += 1) {
+    host.store.set(`logo:github.com/old/repo-${index}`, { source: null, at: Number.MAX_SAFE_INTEGER - 100 + index, failed: false })
+  }
+  await openPane($)
+  await host.clock.settle()
+  expect(host.store.has('logo:github.com/old/repo-0')).toBe(false)
+  expect(host.store.has('logo:github.com/old/repo-1')).toBe(false)
+  expect(host.store.has('logo:github.com/old/repo-2')).toBe(true)
+  expect(host.store.has(LOGO_STORE_KEY)).toBe(true)
+})
+
+test('a stored logo of a repo this window no longer shows is dropped once it has expired', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true })
+  host.store.set('logo:github.com/old/repo', { source: null, at: -LOGO_TTL_MS, failed: false })
+  host.store.set('logo:github.com/kept/repo', { source: null, at: Number.MAX_SAFE_INTEGER, failed: false })
+  await openPane($)
+  await host.clock.settle()
+  expect(host.store.has('logo:github.com/old/repo')).toBe(false)
+  expect(host.store.has('logo:github.com/kept/repo')).toBe(true)
+})
+
+test('a lock another window holds is respected until it is two minutes old; this window deletes its own lock after a lookup', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, contents: { 'logo.png': LOGO_BYTES } })
+  host.store.set(logoLockKeyOf('github.com/acme/app'), { at: Number.MAX_SAFE_INTEGER })
+  await openPane($)
+  await host.clock.settle()
+  expect(contentsCalls(host)).toBe(0)
+  host.store.set(logoLockKeyOf('github.com/acme/app'), { at: -LOGO_LOCK_MS * 2 })
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(contentsCalls(host)).toBe(1)
+  expect(host.store.has(logoLockKeyOf('github.com/acme/app'))).toBe(false)
+})
+
+test('this window\'s issue view is reused while its updatedAt is unchanged, and asked again when it moves', async ($: Engine, on) => {
+  const options: StubOptions = {
+    issues: JSON.stringify([{ number: ISSUE, title: 'Synthetic issue', updatedAt: '2026-10-20T16:00:00Z', url: 'https://github.com/acme/app/issues/106', milestone: null, labels: [] }]),
+  }
+  const host = stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keeptrack', args: 'issue 106', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const viewCalls = (): number => host.argvs.filter(argv => argv[0] === 'gh' && argv.includes('view')).length
+  expect(viewCalls()).toBe(1)
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(viewCalls()).toBe(1)
+  options.issues = JSON.stringify([{ number: ISSUE, title: 'Synthetic issue', updatedAt: '2026-10-21T09:00:00Z', url: 'https://github.com/acme/app/issues/106', milestone: null, labels: [] }])
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(viewCalls()).toBe(2)
+})
+
+test('the GitLab project avatar: glab is asked on the remote host, and its avatar is drawn', async ($: Engine, on) => {
+  const host = stubHost(on, {
+    lookLogos: true,
+    remotes: { [`${REPO_ROOT}/.git`]: OTHER_REMOTE },
+    glabInstalled: true,
+    glabAvatarUrl: 'https://gitlab.example.test/uploads/app.png',
+    avatarBase64: TINY_PNG,
+  })
+  await openPane($)
+  await host.clock.settle()
+  expect(host.argvs.find(argv => argv[0] === 'glab' && argv[1] === 'api')).toEqual([
+    'glab',
+    'api',
+    'projects/acme%2Fapp',
+    '--hostname',
+    'gitlab.example.test',
+  ])
+  expect(avatarCalls(host)).toEqual(['https://gitlab.example.test/uploads/app.png'])
+})
+
+test('a glab that times out fails its lookup: kept an hour and logged, and the pane still draws its sessions', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, remotes: { [`${REPO_ROOT}/.git`]: OTHER_REMOTE }, glabTimesOut: true })
+  await openPane($)
+  await host.clock.settle()
+  expect(host.argvs.filter(argv => argv[0] === 'glab' && argv[1] === '--version')).toHaveLength(1)
+  expect(host.logs).toContain('keeptrack: logo lookup failed (glab)')
+  expect(host.store.get(logoStoreKeyOf('gitlab.example.test/acme/app'))).toMatchObject({ source: null, failed: true })
+  expect(await drawnPane($)).toContain('Fix disk full')
+})
+
+test('a stored logo past its day is looked up again on the next poll, and a fresh one is not', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, contents: { 'logo.png': LOGO_BYTES } })
+  host.store.set(LOGO_STORE_KEY, { source: null, at: -LOGO_TTL_MS, failed: false })
+  await openPane($)
+  await host.clock.settle()
+  expect(contentsCalls(host)).toBe(1)
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(contentsCalls(host)).toBe(1)
+})
+
+test('a glab that times out is retried after its hour: the next lookup asks glab again and draws the avatar', async ($: Engine, on) => {
+  const options: StubOptions = {
+    lookLogos: true,
+    remotes: { [`${REPO_ROOT}/.git`]: OTHER_REMOTE },
+    glabTimesOut: true,
+    glabInstalled: true,
+    glabAvatarUrl: 'https://gitlab.example.test/uploads/app.png',
+    avatarBase64: TINY_PNG,
+  }
+  const host = stubHost(on, options)
+  const glabVersionCalls = (): number => host.argvs.filter(argv => argv[0] === 'glab' && argv[1] === '--version').length
+  await openPane($)
+  await host.clock.settle()
+  expect(glabVersionCalls()).toBe(1)
+  expect(avatarCalls(host)).toEqual([])
+  options.glabTimesOut = false
+  await host.clock.advance(LOGO_RETRY_MS)
+  await host.clock.settle()
+  expect(glabVersionCalls()).toBe(2)
+  expect(avatarCalls(host)).toEqual(['https://gitlab.example.test/uploads/app.png'])
+})
+
+// ---- ssh aliases (SPEC section 16): a remote host with no dot is an alias ssh resolves; the real host feeds the logo, its key and the links ----
+
+const sshCalls = (host: Host): string[][] => host.argvs.filter(argv => argv[0] === 'ssh')
+
+test('an ssh alias that resolves to github.com is GitHub: its logo comes from gh under github.com, its links go there, and ssh is asked once', async ($: Engine, on) => {
+  const ALIAS = 'git@github-keepglide:acme/app.git'
+  const host = stubHost(on, {
+    lookLogos: true,
+    rootRemote: ALIAS,
+    remotes: { [`${REPO_ROOT}/.git`]: ALIAS },
+    sshHosts: { 'github-keepglide': 'github.com' },
+    contents: { 'logo.png': LOGO_BYTES },
+  })
+  await openPane($)
+  await host.clock.settle()
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(sshCalls(host)).toEqual([['ssh', '-G', 'github-keepglide']])
+  expect(contentsCalls(host)).toBe(1)
+  expect(host.store.has(LOGO_STORE_KEY)).toBe(true)
+  expect(repoLogoOf(await drawnTree($, 'desktop'))).toHaveLength(1)
+  expect(await drawnPane($, 'desktop')).toContain('[Fix disk full ↗](https://github.com/acme/app)')
+})
+
+test('an ssh alias that resolves to gitlab.com takes the GitLab path with the real host: glab is asked on gitlab.com', async ($: Engine, on) => {
+  const ALIAS = 'git@gitlab-work:acme/app.git'
+  const host = stubHost(on, {
+    lookLogos: true,
+    rootRemote: ALIAS,
+    remotes: { [`${REPO_ROOT}/.git`]: ALIAS },
+    sshHosts: { 'gitlab-work': 'gitlab.com' },
+    glabInstalled: true,
+    glabAvatarUrl: 'https://gitlab.com/uploads/app.png',
+    avatarBase64: TINY_PNG,
+  })
+  await openPane($)
+  await host.clock.settle()
+  expect(sshCalls(host)).toEqual([['ssh', '-G', 'gitlab-work']])
+  expect(host.argvs.find(argv => argv[0] === 'glab' && argv[1] === 'api')).toEqual([
+    'glab',
+    'api',
+    'projects/acme%2Fapp',
+    '--hostname',
+    'gitlab.com',
+  ])
+  expect(avatarCalls(host)).toEqual(['https://gitlab.com/uploads/app.png'])
+  expect(host.store.has(logoStoreKeyOf('gitlab.com/acme/app'))).toBe(true)
+})
+
+test('an ssh alias ssh cannot resolve keeps the alias: no gh logo lookup, the pane draws, and the failure is logged once', async ($: Engine, on) => {
+  const ALIAS = 'git@github-keepglide:acme/app.git'
+  const host = stubHost(on, {
+    lookLogos: true,
+    rootRemote: ALIAS,
+    remotes: { [`${REPO_ROOT}/.git`]: ALIAS },
+    sshFails: true,
+    contents: { 'logo.png': LOGO_BYTES },
+  })
+  await openPane($)
+  await host.clock.settle()
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(sshCalls(host)).toHaveLength(1)
+  expect(contentsCalls(host)).toBe(0)
+  expect(host.logs.filter(line => line.includes('ssh alias lookup failed'))).toHaveLength(1)
+  expect(await drawnPane($)).toContain('Fix disk full')
+})
+
+test('a dotted host named like GitHub is no alias: no ssh call, no gh logo lookup, and its key keeps the host', async ($: Engine, on) => {
+  const DOTTED = 'git@github.corp.example:acme/app.git'
+  const host = stubHost(on, {
+    lookLogos: true,
+    rootRemote: DOTTED,
+    remotes: { [`${REPO_ROOT}/.git`]: DOTTED },
+    contents: { 'logo.png': LOGO_BYTES },
+  })
+  await openPane($)
+  await host.clock.settle()
+  expect(sshCalls(host)).toEqual([])
+  expect(contentsCalls(host)).toBe(0)
+  expect(host.store.has('logo:github.corp.example/acme/app')).toBe(true)
+})
+
+test('an ssh alias whose ssh -G times out keeps the alias, logs the failure by its name, and the pane still draws', async ($: Engine, on) => {
+  const ALIAS = 'git@github-keepglide:acme/app.git'
+  const host = stubHost(on, {
+    lookLogos: true,
+    rootRemote: ALIAS,
+    remotes: { [`${REPO_ROOT}/.git`]: ALIAS },
+    sshTimesOut: true,
+    contents: { 'logo.png': LOGO_BYTES },
+  })
+  await openPane($)
+  await host.clock.settle()
+  expect(sshCalls(host)).toHaveLength(1)
+  expect(contentsCalls(host)).toBe(0)
+  expect(host.logs).toContain('keeptrack: ssh alias lookup failed (HooksError)')
+  expect(await drawnPane($)).toContain('Fix disk full')
+})
+
+test('a failed ssh alias lookup is asked again after LOGO_RETRY_MS, not before, and then its GitHub host draws the logo', async ($: Engine, on) => {
+  const ALIAS = 'git@github-keepglide:acme/app.git'
+  const options: StubOptions = {
+    lookLogos: true,
+    rootRemote: ALIAS,
+    remotes: { [`${REPO_ROOT}/.git`]: ALIAS },
+    sshFails: true,
+    sshHosts: { 'github-keepglide': 'github.com' },
+    contents: { 'logo.png': LOGO_BYTES },
+  }
+  const host = stubHost(on, options)
+  await openPane($)
+  await host.clock.settle()
+  expect(sshCalls(host)).toHaveLength(1)
+  options.sshFails = false
+  await host.clock.advance(LOGO_RETRY_MS - 1)
+  await host.clock.settle()
+  expect(sshCalls(host)).toHaveLength(1)
+  await host.clock.advance(1)
+  await host.clock.settle()
+  expect(sshCalls(host)).toHaveLength(2)
+  expect(contentsCalls(host)).toBe(1)
+  expect(await drawnPane($, 'desktop')).toContain('[Fix disk full ↗](https://github.com/acme/app)')
+})
+
+test('a remote whose host starts with a dash is no remote: no ssh or glab call names it, and the pane still draws', async ($: Engine, on) => {
+  const DASHED = 'git@-gitlab:acme/app.git'
+  const host = stubHost(on, {
+    lookLogos: true,
+    rootRemote: DASHED,
+    remotes: { [`${REPO_ROOT}/.git`]: DASHED },
+    glabInstalled: true,
+    glabAvatarUrl: 'https://gitlab.example.test/uploads/app.png',
+  })
+  await openPane($)
+  await host.clock.settle()
+  expect(sshCalls(host)).toEqual([])
+  expect(host.argvs.filter(argv => argv[0] === 'glab')).toEqual([])
+  expect(host.argvs.filter(argv => argv.some(part => part.includes('-gitlab')))).toEqual([])
+  expect(await drawnPane($)).toContain('Fix disk full')
+})
+
+// ---- the avatars (SPEC section 11, sources 3 and 4): GitHub's organization avatar, and the GitLab project's through glab ----
+
+// A 1 by 1 PNG, as base64 (the fetch answers base64 text, so the test gives the text itself).
+const ORG_AVATAR = 'https://avatars.githubusercontent.com/u/9001?v=4'
+const ORG_AVATAR_SIZED = 'https://avatars.githubusercontent.com/u/9001?v=4&s=32'
+// The URL of each avatar fetch: the fetch's argv is [sh, -c, script, name, url], so the URL is its fifth entry.
+const avatarCalls = (host: Host): string[] => host.argvs.filter(argv => argv[0] === 'sh').map(argv => argv[4] ?? '')
+
+test('an organization owner avatar is drawn when the checkout and the contents hold no logo: fetched as a PNG at 32 px, the URL as the one argument', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, ownerType: 'Organization', ownerAvatarUrl: ORG_AVATAR, avatarBase64: TINY_PNG })
+  await openPane($)
+  await host.clock.settle()
+  expect(contentsCalls(host)).toBe(3)
+  expect(host.argvs.find(argv => argv[0] === 'sh')).toEqual(['sh', '-c', AVATAR_FETCH_SCRIPT, 'keeptrack-logo', ORG_AVATAR_SIZED])
+  const logo = repoLogoOf(await drawnTree($, 'desktop'))[0]
+  expect(logo?.props).toMatchObject({ alt: 'acme/app logo', width: 16, height: 16 })
+  expect(String(logo?.props?.source)).toContain(`data:image/png;base64,${TINY_PNG}`)
+  expect(host.store.get(LOGO_STORE_KEY)).toMatchObject({ failed: false })
+  expect(host.denies).toEqual([])
+})
+
+test('a user owner draws no avatar: only the account type is asked, and no fetch runs', async ($: Engine, on) => {
+  const host = stubHost(on, { lookLogos: true, ownerType: 'User', ownerAvatarUrl: ORG_AVATAR, avatarBase64: TINY_PNG })
+  await openPane($)
+  await host.clock.settle()
+  const accountCalls = host.argvs.filter(argv => argv[0] === 'gh' && (argv[2] ?? '').startsWith('users/')).map(argv => argv.at(-1))
+  expect(accountCalls).toEqual(['.type'])
+  expect(avatarCalls(host)).toEqual([])
+  expect(repoLogoOf(await drawnTree($, 'desktop'))).toEqual([])
+  expect(host.store.get(LOGO_STORE_KEY)).toMatchObject({ source: null, failed: false })
+})
+
+test('an avatar URL that is not https is never fetched', async ($: Engine, on) => {
+  const host = stubHost(on, {
+    lookLogos: true,
+    ownerType: 'Organization',
+    ownerAvatarUrl: 'http://avatars.githubusercontent.com/u/9001?v=4',
+    avatarBase64: TINY_PNG,
+  })
+  await openPane($)
+  await host.clock.settle()
+  expect(avatarCalls(host)).toEqual([])
+  expect(repoLogoOf(await drawnTree($, 'desktop'))).toEqual([])
+})
+
+test('an avatar URL on a host other than the avatar host is never fetched', async ($: Engine, on) => {
+  const host = stubHost(on, {
+    lookLogos: true,
+    ownerType: 'Organization',
+    ownerAvatarUrl: 'https://evil.example.test/u/9001.png',
+    avatarBase64: TINY_PNG,
+  })
+  await openPane($)
+  await host.clock.settle()
+  expect(avatarCalls(host)).toEqual([])
+  expect(repoLogoOf(await drawnTree($, 'desktop'))).toEqual([])
+})
+
+test('an avatar that is not a PNG or a JPEG is not drawn, and is kept as no logo (an SVG is refused)', async ($: Engine, on) => {
+  const host = stubHost(on, {
+    lookLogos: true,
+    ownerType: 'Organization',
+    ownerAvatarUrl: ORG_AVATAR,
+    avatarBase64: base64Of(new TextEncoder().encode(LOGO_SVG)),
+  })
+  await openPane($)
+  await host.clock.settle()
+  expect(avatarCalls(host)).toHaveLength(1)
+  expect(repoLogoOf(await drawnTree($, 'desktop'))).toEqual([])
+  expect(host.logs).toEqual([])
+  expect(host.store.get(LOGO_STORE_KEY)).toMatchObject({ source: null, failed: false })
+})
+
+test('a failed avatar fetch is logged once, kept for an hour, and the pane still draws its sessions', async ($: Engine, on) => {
+  // No avatarBase64: the fetch answers nothing, as curl does when it is missing or fails.
+  const host = stubHost(on, { lookLogos: true, ownerType: 'Organization', ownerAvatarUrl: ORG_AVATAR })
+  await openPane($)
+  await host.clock.settle()
+  expect(host.logs).toEqual(['keeptrack: logo lookup failed (avatar fetch)'])
+  expect(host.store.get(LOGO_STORE_KEY)).toMatchObject({ source: null, failed: true })
+  expect(await drawnPane($)).toContain('Fix disk full')
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(avatarCalls(host)).toHaveLength(1)
+  await host.clock.advance(LOGO_RETRY_MS)
+  await host.clock.settle()
+  expect(avatarCalls(host)).toHaveLength(2)
 })

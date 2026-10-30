@@ -17,9 +17,12 @@ import {
   TEXT_MAX,
   buildTree,
   groupIssues,
+  commitPageOf,
   isGithubHost,
+  isGitlabHost,
   isSessionLinkId,
   issueFactsOf,
+  logoKeyOf,
   mapLimited,
   newestCommentOf,
   parseDesktopGroups,
@@ -27,9 +30,33 @@ import {
   parseUtcOffset,
   plain,
   projectRecord,
+  repoPageOf,
+  sshHostnameOf,
   type DesktopGroups,
   type Remote,
 } from './model'
+import {
+  AVATAR_FETCH_SCRIPT,
+  AVATAR_SIZE_PX,
+  GITHUB_AVATAR_HOST,
+  GITHUB_LOGO_CALLS,
+  LOGO_FOLDERS,
+  LOGO_PATHS,
+  LOGO_RETRY_MS,
+  LOGO_STORE_MAX,
+  avatarUrlOf,
+  contentsLogoOf,
+  isLogoFresh,
+  isLogoLockLive,
+  isLogoStoreKey,
+  logoLockKeyOf,
+  logoPathIn,
+  logoStoreKeyOf,
+  pictureDocumentOf,
+  projectAvatarUrlOf,
+  readStoredLogo,
+  type StoredLogo,
+} from './repo-logo'
 import type {
   Issue,
   IssueDetails,
@@ -188,6 +215,12 @@ let toolRedrawAt = Number.NEGATIVE_INFINITY
 let toolRedrawPending = false
 let recordCache = new Map<string, Cached<ProjectedRecord | null>>()
 const remoteCache = new Map<string, Repo | null>()
+// The host each ssh alias resolves to (SPEC section 16), by alias: one `ssh -G` per alias while its answer is in flight or kept. A failed
+// answer carries its time (failedAt) and is asked again once LOGO_RETRY_MS has passed; a success is kept for the window.
+type SshHostEntry = { host: Promise<string>; failedAt: number | undefined }
+const sshHostCache = new Map<string, SshHostEntry>()
+// Whether a failed alias lookup has been logged in this window (once).
+let sshFailureLogged = false
 const commonDirCache = new Map<string, string>()
 let githubMemory: GithubMemory | null = null
 // The repo context of the last poll that read it: a failed read keeps it (F02).
@@ -511,15 +544,70 @@ async function remoteUrlOf($: EngineInterface, repoArgs: readonly string[]): Pro
   return named !== null && named.exitCode === 0 ? { ok: true, url: named.stdout.trim() } : { ok: false, url: null }
 }
 
+// ---- ssh aliases (SPEC section 16): a remote whose host has no dot names an ssh alias, which ssh resolves to the real host ----
+
+// An alias as a remote URL may name it: no leading dash, so ssh never reads it as an option.
+const SSH_ALIAS = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+const SSH_TIMEOUT_MS = 5_000
+
+// Logs a failed alias lookup once per window, by its failure only: the alias is part of a remote URL, which the log never carries.
+function logSshFailureOnce($: EngineInterface, failure: string): void {
+  if (sshFailureLogged) return
+  sshFailureLogged = true
+  logLine($, `ssh alias lookup failed (${failure})`)
+}
+
+// Asks ssh for the host an alias connects to. A failure (ssh missing, a timeout, no hostname line) answers the alias itself, as before,
+// and is flagged so the answer is not kept.
+async function resolveSshAlias($: EngineInterface, alias: string): Promise<{ host: string; failed: boolean }> {
+  try {
+    const run = await $.process.run(['ssh', '-G', alias], { timeoutMs: SSH_TIMEOUT_MS })
+    const host = run.exitCode === 0 ? sshHostnameOf(run.stdout) : null
+    if (host !== null) return { host, failed: false }
+    logSshFailureOnce($, 'no hostname line')
+  } catch (error) {
+    logSshFailureOnce($, failureNameOf(error))
+  }
+  return { host: alias, failed: true }
+}
+
+// The host of an alias: concurrent reads share one `ssh -G` while it is in flight. A failure is kept from the lookup's start for
+// LOGO_RETRY_MS, then asked again; a success is kept for the window.
+async function sshHostOf($: EngineInterface, alias: string): Promise<string> {
+  const now = await $.clock.now()
+  const cached = sshHostCache.get(alias)
+  if (cached !== undefined && (cached.failedAt === undefined || now - cached.failedAt < LOGO_RETRY_MS)) return cached.host
+  const entry: SshHostEntry = {
+    host: resolveSshAlias($, alias).then(answer => {
+      if (answer.failed) entry.failedAt = now
+      return answer.host
+    }),
+    failedAt: undefined,
+  }
+  sshHostCache.set(alias, entry)
+  return entry.host
+}
+
+// The remote with its host resolved: a dotted host is kept as it is, an alias becomes the host ssh connects to (github.com for a GitHub alias).
+// A host no ssh alias can be (a leading dash would reach glab or gh as an option) is no remote: no repo page, no logo, no lookup.
+async function resolvedRemoteOf($: EngineInterface, remote: Repo | null): Promise<Repo | null> {
+  if (remote === null || !SSH_ALIAS.test(remote.host)) return null
+  if (remote.host.includes('.')) return remote
+  const host = await sshHostOf($, remote.host)
+  return host === remote.host ? remote : { ...remote, host }
+}
+
 // The host, owner and name of the remote of a common git dir (repo-work-pane-design-spec.md D2b). Only a definite answer is cached: a
-// remote, or none; a failed call is asked again on the next poll (W3).
+// remote, or none; a failed call is asked again on the next poll (W3). A remote whose alias lookup failed is no definite answer either:
+// it is used for now and asked again with the alias once LOGO_RETRY_MS has passed (SPEC section 16).
 async function remoteOf($: EngineInterface, commonDir: string): Promise<Repo | null | undefined> {
   const cached = remoteCache.get(commonDir)
   if (cached !== undefined) return cached
   const found = await remoteUrlOf($, ['--git-dir', commonDir])
   if (!found.ok) return undefined
-  const remote = parseRemote(found.url)
-  remoteCache.set(commonDir, remote)
+  const parsed = parseRemote(found.url)
+  const remote = await resolvedRemoteOf($, parsed)
+  if (parsed === null || sshHostCache.get(parsed.host)?.failedAt === undefined) remoteCache.set(commonDir, remote)
   return remote
 }
 
@@ -574,7 +662,7 @@ async function repoContextOf($: EngineInterface): Promise<RepoContext | null> {
     if (!read.ok) return null
     url = read.url
   }
-  const remote = parseRemote(url)
+  const remote = await resolvedRemoteOf($, parseRemote(url))
   const repo = remote !== null && isGithubHost(remote.host) ? remote : null
   if (repo !== null || root === null) return { root, repo, rootCommonDir: null }
   const rootCommonDir = (await commonDirOfCwd($, root)).dir
@@ -770,6 +858,7 @@ async function sessionsOf(
   if (scan.complete && isNewest(seq)) await pruneOverrides($, new Set(scan.records.map(record => record.sessionId)))
   const members = await memberRecordsOf($, scan.records, context, thisId)
   const candidates = admittedOf(await withBranches($, members.records), new Set(github.prs.map(pr => pr.headRefName)), thisId)
+  await requestRepoLogos($, candidates)
   const ownWaiting = await read($, waitingAtom)
   const inputs: TreeInputs = {
     now,
@@ -796,6 +885,308 @@ function pullRequestsByBranch(prs: readonly PullRequest[]): Map<string, PullRequ
   const byBranch = new Map<string, PullRequest>()
   for (const pr of prs) if (!byBranch.has(pr.headRefName)) byBranch.set(pr.headRefName, pr)
   return byBranch
+}
+
+// ---- repo logos (SPEC section 11): one lookup per repo per TTL, kept in the store and in this window's memory; the render reads them and starts nothing ----
+
+// The store keys whose lookup runs now in this window: a repo is looked up one at a time, however many polls start meanwhile.
+const logoLookups = new Set<string>()
+// The logos this window has read or written, by store key, with their ages: a poll or a render reads the store only on a miss. A lookup
+// that failed to write is still kept here, so the next poll does not look that repo up again.
+const logoCache = new Map<string, StoredLogo>()
+// The store operations this window has logged a failure of, once each (the error's name only).
+const loggedLogoFailures = new Set<string>()
+// This window's last issue view and the updatedAt it was read at: the same updatedAt means the same issue, so the call is not repeated.
+let windowIssueMemory: { key: string; updatedAt: string; view: IssueView } | undefined
+// Whether glab runs on this host, once a definite answer is in (a timeout is asked again).
+let glabFound: boolean | undefined
+// The host of gh's own GitHub: gh is asked only for it (an enterprise or alias host has no --hostname here).
+const GITHUB_HOST = 'github.com'
+
+// Forgets the logo, lock, glab, ssh alias, remote and issue-view memory of this window: a host (a test) starts with none.
+export function resetLogoMemory(): void {
+  logoLookups.clear()
+  logoCache.clear()
+  loggedLogoFailures.clear()
+  windowIssueMemory = undefined
+  glabFound = undefined
+  sshHostCache.clear()
+  sshFailureLogged = false
+  remoteCache.clear()
+}
+
+// What one lookup reads: the repo's key, its remote (the host, and the gh slug) and the session's folder (the checkout).
+type LogoTarget = { key: string; repo: Repo; cwd: string }
+// The drawable SVG a lookup found (null for none) and the failure it hit (null when it got an answer).
+type LogoFound = { source: string | null; failure: string | null }
+const NO_LOGO: LogoFound = { source: null, failure: null }
+// The avatar fetch's time limit: curl gives up at 8 s (AVATAR_FETCH_SCRIPT), the engine a little after.
+const AVATAR_TIMEOUT_MS = 10_000
+
+// A logo store failure: logged once per operation, by the error's name (a stored value never reaches the log).
+function logLogoStoreFailureOnce($: EngineInterface, operation: string, error: unknown): void {
+  if (loggedLogoFailures.has(operation)) return
+  loggedLogoFailures.add(operation)
+  logLine($, `logo store ${operation} failed (${failureNameOf(error)})`)
+}
+
+// A repo's stored logo: from memory, else from the store (kept in memory once read). A refused read is no entry, logged once.
+async function storedLogoOf($: EngineInterface, storeKey: string): Promise<StoredLogo | undefined> {
+  const cached = logoCache.get(storeKey)
+  if (cached !== undefined) return cached
+  try {
+    const stored = readStoredLogo(await $.store.get(storeKey))
+    if (stored !== undefined) logoCache.set(storeKey, stored)
+    return stored
+  } catch (error) {
+    logLogoStoreFailureOnce($, 'read', error)
+    return undefined
+  }
+}
+
+// Keeps a repo's logo in memory and in the store. A refused write is logged once; the memory keeps the answer all the same.
+async function rememberLogoOf($: EngineInterface, storeKey: string, stored: StoredLogo): Promise<void> {
+  logoCache.set(storeKey, stored)
+  try {
+    await $.store.set(storeKey, stored)
+  } catch (error) {
+    logLogoStoreFailureOnce($, 'write', error)
+  }
+}
+
+// Drops a repo's logo from memory and from the store. A refused delete is logged once.
+async function forgetLogoOf($: EngineInterface, storeKey: string): Promise<void> {
+  logoCache.delete(storeKey)
+  try {
+    await $.store.delete(storeKey)
+  } catch (error) {
+    logLogoStoreFailureOnce($, 'delete', error)
+  }
+}
+
+// Whether another window's lookup of the repo holds the lock (a `logo-lock:<key>` marker younger than LOGO_LOCK_MS). A refused read holds none.
+async function lockedElsewhereOf($: EngineInterface, key: string, now: number): Promise<boolean> {
+  try {
+    return isLogoLockLive(await $.store.get(logoLockKeyOf(key)), now)
+  } catch (error) {
+    logLogoStoreFailureOnce($, 'lock read', error)
+    return false
+  }
+}
+
+// Writes the lock marker of a lookup, or deletes it after; a refused call is logged once, and the lookup goes on without the lock.
+async function writeLockOf($: EngineInterface, key: string, at: number): Promise<void> {
+  try {
+    await $.store.set(logoLockKeyOf(key), { at })
+  } catch (error) {
+    logLogoStoreFailureOnce($, 'lock write', error)
+  }
+}
+
+async function deleteLockOf($: EngineInterface, key: string): Promise<void> {
+  try {
+    await $.store.delete(logoLockKeyOf(key))
+  } catch (error) {
+    logLogoStoreFailureOnce($, 'lock delete', error)
+  }
+}
+
+// Starts a lookup for each repo of the admitted sessions whose stored logo is missing or stale, then prunes the stored logos of the
+// repos this window does not show. It never waits for a lookup.
+async function requestRepoLogos($: EngineInterface, candidates: readonly Candidate[]): Promise<void> {
+  const now = await $.clock.now()
+  const shown = new Set<string>()
+  for (const { record, remote } of candidates) {
+    const key = logoKeyOf(remote)
+    if (key === null) continue
+    const storeKey = logoStoreKeyOf(key)
+    if (shown.has(storeKey)) continue
+    shown.add(storeKey)
+    const stored = await storedLogoOf($, storeKey)
+    if (stored !== undefined && isLogoFresh(stored, now)) continue
+    if (remote !== null && record.cwd !== null) startLogoLookup($, storeKey, { key, repo: remote, cwd: record.cwd })
+  }
+  await pruneLogos($, shown, now)
+}
+
+// Starts the lookup of a repo unless one runs for it already.
+function startLogoLookup($: EngineInterface, storeKey: string, target: LogoTarget): void {
+  if (logoLookups.has(storeKey)) return
+  logoLookups.add(storeKey)
+  void lookupLogo($, storeKey, target)
+    .catch(() => undefined)
+    .finally(() => logoLookups.delete(storeKey))
+}
+
+// One lookup, under the cross-window lock: its answer (the logo, none, or a failure) is kept and the pane is redrawn. A failure is logged
+// by its kind and kept for LOGO_RETRY_MS; a lookup that throws is logged by the error's name only.
+async function lookupLogo($: EngineInterface, storeKey: string, target: LogoTarget): Promise<void> {
+  try {
+    const now = await $.clock.now()
+    if (await lockedElsewhereOf($, target.key, now)) return
+    await writeLockOf($, target.key, now)
+    try {
+      const found = await logoOf($, target)
+      if (found.failure !== null) logLine($, `logo lookup failed (${found.failure})`)
+      await rememberLogoOf($, storeKey, { source: found.source, at: now, failed: found.failure !== null })
+      $.ui.invalidate('ui.render')
+    } finally {
+      await deleteLockOf($, target.key)
+    }
+  } catch (error) {
+    logLine($, `logo lookup failed (${failureNameOf(error)})`)
+  }
+}
+
+// A repo's logo (SPEC section 11): the checkout's logo file first; else, for a repo on github.com, GitHub's contents and then the owner's
+// avatar; else, for a GitLab repo, the project's avatar through glab. Any other host gets the checkout's logo only.
+async function logoOf($: EngineInterface, target: LogoTarget): Promise<LogoFound> {
+  const local = await localLogoOf($, target.cwd)
+  if (local !== null) return { source: local, failure: null }
+  if (target.repo.host === GITHUB_HOST) return githubLogoOf($, target)
+  return isGitlabHost(target.repo.host) ? gitlabAvatarOf($, target) : NO_LOGO
+}
+
+// The checkout's logo file as a drawable SVG, or null when it holds none this module draws. Every logo folder is listed (a missing one
+// lists as empty); the file is read only once it is chosen. Links are never read (logoPathIn).
+async function localLogoOf($: EngineInterface, cwd: string): Promise<string | null> {
+  const listings = new Map<string, readonly FsEntry[]>()
+  await Promise.all(
+    LOGO_FOLDERS.map(async folder => {
+      listings.set(folder, await $.fs.list(folder === '.' ? cwd : `${cwd}/${folder}`).catch(() => []))
+    }),
+  )
+  const path = logoPathIn(listings)
+  if (path === null) return null
+  const file = await $.fs.read(`${cwd}/${path}`, { as: 'bytes' }).catch(() => null)
+  return file === null ? null : pictureDocumentOf(file.base64)
+}
+
+// A GitHub repo's logo: GitHub's contents first, then the owner's avatar when the contents hold no logo and no lookup failed.
+async function githubLogoOf($: EngineInterface, target: LogoTarget): Promise<LogoFound> {
+  const contents = await githubContentsLogoOf($, target)
+  if (contents.source !== null || contents.failure !== null) return contents
+  return ownerAvatarOf($, target)
+}
+
+// GitHub's contents of the first GITHUB_LOGO_CALLS paths, in order, stopping at the first logo. A path the repo does not hold (HTTP 4xx)
+// is the next one; any other failure ends the lookup as a failure.
+async function githubContentsLogoOf($: EngineInterface, target: LogoTarget): Promise<LogoFound> {
+  for (const path of LOGO_PATHS.slice(0, GITHUB_LOGO_CALLS)) {
+    const outcome = await runGh($, ['api', `repos/${slugOf(target.repo)}/contents/${path}`], target.cwd)
+    if (!outcome.ok) {
+      if (outcome.kind !== 'HTTP 4xx') return failedLookupOf(outcome)
+      continue
+    }
+    const source = contentsLogoOf(parseJsonText(outcome.stdout))
+    if (source !== null) return { source, failure: null }
+  }
+  return NO_LOGO
+}
+
+// A gh call that failed as a lookup result: an HTTP 4xx is an answer (the repo or owner has no such thing), any other failure is kept.
+function failedLookupOf(outcome: { kind: string }): LogoFound {
+  return outcome.kind === 'HTTP 4xx' ? NO_LOGO : { source: null, failure: outcome.kind }
+}
+
+// The owner's avatar of a GitHub repo, when the owner is an organization (`gh api users/<owner>`: its type, then its avatar URL). A user's
+// avatar is not drawn. The avatar is asked at AVATAR_SIZE_PX.
+async function ownerAvatarOf($: EngineInterface, target: LogoTarget): Promise<LogoFound> {
+  const account = `users/${target.repo.owner}`
+  const type = await runGh($, ['api', account, '--jq', '.type'], target.cwd)
+  if (!type.ok) return failedLookupOf(type)
+  if (type.stdout.trim() !== 'Organization') return NO_LOGO
+  const avatar = await runGh($, ['api', account, '--jq', '.avatar_url'], target.cwd)
+  if (!avatar.ok) return failedLookupOf(avatar)
+  const url = avatarUrlOf(avatar.stdout.trim(), GITHUB_AVATAR_HOST, AVATAR_SIZE_PX)
+  return url === null ? NO_LOGO : avatarLogoOf($, url)
+}
+
+// The GitLab project's avatar through glab, when glab is installed; without glab there is no GitLab avatar and no failure. The project is
+// asked by its URL-encoded path, on its own host (--hostname); its avatar must be on that host too.
+async function gitlabAvatarOf($: EngineInterface, target: LogoTarget): Promise<LogoFound> {
+  const installed = await glabInstalled($)
+  if (installed === 'timeout') return { source: null, failure: 'glab' }
+  if (!installed) return NO_LOGO
+  const project = encodeURIComponent(slugOf(target.repo))
+  try {
+    const run = await $.process.run(['glab', 'api', `projects/${project}`, '--hostname', target.repo.host], {
+      cwd: target.cwd,
+      timeoutMs: GH_TIMEOUT_MS,
+    })
+    if (run.exitCode !== 0) return { source: null, failure: 'glab' }
+    const url = projectAvatarUrlOf(parseJsonText(run.stdout), target.repo.host)
+    return url === null ? NO_LOGO : avatarLogoOf($, url)
+  } catch {
+    return { source: null, failure: 'glab' }
+  }
+}
+
+// Whether glab runs on this host. A definite answer is kept (its exit code, or a missing binary); a timeout is 'timeout': no answer is
+// kept, so the lookup fails (kept an hour, LOGO_RETRY_MS) and the next one asks glab again.
+async function glabInstalled($: EngineInterface): Promise<boolean | 'timeout'> {
+  if (glabFound !== undefined) return glabFound
+  try {
+    const run = await $.process.run(['glab', '--version'], { timeoutMs: GH_TIMEOUT_MS })
+    glabFound = run.exitCode === 0
+    return glabFound
+  } catch (error) {
+    if (ghStartError(error) === 'gh-timeout') return 'timeout'
+    glabFound = false
+    return false
+  }
+}
+
+// A fetched avatar as a drawable SVG. The fetch is curl through base64 (AVATAR_FETCH_SCRIPT; the URL is its one argument). A fetch that
+// fails (curl missing, a non-200, a timeout) is a failure, the same as a failed gh call; an answer that is not a PNG or a JPEG under the
+// cap is no logo.
+async function avatarLogoOf($: EngineInterface, url: string): Promise<LogoFound> {
+  try {
+    const run = await $.process.run(['sh', '-c', AVATAR_FETCH_SCRIPT, 'keeptrack-logo', url], { timeoutMs: AVATAR_TIMEOUT_MS })
+    if (run.exitCode !== 0 || run.stdout.trim() === '') return { source: null, failure: 'avatar fetch' }
+    // An answer the engine cut at its own cap is over the logo cap as well: no logo.
+    return { source: run.isStdoutTruncated ? null : pictureDocumentOf(run.stdout), failure: null }
+  } catch {
+    return { source: null, failure: 'avatar fetch' }
+  }
+}
+
+// The store's keys, or none when the store refuses the listing (logged once).
+async function logoKeysOf($: EngineInterface): Promise<string[]> {
+  try {
+    return await $.store.keys()
+  } catch (error) {
+    logLogoStoreFailureOnce($, 'keys', error)
+    return []
+  }
+}
+
+// Drops the stored logos of the repos this window does not show once they have expired (or are unreadable), then the oldest of the others
+// past LOGO_STORE_MAX: the store is shared by every window. The keys are listed on each poll; a payload is read only on a miss.
+async function pruneLogos($: EngineInterface, shown: ReadonlySet<string>, now: number): Promise<void> {
+  const others: { key: string; at: number }[] = []
+  for (const key of await logoKeysOf($)) {
+    if (!isLogoStoreKey(key) || shown.has(key)) continue
+    const stored = await storedLogoOf($, key)
+    if (stored === undefined || !isLogoFresh(stored, now)) await forgetLogoOf($, key)
+    else others.push({ key, at: stored.at })
+  }
+  const excess = others.length + shown.size - LOGO_STORE_MAX
+  others.sort((first, second) => first.at - second.at)
+  for (const { key } of others.slice(0, Math.max(0, excess))) await forgetLogoOf($, key)
+}
+
+// The drawn logos of the repos the snapshot's sessions show, by logoKey. Read from memory or the store: a render looks nothing up.
+async function logosOf($: EngineInterface, snapshot: Snapshot | null): Promise<ReadonlyMap<string, string>> {
+  const logos = new Map<string, string>()
+  const seen = new Set<string>()
+  for (const node of flattenNodes(snapshot?.sessions ?? [])) {
+    if (node.logoKey === null || seen.has(node.logoKey)) continue
+    seen.add(node.logoKey)
+    const source = (await storedLogoOf($, logoStoreKeyOf(node.logoKey)))?.source
+    if (source !== undefined && source !== null) logos.set(node.logoKey, source)
+  }
+  return logos
 }
 
 // ---- gh: the three calls of repo-work-pane-design-spec.md D4 ----
@@ -1052,7 +1443,7 @@ function issueViewOf(text: string): IssueView | null {
 type WindowFacts = {
   node: SessionNode
   pr: PullRequest | null
-  lastCommit: Commit | null
+  lastCommit: IssueDetails['lastCommit']
 }
 
 function detailsOf(view: IssueView, facts: WindowFacts): IssueDetails {
@@ -1081,15 +1472,39 @@ const NO_WINDOW_ISSUE: WindowIssue = { details: null, stale: false, errors: [] }
 
 // This window's issue, by one gh call for its number (the same timeout and error mapping as the others). A failed call
 // keeps no details and sets stale; the sessions never depend on it.
-async function windowIssueOf($: EngineInterface, root: string, repo: Repo, facts: WindowFacts): Promise<WindowIssue> {
+async function windowIssueOf(
+  $: EngineInterface,
+  root: string,
+  repo: Repo,
+  facts: WindowFacts,
+  updatedAt: string | undefined,
+): Promise<WindowIssue> {
   const issue = facts.node.issue
   if (issue === null) return NO_WINDOW_ISSUE
   const errors = new Set<PaneError>()
-  const argv = ['issue', 'view', String(issue.number), '--repo', slugOf(repo), '--json', ISSUE_VIEW_FIELDS]
-  const view = await fetchPart($, argv, root, issueViewOf, errors)
+  const view = await windowViewOf($, root, repo, issue.number, updatedAt, errors)
   return view === undefined
     ? { details: null, stale: true, errors: [...errors] }
     : { details: detailsOf(view, facts), stale: false, errors: [] }
+}
+
+// The issue view of this window's issue. The last one is reused while the issue's updatedAt has not changed (a comment or an edit moves
+// it), so a poll that finds no change makes no call; an issue the open list does not hold (no updatedAt) is always asked.
+async function windowViewOf(
+  $: EngineInterface,
+  root: string,
+  repo: Repo,
+  number: number,
+  updatedAt: string | undefined,
+  errors: Set<PaneError>,
+): Promise<IssueView | undefined> {
+  const key = `${slugOf(repo).toLowerCase()}#${number}`
+  const last = windowIssueMemory
+  if (updatedAt !== undefined && last?.key === key && last.updatedAt === updatedAt) return last.view
+  const argv = ['issue', 'view', String(number), '--repo', slugOf(repo), '--json', ISSUE_VIEW_FIELDS]
+  const view = await fetchPart($, argv, root, issueViewOf, errors)
+  if (view !== undefined && updatedAt !== undefined) windowIssueMemory = { key, updatedAt, view }
+  return view
 }
 
 // The window's issue facts when its session is in this GitHub repo's tree; no call otherwise.
@@ -1103,8 +1518,10 @@ async function windowIssueFor(
   const { repo, root } = context
   if (node === undefined || repo === null || root === null) return NO_WINDOW_ISSUE
   const pr = node.branch === null ? null : (github.prs.find(candidate => candidate.headRefName === node.branch) ?? null)
-  const lastCommit = sessions.commits.get(node.id)?.[0] ?? null
-  return windowIssueOf($, root, repo, { node, pr, lastCommit })
+  const commit = sessions.commits.get(node.id)?.[0] ?? null
+  const lastCommit = commit === null ? null : { at: commit.at, subject: commit.subject, url: commitPageOf(repo, commit.sha) }
+  const updatedAt = github.issues.find(issue => issue.number === node.issue?.number)?.updatedAt
+  return windowIssueOf($, root, repo, { node, pr, lastCommit }, updatedAt)
 }
 
 type GithubPart = {
@@ -1691,8 +2108,10 @@ export const register: Register = on => {
   // a poll when stale) runs after the draw, through the clock.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     if (await read($, openAtom)) $.clock.after(0, () => report($, startIfOpen($)))
+    const snapshot = await read($, snapshotAtom)
     return renderPane($.ui.resolve(e), {
-      snapshot: await read($, snapshotAtom),
+      snapshot,
+      logos: await logosOf($, snapshot),
       loadFailed: await read($, loadFailedAtom),
       lang: await read($, langAtom),
       surface: e.surface,

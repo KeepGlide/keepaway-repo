@@ -25,6 +25,7 @@ import {
   parseUtcOffset,
   plain,
   priorityOf,
+  sshHostnameOf,
   projectRecord,
   stateOf,
   timelineOf,
@@ -109,6 +110,18 @@ test('parseRemote gives the host in lower case; a GitHub host is github.com or a
   expect(isGithubHost('github-ask-sophia-now')).toBe(true)
   expect(isGithubHost('gh-work')).toBe(false)
   expect(isGithubHost('gitlab.example.test')).toBe(false)
+})
+
+test('sshHostnameOf reads the hostname line of ssh -G, lower case; the alias itself when no Host block names it (SPEC section 16)', () => {
+  expect(sshHostnameOf('user git\nhostname github.com\nport 22\n')).toBe('github.com')
+  expect(sshHostnameOf('hostname GitHub.COM\n')).toBe('github.com')
+  expect(sshHostnameOf('user git\nhostname github-keepglide\n')).toBe('github-keepglide')
+  expect(sshHostnameOf('user git\nhostname my_alias\n')).toBe('my_alias')
+  expect(sshHostnameOf('port 22\n')).toBeNull()
+  expect(sshHostnameOf('')).toBeNull()
+  expect(sshHostnameOf('hostname bad host\n')).toBeNull()
+  expect(sshHostnameOf('hostname -oProxyCommand=x\n')).toBeNull()
+  expect(sshHostnameOf('hostname ::1\n')).toBeNull()
 })
 
 const isControl = (character: string): boolean => {

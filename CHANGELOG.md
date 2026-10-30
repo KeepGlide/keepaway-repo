@@ -8,6 +8,26 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+## [0.2.0-beta.18] - 2026-10-30
+
+### Security
+- Repo logos are raster only: PNG and JPEG. An SVG is no logo from the checkout, from GitHub's contents or from an avatar. A PNG or JPEG must open and close as one (magic bytes and trailer), so a truncated download is no logo. A symbolic link is never read as a logo.
+- The avatar fetch follows no redirects (curl without `-L`; https only is kept). The logo cache key is the remote's host, owner and name in lower case, and gh is asked only for github.com.
+
+### Added
+- The Last commit line of this window's details links to its commit page on the desktop.
+- An exact milestone with no issue at all reads `no issues` (pt-BR `sem issues`), with no done icon.
+- A GitLab repo's project avatar is asked of glab on the remote's own host (`--hostname`); a glab timeout is not kept as missing.
+- On the desktop, a repo with no logo file of its own shows its GitHub organization's avatar (32 px, PNG or JPEG, fetched over https only from `avatars.githubusercontent.com` through curl and base64, 64 KB cap). A user owner draws none. A failed fetch is kept for an hour (SPEC section 11).
+- On the desktop, a session row shows its repo's logo, 16 px before the title, when the repo has one: the logo file of the session's checkout (`logo.png`, `logo.jpg` or `logo.jpeg` at the root, in `assets/`, `.github/`, `docs/` or `images/`), else GitHub's contents of the repo. The logo is sanitized, capped at 64 KB and cached per repo (24 h, 1 h after a failed lookup). A repo with no logo draws nothing; the terminal draws none.
+- A remote whose host is an ssh alias (`git@github-work:owner/name`, no dot in the host) is read as the host ssh resolves it to (`ssh -G`, asked once per alias per window): its logo, its page links and its GitLab avatar follow the real host, so a GitHub alias gets the GitHub logo. A failed resolution keeps the alias as before, is logged once by its failure name and is asked again after an hour (SPEC section 16). A remote host with a leading dash is no remote.
+### Changed
+- Logo lookups: a logo is kept in memory as well as in the store, so a poll reads the store only on a miss; the store keeps at most 20 repo logos; a cross-window lock stops a second window's lookup of the same repo; a store refusal is logged once per operation and never fails the pane.
+- This window's issue view is not asked again while the issue's `updatedAt` is unchanged.
+- The 🔄 "session working now" marker is gone from the session rows and from the Labels legend: the 🟢 state icon already says working, and ▶️ still marks this window. Its legend row and its strings are removed in both languages (`hooks/pane.tsx`, `hooks/i18n.ts`, `hooks/action-icons.ts`).
+- The Labels legend's idle sentence now reads "no activity recorded in the Desktop app for more than 5 minutes" (pt-BR "sem atividade registrada no app Desktop há mais de 5 minutos"), the `WORKING_WINDOW_MS` threshold of `hooks/model.ts`.
+- SPEC section 19 notes that the progress bar moves in 10% steps (its cells are rounded), while the percentage beside it is computed from the exact counts.
+
 ## [0.2.0-beta.17] - 2026-10-30
 
 ### Added

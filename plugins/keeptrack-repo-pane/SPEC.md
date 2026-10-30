@@ -1,4 +1,4 @@
-# KeepTrack: spec (as built, v0.2.0-beta.17)
+# KeepTrack: spec (as built, v0.2.0-beta.18)
 
 Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepTrack, the command is `/keeptrack`.
 
@@ -27,6 +27,7 @@ where it differs from that record (section 9).
 | `hooks/pane.tsx` | Draws one `Snapshot`; reads no state. The session groups: `groupsOf`, `renderGroup`, `renderGroupLabel`. |
 | `hooks/band.tsx` | Draws the band row above the prompt: the status line, the repo context and the Open button (section 18); reads no state. |
 | `hooks/logo-element.tsx` | The logo elements: the pane header's mark (`renderKeepTrackLogo`), the band's leading mark (`renderKeepTrackMark`) and the KeepGlide mark (`renderKeepGlide`), drawn from `logo.ts` and `keepglide.ts` (section 18). |
+| `hooks/repo-logo.ts` | The repo logo's pure rules (section 11): the logo file names in priority order, the choice of a file, the size cap, the PNG and JPEG checks (magic bytes and trailer), the PNG frame, the stored entry and its age. No I/O. |
 | `hooks/action-icons.ts` | Every emoji of KeepTrack: the band's action icons (emoji and SVG per key, section 18), the pane's status icons and the priority icons (section 19). |
 | `hooks/turn.ts` | The pure transitions of the main loop's turn (turn.start, tool.call, turn.complete, turn.abort), written into the turn atom. |
 | `hooks/keepglide.ts` | A local copy of askaway's KeepGlide mark, drawn 24 px at the pane header's right (section 17). |
@@ -55,7 +56,7 @@ where it differs from that record (section 9).
 4. A poll (`buildSnapshot`, one atom write, then `ui.invalidate`):
    1. Repo: `$.session.repo()` gives the root and the origin remote; when it names none (the engine reads origin only), the repo's
       remote is the first remote `git remote` lists (`remoteUrlOf`: origin when present, else the first by name, so a repo whose
-      only remote is `github` is read from it). `parseRemote` gives owner and name.
+      only remote is `github` is read from it). `parseRemote` gives owner and name, and the host an ssh alias resolves to (section 16).
    2. GitHub (4 gh calls, in parallel): milestones, open issues, open PRs, milestone totals (section 4).
    3. Desktop records: the records folder is listed to depth 2; only `local_<id>.json` files are records, and other files in the folder (for example `scheduled-tasks.json` and `deleted_<id>` tombstones) are ignored; files over 2 MiB are skipped; a file is read again only when
       its size or mtime changed. Records that fail to parse are counted.
@@ -120,7 +121,7 @@ gh calls (argv arrays, no shell; cwd is the repo root; timeout 15 s each):
 | 2 | `gh issue list --repo OWNER/NAME --state open --limit 501 --json number,title,milestone,labels,updatedAt,url` | every poll | open issues (the rows): gh is asked for `ISSUE_LIMIT + 1` (501) and the first 500 are kept; only a 501st issue sets `truncated`, so the truncation line shows only when more than 500 open issues exist. Each issue's milestone title comes from its own `milestone` field, so the issues of a closed milestone keep it (pm1-9) |
 | 3 | `gh api graphql -f query=<milestone query> -f o=OWNER -f r=NAME` | every poll | the exact issue counts of each open milestone: `issues(states: OPEN)` and `issues(states: CLOSED)` `totalCount`, issues only, no PR (pm1-8); the first 100 open milestones; a failed or unreadable answer keeps the REST counts, not exact (see below) |
 | 4 | `gh api graphql -f owner=OWNER -f name=NAME -f query=<PR query>` (`-f` for all of them: `-F` would turn a digit name into a number) | every poll | open PRs (`states: OPEN`, first 100, by update time) with `closingIssuesReferences` (first 50, and their `totalCount`), `reviewDecision`, last commit checks; more than 100 sets `truncated` |
-| 5 | `gh issue view <n> --repo OWNER/NAME --json number,title,url,state,milestone,comments` | only when this window maps to issue `<n>` | the window's issue (section 6) |
+| 5 | `gh issue view <n> --repo OWNER/NAME --json number,title,url,state,milestone,comments` | only when this window maps to issue `<n>`, and not again while the issue's `updatedAt` in the issue list is unchanged (the last view is reused) | the window's issue (section 6) |
 
 The PR query is GraphQL because gh 2.45 has no `closingIssuesReferences` JSON field.
 
@@ -140,7 +141,9 @@ Budget: four gh calls per minute while the pane is open, plus the fifth call (`g
 is closed: four gh calls every 5 minutes (`KEEPTRACK_BAND_POLL_MS`), plus the fifth call when mapped, so at most 5 gh calls per 5
 minutes per window, and one poll at session start (and one more when a session.start or a `/keeptrack issue` landed during a poll in flight, or while abandoned polls filled every slot). Git is local.
 
-Host clock (`date +%z`, `readUtcOffset` in `hooks/register.tsx`): the host's UTC offset is read through the process API, `$.process.run(['date', '+%z'], { timeoutMs: 2000 })`, once at session.start and once per poll, before the poll's other calls. The answer is `±HHMM` and `parseUtcOffset` (`hooks/model.ts`) turns it into minutes east of UTC. The offset is written to the `utcOffset` atom, and the pane reads it with its other inputs. Any failure falls back to the runtime's own offset (`-new Date().getTimezoneOffset()`): no `date` binary (Windows), a timeout, a non-zero exit, or an answer that is not `±HHMM`. A DST change reaches the pane at the next poll. This is the only host call that is not gh or git.
+Logo lookups (section 11) are not poll calls: a repo's logo is looked up once per repo per TTL (24 h for a logo or none, 1 h after a failed lookup), never on each poll, and a lookup on github.com makes at most three `gh api repos/OWNER/NAME/contents/<path>` calls (`GITHUB_LOGO_CALLS`: the root's `logo.png`, `logo.jpg`, `logo.jpeg`), stopping at the first logo; with no logo found, a GitHub repo's lookup asks `gh api users/<owner>` for the type (and, for an organization, for its avatar URL once more), and its avatar fetch is one curl call (section 11), not a gh call. The checkout's logo folders are listed locally, at no gh cost.
+
+Host clock (`date +%z`, `readUtcOffset` in `hooks/register.tsx`): the host's UTC offset is read through the process API, `$.process.run(['date', '+%z'], { timeoutMs: 2000 })`, once at session.start and once per poll, before the poll's other calls. The answer is `±HHMM` and `parseUtcOffset` (`hooks/model.ts`) turns it into minutes east of UTC. The offset is written to the `utcOffset` atom, and the pane reads it with its other inputs. Any failure falls back to the runtime's own offset (`-new Date().getTimezoneOffset()`): no `date` binary (Windows), a timeout, a non-zero exit, or an answer that is not `±HHMM`. A DST change reaches the pane at the next poll. Besides gh and git, the host is asked one more thing: the ssh alias lookup of section 16 (`ssh -G`).
 
 ## 5. Session to issue (first match wins, no merging)
 
@@ -283,10 +286,10 @@ A poll never throws into the engine: a failed job is logged by its error name on
 
 Inside one highlighted block (the engine's user-message background, `DETAILS_FILL`):
 
-1. Title row: on the desktop the session title links to the repo's page (GitHub or GitLab, when the session's remote is known and its page passes `PAGE_URL`), with a small `open session: <title>` link (the title cut at 40 characters) to `#local_<id>` after the icons; the ↗ after the title marks the external page; with no known remote the title links to `#local_<id>` as before. Plain text on the terminal, then its icons: the state icon, the active marker and, on this window's row, `← this window`.
+1. Title row: on the desktop the session title links to the repo's page (GitHub or GitLab, when the session's remote is known and its page passes `PAGE_URL`), with a small `open session: <title>` link (the title cut at 40 characters) to `#local_<id>` after the icons; the ↗ after the title marks the external page; with no known remote the title links to `#local_<id>` as before. Plain text on the terminal, then its icons: the state icon, the active marker and, on this window's row, `← this window`. On the desktop, a session row whose repo has a logo draws it 16 px square before the title (`renderTitleLine`, `renderRepoLogo`); the terminal draws none. The logo is the first raster logo file of the session's checkout (`logo.png`, `logo.jpg` or `logo.jpeg` at the root, then in `assets/`, `.github/`, `docs/` or `images/`, basename matched case-insensitively; a symbolic link is never read), else the first of the root's three names in GitHub's contents (`GITHUB_LOGO_CALLS`: a logo of a folder is found in the checkout only). Raster only: an SVG is drawn from no source (not the checkout, not GitHub's contents, not an avatar). A file over 64 KB, or a PNG or JPEG that does not open and close as one (the magic bytes at the start; the IEND chunk, or the `FF D9` end marker, at the end, so a truncated download is no logo), is not drawn. Each repo's logo is cached in the store under `logo:<host>/<owner>/<name>` (the remote's host, owner and name, in lower case; an enterprise host is its own key, never the github.com page's); the poll starts the lookup and never waits for it, and the pane redraws when it lands. A stored logo of a repo this window no longer shows is dropped once it has expired, since the store is shared by every window; past 20 repo logos the oldest of the others go first (`LOGO_STORE_MAX`). This window keeps the logos it reads or writes in memory, so a poll reads the store only on a miss. A store that refuses a read, a write or a delete is logged once per operation (`logo store <operation> failed (<error name>)`), and the pane goes on. A cross-window lock (`logo-lock:<key>`, a marker with its time `at`) makes a second window skip a lookup of the same repo while the marker is younger than 2 minutes, and this window deletes its own marker after its lookup. The owner's avatar comes next, for a GitHub repo on the host `github.com` (exactly that host, once an ssh alias is resolved to its real host (section 16); gh is never asked for an enterprise host) whose contents hold no logo: `gh api users/<owner> --jq .type`; only an `Organization` gets its `avatar_url` (`gh api users/<owner> --jq .avatar_url`), asked at `s=32`. A user owner draws none. The avatar is fetched through `sh -c` with curl and base64 (`AVATAR_FETCH_SCRIPT` in `hooks/repo-logo.ts`: https only (`--proto =https`), no redirects followed (no `-L`), the URL is the one positional argument, the 64 KB cap), and it is drawn only when its bytes are a complete PNG or JPEG (magic bytes and trailer); the avatar host is `avatars.githubusercontent.com` only. A failed fetch (curl missing, a non-200, a timeout, an empty answer) is a lookup failure, logged as `avatar fetch` and kept for an hour; an answer that is not a picture is no logo. The GitLab project avatar (`glab api projects/<owner%2Fname> --hostname <remote host>`, the `avatar_url` of its JSON, on the remote's host) is asked for a GitLab remote (a host with `gitlab` in it) once the checkout has no logo. glab is detected once on a definite answer (its exit code, or a missing binary); a timeout fails that lookup (`glab`: kept an hour like a failed gh lookup, then asked again). Without glab the avatar is silently skipped, with no failure. A repo with no folder (no `cwd`) gets no logo.
 2. Breadcrumb (section 10).
 3. Detail lines `Heading: text` (only when `thisIssue` is drawn): State, Branch, PR, Last commit, Checks, Last comment,
-   Next step, Started. Each heading is bold; each line is a separate row. On the desktop the PR line links to the PR's page. "Next step" reads `no next step` (pt-BR `nenhum registrado`) while no value exists, which is
+   Next step, Started. Each heading is bold; each line is a separate row. On the desktop the PR line links to the PR's page, and the Last commit line to its commit page (`commitPageOf`, as the timeline's commit events do). "Next step" reads `no next step` (pt-BR `nenhum registrado`) while no value exists, which is
    always so far, since no snapshot field feeds it. "Started" is `hh:mm · <age>`, or `YYYY-MM-DD hh:mm · <age>` once the start is over a day old (ux-9).
    Every clock time (Started and the timeline times, section 10) is the host's wall clock: `clockOf` and `dateOf` in `hooks/pane.tsx` shift the instant by the host's UTC offset (the `date +%z` read of section 4) and read the UTC getters, so the runtime's own zone never decides the digits. Ages (`N min ago`) are offset-free and unchanged.
 4. Timeline (section 10).
@@ -295,7 +298,7 @@ Inside one highlighted block (the engine's user-message background, `DETAILS_FIL
 Nothing folds. Each group draws its label line, then each top as a titled row (`├`, and `└` on the last) with its derived
 rows nested under it; deeper derived rows nest under their parent, indent capped at two levels (W1, section 9).
 
-Each session row's title line reads the branch glyph, then the title, then the state icon (`🟢` working, `⏳` waiting for you, `💤` idle) and the active marker after it (`▶️` on this window's row, `🔄` on a session working now), on every row. A row carries no state word, in either language: the footer's legend names each icon (section 19). The state word stays in this window's details (`State:`, item 3 above). The sessions section draws
+Each session row's title line reads the branch glyph, then the title, then the state icon (`🟢` working, `⏳` waiting for you, `💤` idle) and the active marker after it (`▶️` on this window's row, and no marker on any other row, since the state icon already says working), on every row. A row carries no state word, in either language: the footer's legend names each icon (section 19). The state word stays in this window's details (`State:`, item 3 above). The sessions section draws
 nothing when no session is listed: no heading, no label, no empty row.
 
 Below the sessions, the open issues that no session works on are drawn by milestone, under the heading `📋 Issues without session` (pt-BR `Issues sem sessão`). Each milestone group is bold, with its title
@@ -304,7 +307,7 @@ singular `issue closed` or `issue fechada` when the total is 1). When GitHub giv
 ` · due YYYY-MM-DD` (pt-BR `prazo YYYY-MM-DD`). The date is a calendar date: it is the UTC date of GitHub's `dueOn` (`2025-10-31T00:00:00Z` draws `2025-10-31` in every zone), never shifted into the host's zone. The totals come from GraphQL (section 4, row 3); only a failed call leaves REST's counts, and those are not exact. An open milestone
 whose open issues all sit on sessions draws one line instead of its issues, `<title> · N open, all in sessions` (pt-BR
 `<title> · N abertas, todas em sessões`), then the progress line. That claim is drawn only when the issue list is complete and holds every open issue the milestone counts; otherwise the milestone draws its title and progress line only (rev-g1-5). An open milestone with no open issue left reads
-`<title> · all closed · ready to close` (pt-BR `todas fechadas · pronto para fechar`), drawn only from exact counts (`Milestone.countsExact`); a milestone with inexact counts draws its title and progress line, with the noun `items` (`{closed} of {total} items closed`, pt-BR `{closed} de {total} itens fechados`), since REST's counts include PRs (ux-5). Issues with no milestone sit under
+`<title> · all closed · ready to close` (pt-BR `todas fechadas · pronto para fechar`), drawn only from exact counts (`Milestone.countsExact`); an exact milestone with no issue at all (no open and no closed issue) reads `<title> · no issues` (pt-BR `<title> · sem issues`), with no done icon and no ready-to-close claim; a milestone with inexact counts draws its title and progress line, with the noun `items` (`{closed} of {total} items closed`, pt-BR `{closed} de {total} itens fechados`), since REST's counts include PRs (ux-5). Issues with no milestone sit under
 `No milestone / issue` (pt-BR `Sem milestone / issue`). The issues of a closed milestone are not in that group: they are grouped
 under the closed milestone's title, marked `<title> · closed` (pt-BR `<title> · fechado`) with no progress line, the title read from
 each issue's own milestone field (pm1-9). On the desktop every milestone heading links to its GitHub milestone page (`milestonePageOf`):
@@ -358,7 +361,7 @@ Run from the mod folder:
 3. `scripts/keeptrack-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
    `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only (it holds every emoji of KeepTrack). `scripts/keeptrack-look-selftest.sh` runs the gate on a copy and checks those cases.
 4. `agentic-mod-release-tool.sh keeptrack-repo-pane --check` must pass before the mod is installed (CLAUDE.md rule 6a).
-   The mod is published as 0.2.0-beta.17 and installed from `sophia-mods` (README, Installation).
+   The mod is published as 0.2.0-beta.18 and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
 or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`, `parseUtcOffset`) and do not depend on the zone the test process runs in; the register test answers `date +%z` through the process stub, including a refused call.
@@ -385,6 +388,11 @@ or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`
 | Membership checks and branch reads | the newest 4 × 64 others (the scan window) |
 | Git calls in flight | 4 |
 | Override lifetime | 30 days |
+| Repo logo file | 64 KB raw (`LOGO_MAX_BYTES`); a larger file is skipped, and the next path is tried |
+| Repo logo GitHub calls | 3 per lookup (`GITHUB_LOGO_CALLS`); a path the repo lacks (HTTP 4xx) is the next one; any other failure ends the lookup, logged by its kind |
+| Repo logo lifetime | 24 h for a logo or none (`LOGO_TTL_MS`); 1 h after a failed lookup (`LOGO_RETRY_MS`) |
+| ssh alias lookup | one `ssh -G <alias>` per alias per window, 5 s (`SSH_TIMEOUT_MS`); a failure keeps the alias (section 16) |
+| Repo logo markup | 131072 characters (the Svg element's limit); the raster rules are in section 11 |
 | Band poll while the pane is closed | 5 min (`KEEPTRACK_BAND_POLL_MS`) |
 | Band redraws for tool calls | 1 per second (a trailing redraw carries the last tool of a burst) |
 | gh timeout / git timeout | 15 s / 5 s |
@@ -398,7 +406,8 @@ otherwise): a GitHub Enterprise host whose name contains `github` is read from g
 
 - GitLab links: a GitLab remote links the session title and the commit events only. Issues, milestones and PRs come from GitHub, so they have no GitLab page to link to.
 - Namespaces: the shared remote parser takes one owner of letters, digits and hyphens. A GitLab remote whose owner has `_` or nested groups (`group/sub/app`) is not parsed, so its sessions get no repo link (no link is better than a wrong one).
-- Remote cache: `remoteCache` (register.tsx) keeps a definite remote answer per common dir for the life of the window; a `git remote set-url` is seen only after the window reloads.
+- Remote cache: `remoteCache` (register.tsx) keeps a definite remote answer per common dir for the life of the window; a remote whose ssh alias lookup failed is not kept (see section 16). A `git remote set-url` is seen only after the window reloads.
+- SSH aliases: a remote whose host has no dot (`git@github-work:owner/name`) names an ssh alias. Its host is the `hostname` line of `ssh -G <alias>` (`sshHostnameOf`, `hooks/model.ts`), asked once per alias per window and kept on success. A failure keeps the alias itself as the host (as before) for `LOGO_RETRY_MS` (1 h), then the alias is asked again. The resolved host is what the rest reads: the membership of the repo, the window's own repo, gh for github.com (the logo key `github.com/<owner>/<name>`, the page links) and glab for gitlab.com. A dotted host is never resolved. A missing ssh, a timeout or an answer with no plain hostname logs `ssh alias lookup failed (<name>)` once, and the pane goes on. The alias must match `[A-Za-z0-9][A-Za-z0-9._-]*`, so no option reaches ssh; a host that does not match (a leading dash, `git@-gitlab:owner/name`) is no remote at all: no repo page, no logo, no glab or gh call.
 
 ## 17. Desktop check (for Sophia)
 
@@ -507,7 +516,6 @@ PT), and the icon sits before its word. The pane draws its emoji as text on both
 | Idle | 💤 | pane session rows; band `Idle` word |
 | Subagents active | 🤖 | band agents word |
 | This window's row (active marker) | ▶️ | title of this window's row |
-| Another session working now (active marker) | 🔄 | title of the row |
 | This window's issue, in progress | 🛠️ | band `#n`; breadcrumb `#n` |
 | Open issues without a session (to do) | 📋 | heading `Issues without session`; header counter |
 | Sessions count | 🖥️ | header counter |
@@ -529,7 +537,7 @@ PT), and the icon sits before its word. The pane draws its emoji as text on both
 - Legend (the footer's block above `Updated`), a table headed `Labels` (`legend.title`, both languages) in a bordered block with padding (`borderStyle` round, dimmed border, one column across and one row above and below), its icon column fixed so it never shrinks and each row aligned to its first line: a bold heading row, then one
   row per icon a snapshot draws. Each row is the emoji in a fixed-width cell (`LEGEND_ICON_COLUMNS`, 4 columns: one emoji and its gap), then its name in bold,
   `: `, and a sentence on when the icon appears (one paragraph, so a long sentence wraps under the name, not under the emoji). The
-  rows run in four groups: session states (🟢 ⏳ 💤 ▶️ 🔄), work (📋 🛠️ ✅ ☑️), history (🕘 📝 🔀 🚀), project (🎯 📅 ⚠️ priorities 🖥️).
+  rows run in four groups: session states (🟢 ⏳ 💤 ▶️), work (📋 🛠️ ✅ ☑️), history (🕘 📝 🔀 🚀), project (🎯 📅 ⚠️ priorities 🖥️).
   The emoji are taken by name from `action-icons.ts`
   (`LEGEND_ENTRIES`, `hooks/pane.tsx`) and the name and the sentence from `legend.<id>.name` and `legend.<id>.text` in `hooks/i18n.ts` (EN and
   PT). The desktop draws the row as one Markdown line (`**name**: sentence`); the terminal draws the name as a bold `Text` nested in a
@@ -539,6 +547,8 @@ PT), and the icon sits before its word. The pane draws its emoji as text on both
   draws, and no other, in both languages.
 - Progress bar: ten cells of plain characters, `▰` filled and `▱` empty, then the rounded percentage (`▰▰▰▰▰▰▱▱▱▱ 60%`). It is drawn
   only from exact counts (`countsExact`); a milestone with inexact counts draws its progress line without a bar (`progressBarOf`).
+  The bar moves in 10% steps, since its cells are rounded (`Math.round(share * 10)`), while the percentage beside it is computed from the exact
+  counts and rounded to a whole percent (`Math.round(share * 100)`), so the number can move where the bar does not.
 - Overdue: an open milestone with open issues and exact counts whose due date (GitHub's calendar date) is before today's date in the
   host's zone (`isOverdue`). A milestone with no open issue left is never overdue.
 - Look gate: emoji only in `action-icons.ts`. The text glyphs `▪`, `▰`, `▱`, `├`, `└`, `↗`, `←` are not emoji and stay

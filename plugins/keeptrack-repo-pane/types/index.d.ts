@@ -56,6 +56,8 @@ export type SessionNode = {
   milestoneTitle: string | null; milestoneNumber: number | null; noMilestone: boolean; issueUrl: string | null
   // repoPage: the web page of the session's repo (GitHub or GitLab), null without a known remote; the title links to it.
   repoPage: string | null
+  // logoKey: the store key of the repo's logo (host, owner and name, lowercased, from the remote); null without a repo page.
+  logoKey: string | null
   state: 'working' | 'idle' | 'waiting'; timeline: TimelineEvent[]; children: SessionNode[]
   group: SessionGroup | null   // set on every top of snapshot.sessions, null on derived nodes
 }
@@ -80,7 +82,8 @@ export type IssueDetails = {
   number: number; title: string; url: string; state: 'open' | 'closed'; milestoneTitle: string | null
   branch: string | null
   pr: { number: number; title: string; state: 'OPEN' | 'MERGED' | 'CLOSED'; reviewDecision: PullRequest['reviewDecision']; url: string } | null
-  lastCommit: { at: number; subject: string } | null
+  // url: the commit's web page, null without a repo page (the line links to it on the desktop).
+  lastCommit: { at: number; subject: string; url: string | null } | null
   checks: string | null
   lastComment: { author: string; at: number; body: string } | null
   startedAt: number

@@ -23,7 +23,8 @@ import { actionIconEmoji, priorityEmoji, statusIconEmoji, type ActionIconKey, ty
 import { t, type Lang, type MessageKey } from './i18n'
 import { PAGE_URL, RECENTS_GROUP, TEXT_MAX, TIMELINE_LIMIT, isSessionLinkId, milestonePageOf, plain, priorityOf, repoPageOf } from './model'
 import { BAR_EMPTY, BAR_FILLED, BRANCH_GLYPH, DETAILS_FILL, EMPHASISED_PRIORITIES, LINK_MARK } from './look'
-import { KEEPGLIDE_HEADER_SIZE, renderKeepGlide, renderKeepTrackLogo } from './logo-element'
+import { KEEPGLIDE_HEADER_SIZE, renderKeepGlide, renderKeepTrackLogo, renderRepoLogo } from './logo-element'
+import { repoLabelOf } from './repo-logo'
 
 type Ui = Elements[RenderSurface]
 
@@ -35,6 +36,8 @@ export type PaneContext = {
   surface: string
   // The host's UTC offset in minutes east of UTC (register.tsx reads it with `date +%z`). Clock times and dates are drawn in it.
   utcOffsetMinutes: number
+  // The stored SVG of each repo's logo, by SessionNode.logoKey (register.tsx reads the store); a repo with no entry draws no logo.
+  logos?: ReadonlyMap<string, string>
 }
 
 // What every drawing function reads: the element table, the language, the clock of this draw, the host's UTC offset, the surface,
@@ -48,6 +51,8 @@ type View = {
   thisIssue: IssueDetails | null
   // The web page of the window's GitHub repo, null without one: the milestone headings and the crumbs link to it.
   repoPage: string | null
+  // The drawn logo of each repo, by SessionNode.logoKey (PaneContext.logos).
+  logos: ReadonlyMap<string, string>
 }
 
 // Where a session row sits: its branch glyph ("├" or "└"), the parent's issue (breadcrumb), and the level it is drawn at
@@ -150,6 +155,7 @@ export function renderPane(elements: Ui, context: PaneContext): RenderElement {
     utcOffsetMinutes: context.utcOffsetMinutes,
     thisIssue: snapshot?.thisIssue ?? null,
     repoPage: snapshot?.repo ? repoPageOf({ host: 'github.com', ...snapshot.repo }) : null,
+    logos: context.logos ?? new Map(),
   }
   const { Box, Text } = elements
   return (
@@ -348,11 +354,34 @@ function renderSessionHead(view: View, node: SessionNode, place: RowPlace): Rend
     <Box key={`head-${node.id}`} flexDirection="row" gap={1}>
       <Text key="branch">{place.branch}</Text>
       <Box key="title-block" flexDirection="column" flexGrow={1}>
-        {renderSessionTitle(view, node, node.isThisWindow)}
+        {renderTitleLine(view, node, node.isThisWindow)}
         {renderCrumb(view, node, place)}
       </Box>
     </Box>
   )
+}
+
+// The title line: the repo's logo in front of the title when the desktop draws one (SPEC section 11), else the title alone, so the terminal's
+// line is the one renderSessionTitle draws.
+function renderTitleLine(view: View, node: SessionNode, isThis: boolean): RenderElement {
+  const { Box } = view.ui
+  const title = renderSessionTitle(view, node, isThis)
+  const logo = repoLogoOf(view, node)
+  if (logo === false) return title
+  return (
+    <Box key={`title-line-${node.id}`} flexDirection="row" gap={1}>
+      {logo}
+      {title}
+    </Box>
+  )
+}
+
+// The row's repo logo, drawn with its alt text ("owner/name logo"); false when the repo has none, or on the terminal.
+function repoLogoOf(view: View, node: SessionNode): RenderElement | false {
+  if (node.repoPage === null || node.logoKey === null) return false
+  const source = view.logos.get(node.logoKey)
+  if (source === undefined) return false
+  return renderRepoLogo(view.ui, view.desktop, source, t(view.lang, 'session.logoAlt', { repo: repoLabelOf(node.repoPage) }))
 }
 
 // The one link check of the pane: the address when the desktop draws Markdown and the address passes PAGE_URL (model.ts), else null.
@@ -395,11 +424,9 @@ function renderSessionTitle(view: View, node: SessionNode, isThis: boolean): Ren
   return <Text key={`title-${node.id}`} bold={isThis}>{joinWords([node.title, icons, marker])}</Text>
 }
 
-// The marker of an active row: this window's row (the activeWindow icon), and a session working now (the activeSession icon).
-// Any other row carries none.
+// The marker of an active row: this window's row (the activeWindow icon). Any other row carries none: its state icon already says working.
 function activeMarkerOf(node: SessionNode): string {
-  if (node.isThisWindow) return statusIconEmoji('activeWindow')
-  return node.state === 'working' ? statusIconEmoji('activeSession') : ''
+  return node.isThisWindow ? statusIconEmoji('activeWindow') : ''
 }
 
 // A breadcrumb part: its text, and the page it links to (null for none).
@@ -498,7 +525,12 @@ function detailLinesOf(view: View, node: SessionNode, issue: IssueDetails): Deta
     { key: 'state', label: t(lang, 'detail.state'), value: stateTextOf(lang, node.state, issue.state) },
     { key: 'branch', label: t(lang, 'detail.branch'), value: issue.branch === null ? t(lang, 'detail.noBranch') : plain(issue.branch, TEXT_MAX) },
     { key: 'pr', label: t(lang, 'detail.pr'), value: prTextOf(lang, issue.pr), url: issue.pr?.url ?? null },
-    { key: 'commit', label: t(lang, 'detail.lastCommit'), value: commitTextOf(lang, issue.lastCommit, now) },
+    {
+      key: 'commit',
+      label: t(lang, 'detail.lastCommit'),
+      value: commitTextOf(lang, issue.lastCommit, now),
+      url: issue.lastCommit?.url ?? null,
+    },
     { key: 'checks', label: t(lang, 'detail.checks'), value: issue.checks ?? t(lang, 'detail.noCi') },
     { key: 'comment', label: t(lang, 'detail.lastComment'), value: commentTextOf(lang, issue.lastComment, now) },
     { key: 'next', label: t(lang, 'detail.nextStep'), value: t(lang, 'detail.noNextStep') },
@@ -632,10 +664,14 @@ function renderIssueGroup(view: View, group: IssueGroup): RenderElement[] {
     </Text>
   )
   if (issues.length > 0) return [renderMilestoneHeading(view, `milestone-${groupKey}`, heading, milestone.number, true), progress, ...issueRows]
-  // "All closed" is drawn only from exact counts: REST's zero (PRs included) or a partial answer never says the milestone is done.
+  // "All closed" is drawn only from exact counts: REST's zero (PRs included) or a partial answer never says the milestone is done. An exact
+  // zero of closed issues too has no issue at all, so it reads "no issues" (no done icon, nothing to close).
   if (milestone.countsExact && milestone.openIssues === 0) {
-    const allClosed = withIcon(statusIconEmoji('done'), t(lang, 'milestone.allClosed', { label: name }))
-    return [renderMilestoneHeading(view, `milestone-${groupKey}`, allClosed, milestone.number, false), progress]
+    const label =
+      milestone.closedIssues > 0
+        ? withIcon(statusIconEmoji('done'), t(lang, 'milestone.allClosed', { label: name }))
+        : withIcon(actionIconEmoji('milestone'), t(lang, 'milestone.noIssues', { label: name }))
+    return [renderMilestoneHeading(view, `milestone-${groupKey}`, label, milestone.number, false), progress]
   }
   // An open milestone whose open issues all sit on sessions says how many are open, so its remaining work stays visible in the pane
   // (pm1-2); that claim is drawn only when the issue list backs it (rev-g1-5).
@@ -707,7 +743,6 @@ const LEGEND_ENTRIES: readonly LegendEntry[] = [
   { id: 'waiting', icon: actionIconEmoji('waiting'), name: 'legend.waiting.name', text: 'legend.waiting.text' },
   { id: 'idle', icon: actionIconEmoji('idle'), name: 'legend.idle.name', text: 'legend.idle.text' },
   { id: 'this-window', icon: statusIconEmoji('activeWindow'), name: 'legend.thisWindow.name', text: 'legend.thisWindow.text' },
-  { id: 'working-now', icon: statusIconEmoji('activeSession'), name: 'legend.workingNow.name', text: 'legend.workingNow.text' },
   { id: 'issues', icon: statusIconEmoji('issues'), name: 'legend.issues.name', text: 'legend.issues.text' },
   { id: 'issue', icon: actionIconEmoji('inProgress'), name: 'legend.issue.name', text: 'legend.issue.text' },
   { id: 'done', icon: statusIconEmoji('done'), name: 'legend.done.name', text: 'legend.done.text' },
