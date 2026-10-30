@@ -10,7 +10,7 @@
 
 **A Claude Code Desktop mod for people who run several sessions on one GitHub repository. It shows which issue each session works on, and what the repository is doing right now.**
 
-[![Version](https://img.shields.io/badge/version-0.2.0--beta.8-2BB8AE.svg)](CHANGELOG.md) [![License: MIT](https://img.shields.io/badge/license-MIT-1E2A47.svg)](LICENSE) ![Platform](https://img.shields.io/badge/Claude%20Code%20Desktop-mod-1E2A47.svg)
+[![Version](https://img.shields.io/badge/version-0.2.0--beta.11-2BB8AE.svg)](CHANGELOG.md) [![License: MIT](https://img.shields.io/badge/license-MIT-1E2A47.svg)](LICENSE) ![Platform](https://img.shields.io/badge/Claude%20Code%20Desktop-mod-1E2A47.svg)
 
 [Installation](#-installation) · [Usage](#-usage) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/KeepGlide/keeptrack/issues/new) · [Security](SECURITY.md)
 
@@ -47,7 +47,7 @@
 
 ## 📌 Status
 
-Beta (`0.2.0-beta.8`). The project follows [SemVer](https://semver.org/): while the version is `0.y.z`, any release may change behavior without notice.
+Beta (`0.2.0-beta.11`). The project follows [SemVer](https://semver.org/): while the version is `0.y.z`, any release may change behavior without notice.
 
 ## 💡 Why it exists
 
@@ -188,7 +188,7 @@ Ground rules:
 | 1 | Check that gh is signed in | `gh auth status` | Exit 0 and a line `Logged in to github.com`. If not, the human runs `gh auth login`. |
 | 2 | Check that the repository has a GitHub remote | `git remote get-url origin` | Exit 0 and a URL whose host is `github.com`, or an SSH alias with `github` in its name (for example `git@github-<label>:<owner>/<repo>.git`). Otherwise the pane shows `no GitHub remote for this repo`. |
 | 3 🧑 | Add the marketplace, unless `claude plugin marketplace list` already shows `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Exit 0, and `claude plugin marketplace list` shows `sophia-mods` with `Source: Folder (<path>)`. |
-| 4 🧑 | Install the plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Exit 0, and `claude plugin list` shows `keeptrack-repo-pane@sophia-mods` with `Version: 0.2.0-beta.8` and `Status: ✔ enabled`. |
+| 4 🧑 | Install the plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Exit 0, and `claude plugin list` shows `keeptrack-repo-pane@sophia-mods` with `Version: 0.2.0-beta.11` and `Status: ✔ enabled`. |
 | 5 | Check that the command is registered | In a Desktop session, `/keeptrack bogus` | A toast with the usage line `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto`. Nothing changes. |
 | 6 | Open the pane | `/keeptrack` | A pane titled `KeepTrack` opens. It shows `Loading the repo...`, then the open issues by milestone, or an error line from [Troubleshooting](#-troubleshooting). |
 | 7 | Switch the language to Portuguese | `/keeptrack lang pt-BR` | The pane and the band switch to Portuguese. While loading, the pane shows `Carregando o repo...`. |
@@ -319,14 +319,14 @@ Known limitations, as the code does them today:
 | Category | Tests |
 |---|---|
 | Rules: remote parsing, session tree, issue groups, timelines, record projection, UTC offset parsing (`tests/model.test.ts`) | 94 |
-| Hooks module: poll, pane command, timers, close and host UTC offset (`tests/register.test.ts`) | 130 |
+| Hooks module: poll, pane command, timers, close and host UTC offset (`tests/register.test.ts`) | 144 |
 | Band: status line, states and Open button (`tests/band.test.ts`) | 39 |
 | Pane: snapshot drawing, host clock and due dates (`tests/pane.test.ts`) | 65 |
 | Language: English and pt-BR dictionaries (`tests/i18n.test.ts`) | 10 |
 | Turn transitions of the band (`tests/turn.test.ts`) | 8 |
-| **Total** | **346** |
+| **Total** | **360** |
 
-Counts from `claude plugin test plugins/keeptrack-repo-pane` on the working tree, unreleased: 332 pass, 0 fail, 6 files.
+Counts from `claude plugin test plugins/keeptrack-repo-pane` on the 0.2.0-beta.11 release: 360 pass, 0 fail, 6 files.
 
 ## 🔧 Development
 

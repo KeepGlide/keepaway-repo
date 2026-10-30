@@ -8,6 +8,8 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+## [0.2.0-beta.11] - 2026-10-30
+
 ### Added
 - Issues carry a priority tag read from their GitHub labels: `P0` to `P3`, or `priority: critical|high|medium|low` (also the `priority/…`, `priority-…` and `prio…` variants), case-insensitive; critical is P0 and low is P3. Inside each issue group the issues sort by priority, P0 first and unlabelled last, then newest first; the row draws the tag, and P0 and P1 rows draw bold (`hooks/model.ts` `priorityOf`, `hooks/pane.tsx`, `hooks/look.ts`).
 

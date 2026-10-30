@@ -1,4 +1,4 @@
-# KeepTrack: spec (as built, v0.2.0-beta.8)
+# KeepTrack: spec (as built, v0.2.0-beta.11)
 
 Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepTrack, the command is `/keeptrack`.
 
@@ -357,7 +357,7 @@ Run from the mod folder:
 3. `scripts/keeptrack-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
    `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only.
 4. `agentic-mod-release-tool.sh keeptrack-repo-pane --check` must pass before the mod is installed (CLAUDE.md rule 6a).
-   The mod is published as 0.2.0-beta.8 (commit 517f460) and installed from `sophia-mods` (README, Installation).
+   The mod is published as 0.2.0-beta.11 and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
 or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`, `parseUtcOffset`) and do not depend on the zone the test process runs in; the register test answers `date +%z` through the process stub, including a refused call.

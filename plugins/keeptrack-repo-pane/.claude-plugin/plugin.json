@@ -1,6 +1,6 @@
 {
   "name": "keeptrack-repo-pane",
-  "version": "0.2.0-beta.8",
+  "version": "0.2.0-beta.11",
   "description": "KeepTrack: for this session's GitHub repository, the open milestones with their open issues and the Desktop sessions working on each issue, this session first with its issue details and timeline.",
   "author": { "name": "Sophia Phillipa (KeepGlide)", "url": "https://keepglide.com" },
   "license": "MIT",

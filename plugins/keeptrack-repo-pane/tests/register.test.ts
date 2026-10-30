@@ -596,7 +596,7 @@ test('pm1-8: when the milestone totals query fails, the milestone keeps its REST
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(await drawnPane($)).toContain('5 of 10 items closed')
-  expect(host.logs).toContain('keeptrack: gh api call failed')
+  expect(host.logs.some(line => line.startsWith('keeptrack: gh api call failed'))).toBe(true)
 })
 
 test('pm1-9: all closed is drawn only from exact counts, never from a REST zero or a failed totals query', async ($: Engine, on) => {
@@ -1672,6 +1672,8 @@ test('waiting: the band says waiting for you while the engine asks the person ab
   await $.turn.start({ text: 'work', turnId: 't1' })
   await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })
   expect(await bandDrawn($)).toContain('waiting for you')
+  // The person approves: the engine's own check of the call now allows it, and the call runs.
+  options.permission = 'allow'
   await $.tool.call({ tool: 'Bash' })
   expect(await bandDrawn($)).not.toContain('waiting for you')
 })
