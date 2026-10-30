@@ -8,6 +8,12 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+## [0.2.0-beta.16] - 2026-10-30
+
+### Changed
+
+- Each row of the footer's `Labels` table reads its name in bold, then `: ` and a sentence on when the icon appears, in English and pt-BR, so a row explains itself. The texts are `legend.<id>.name` and `legend.<id>.text` in `hooks/i18n.ts` (the old single `legend.<id>` meaning keys are gone). The desktop draws each row as one Markdown line, the terminal as a bold `Text` nested in a `Text`. Two names changed: `attention` (pt-BR `atenção`) for ⚠️ and `done` (pt-BR `feito`) for ✅. The README pair no longer says the band shows a state word.
+
 ## [0.2.0-beta.15] - 2026-10-30
 
 ### Changed

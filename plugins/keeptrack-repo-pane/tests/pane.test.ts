@@ -641,73 +641,86 @@ test('a session row reads its title first, then its state icon and active marker
   }
 })
 
-// The legend's rows in drawn order: each row is an icon cell, then its meaning.
-const legendRowsOf = (tree: unknown): Drawn[] => nodesOf(tree).filter(node => /^legend-(?!heading$)/.test(String(node.props.key)))
+// The legend's rows in drawn order: each row is keyed legend-<id>; its sentence element (legend-<id>-text) is not a row.
+const LEGEND_ROW_KEY = /^legend-(?!heading$)(?!.*-text$)/
+const legendRowsOf = (tree: unknown): Drawn[] => nodesOf(tree).filter(node => LEGEND_ROW_KEY.test(String(node.props.key)))
 
-// Each legend row as its drawn texts: its icon, then its meaning.
-const legendPairsOf = (tree: unknown): string[][] => legendRowsOf(tree).map(row => drawnTexts(row))
+// Each legend row as [icon, name, sentence]. The desktop draws the name in Markdown's ** (the text, bold); the terminal nests a bold
+// Text for the name in a Text, then the sentence after ": ".
+const legendPartsOf = (tree: unknown): string[][] =>
+  legendRowsOf(tree).map(row => {
+    const [cell, meaning] = row.props.children as Drawn[]
+    if (meaning.tag === 'Markdown') {
+      const [, name = '', sentence = ''] = /^\*\*(.+?)\*\*: (.*)$/.exec(String(meaning.props.text)) ?? []
+      return [textOf(cell), plainMarkdown(name), plainMarkdown(sentence)]
+    }
+    const [nameNode, rest] = meaning.props.children as [Drawn, string]
+    expect(nameNode.props.bold).toBe(true)
+    return [textOf(cell), textOf(nameNode), String(rest).replace(/^: /, '')]
+  })
 
-test('the legend is a Labels table: a bold heading, then one row per icon in group order, in English and pt-BR', () => {
+test('the legend is a Labels table: a bold heading, then one row per icon in group order, each with its bold name and a sentence, in English and pt-BR', () => {
   const english = [
-    ['🟢', 'working'],
-    ['⏳', 'waiting for you'],
-    ['💤', 'idle'],
-    ['▶️', 'this window'],
-    ['🔄', 'session working now'],
-    ['📋', 'open issues'],
-    ['🛠️', 'issue of a session'],
-    ['✅', 'done'],
-    ['☑️', 'closed PR'],
-    ['🕘', 'timeline'],
-    ['📝', 'commit'],
-    ['🔀', 'open PR'],
-    ['🚀', 'session event'],
-    ['🎯', 'milestone'],
-    ['📅', 'due date'],
-    ['⚠️', 'error, partial list or overdue'],
-    ['🔴 🟠 🟡 ⚪', 'priority P0 to P3'],
-    ['🖥️', 'sessions'],
+    ['🟢', 'working', 'the session is running a turn or a tool right now.'],
+    ['⏳', 'waiting for you', 'the session asked you to approve a tool and is paused until you answer.'],
+    ['💤', 'idle', 'the session is open but not running anything.'],
+    ['▶️', 'this window', 'the session of the window you are in.'],
+    ['🔄', 'session working now', 'another session of this repo that is running right now.'],
+    ['📋', 'open issues', 'GitHub issues still open; under "Issues without session", no session is on them yet (to do).'],
+    ['🛠️', 'issue of a session', 'an issue a session is working on (in progress).'],
+    ['✅', 'done', 'a closed issue, a merged PR, or a milestone with every issue closed.'],
+    ['☑️', 'closed PR', 'a pull request closed without merging.'],
+    ['🕘', 'timeline', 'what already happened in the session, newest first (history).'],
+    ['📝', 'commit', "a commit made on the session's branch."],
+    ['🔀', 'open PR', "a pull request opened from the session's branch."],
+    ['🚀', 'session event', 'the session started, or was forked or spawned from another.'],
+    ['🎯', 'milestone', 'a GitHub milestone, with the share of its issues already closed.'],
+    ['📅', 'due date', "the milestone's deadline."],
+    ['⚠️', 'attention', 'an error, a partial list, or a milestone past its due date with issues still open.'],
+    ['🔴 🟠 🟡 ⚪', 'priority', "P0 critical, P1 high, P2 medium, P3 low, from the issue's labels."],
+    ['🖥️', 'sessions', 'how many sessions of this repo are listed.'],
   ]
   const portuguese = [
-    ['🟢', 'trabalhando'],
-    ['⏳', 'esperando você'],
-    ['💤', 'ociosa'],
-    ['▶️', 'esta janela'],
-    ['🔄', 'sessão trabalhando agora'],
-    ['📋', 'issues abertas'],
-    ['🛠️', 'issue de uma sessão'],
-    ['✅', 'concluído'],
-    ['☑️', 'PR fechado'],
-    ['🕘', 'linha do tempo'],
-    ['📝', 'commit'],
-    ['🔀', 'PR aberto'],
-    ['🚀', 'evento de sessão'],
-    ['🎯', 'milestone'],
-    ['📅', 'prazo'],
-    ['⚠️', 'erro, lista parcial ou atrasado'],
-    ['🔴 🟠 🟡 ⚪', 'prioridade P0 a P3'],
-    ['🖥️', 'sessões'],
+    ['🟢', 'trabalhando', 'a sessão está executando um turno ou uma ferramenta agora.'],
+    ['⏳', 'esperando você', 'a sessão pediu sua aprovação para uma ferramenta e está parada até você responder.'],
+    ['💤', 'ociosa', 'a sessão está aberta, mas não está executando nada.'],
+    ['▶️', 'esta janela', 'a sessão da janela em que você está.'],
+    ['🔄', 'sessão trabalhando agora', 'outra sessão deste repositório que está executando agora.'],
+    ['📋', 'issues abertas', 'issues do GitHub ainda abertas; em "Issues sem sessão", nenhuma sessão está nelas ainda (a fazer).'],
+    ['🛠️', 'issue de uma sessão', 'uma issue em que uma sessão está trabalhando (em andamento).'],
+    ['✅', 'feito', 'uma issue fechada, um PR mesclado ou um milestone com todas as issues fechadas.'],
+    ['☑️', 'PR fechado', 'um pull request fechado sem ser mesclado.'],
+    ['🕘', 'linha do tempo', 'o que já aconteceu na sessão, do mais recente ao mais antigo (histórico).'],
+    ['📝', 'commit', 'um commit feito no branch da sessão.'],
+    ['🔀', 'PR aberto', 'um pull request aberto a partir do branch da sessão.'],
+    ['🚀', 'evento de sessão', 'a sessão começou ou foi derivada (fork ou spawn) de outra.'],
+    ['🎯', 'milestone', 'um milestone do GitHub, com a parte das issues já fechadas.'],
+    ['📅', 'prazo', 'a data limite do milestone.'],
+    ['⚠️', 'atenção', 'um erro, uma lista parcial ou um milestone com prazo vencido e issues ainda abertas.'],
+    ['🔴 🟠 🟡 ⚪', 'prioridade', 'P0 crítica, P1 alta, P2 média, P3 baixa, pelos rótulos da issue.'],
+    ['🖥️', 'sessões', 'quantas sessões deste repositório estão listadas.'],
   ]
   for (const tree of [drawDesktop({ lang: 'en' }), drawTerminal({ lang: 'en' })]) {
     expect(drawnTexts(keyed(tree, 'legend-heading'))).toEqual(['Labels'])
     expect(keyed(tree, 'legend-heading')?.props.bold).toBe(true)
-    expect(legendPairsOf(tree)).toEqual(english)
+    expect(legendPartsOf(tree)).toEqual(english)
   }
   for (const tree of [drawDesktop({ lang: 'pt' }), drawTerminal({ lang: 'pt' })]) {
     expect(drawnTexts(keyed(tree, 'legend-heading'))).toEqual(['Labels'])
-    expect(legendPairsOf(tree)).toEqual(portuguese)
+    expect(legendPartsOf(tree)).toEqual(portuguese)
   }
 })
 
-// Each row is a fixed-width icon cell, then its meaning, so the rows read as a table on both surfaces.
-test('each legend row is a fixed-width icon cell, then its meaning, on both surfaces', () => {
+// Each row is a fixed-width icon cell, then its name and sentence (Markdown on the desktop, Text on the terminal), so the rows read as a
+// table on both surfaces.
+test('each legend row is a fixed-width icon cell, then its name and sentence, on both surfaces', () => {
   for (const tree of [drawDesktop(), drawTerminal()]) {
     for (const row of legendRowsOf(tree)) {
       const [cell, meaning] = row.props.children as Drawn[]
       expect(cell?.tag).toBe('Box')
       // The four priority emoji (11 columns) fit in the cell.
       expect(Number(cell?.props.width)).toBeGreaterThanOrEqual(11)
-      expect(meaning?.tag).toBe('Text')
+      expect(['Markdown', 'Text']).toContain(meaning?.tag)
     }
   }
 })

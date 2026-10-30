@@ -632,37 +632,37 @@ function renderIssueLine(view: View, issue: Issue): RenderElement {
   return <Text key={`line-${issue.number}`} bold={emphasised}>{label}</Text>
 }
 
-// The footer's legend, a table headed Labels: one row per icon a snapshot draws, with its meaning. The emoji are read from
+// The footer's legend, a table headed Labels: one row per icon a snapshot draws, with its name and a sentence. The emoji are read from
 // action-icons.ts by name, so the legend cannot drift from the table and holds no emoji of its own. The rows run in four groups:
 // the session states, the work, the history, the project. The band-only icons (no issue, no remote, tools) are not listed, and
 // neither are the loading and failure lines, which draw without the footer.
-type LegendEntry = { id: string; icon: string; meaning: MessageKey }
+type LegendEntry = { id: string; icon: string; name: MessageKey; text: MessageKey }
 const PRIORITIES: readonly Priority[] = ['P0', 'P1', 'P2', 'P3']
 // The emoji cell's width in terminal columns: wide enough for the four priority emoji on one row (11 columns).
 const LEGEND_ICON_COLUMNS = 12
 const LEGEND_ENTRIES: readonly LegendEntry[] = [
-  { id: 'working', icon: actionIconEmoji('working'), meaning: 'state.working' },
-  { id: 'waiting', icon: actionIconEmoji('waiting'), meaning: 'legend.waiting' },
-  { id: 'idle', icon: actionIconEmoji('idle'), meaning: 'state.idle' },
-  { id: 'this-window', icon: statusIconEmoji('activeWindow'), meaning: 'legend.thisWindow' },
-  { id: 'working-now', icon: statusIconEmoji('activeSession'), meaning: 'legend.workingNow' },
-  { id: 'issues', icon: statusIconEmoji('issues'), meaning: 'legend.issues' },
-  { id: 'issue', icon: actionIconEmoji('inProgress'), meaning: 'legend.issue' },
-  { id: 'done', icon: statusIconEmoji('done'), meaning: 'legend.done' },
-  { id: 'closed', icon: statusIconEmoji('closed'), meaning: 'legend.closed' },
-  { id: 'history', icon: statusIconEmoji('history'), meaning: 'legend.history' },
-  { id: 'commit', icon: statusIconEmoji('commit'), meaning: 'legend.commit' },
-  { id: 'pr', icon: statusIconEmoji('pr'), meaning: 'legend.pr' },
-  { id: 'session', icon: statusIconEmoji('session'), meaning: 'legend.sessionEvent' },
-  { id: 'milestone', icon: actionIconEmoji('milestone'), meaning: 'legend.milestone' },
-  { id: 'due', icon: statusIconEmoji('due'), meaning: 'legend.due' },
-  { id: 'warning', icon: actionIconEmoji('error'), meaning: 'legend.warning' },
-  { id: 'priority', icon: PRIORITIES.map(priority => priorityEmoji(priority)).join(' '), meaning: 'legend.priority' },
-  { id: 'sessions', icon: statusIconEmoji('sessions'), meaning: 'legend.sessions' },
+  { id: 'working', icon: actionIconEmoji('working'), name: 'legend.working.name', text: 'legend.working.text' },
+  { id: 'waiting', icon: actionIconEmoji('waiting'), name: 'legend.waiting.name', text: 'legend.waiting.text' },
+  { id: 'idle', icon: actionIconEmoji('idle'), name: 'legend.idle.name', text: 'legend.idle.text' },
+  { id: 'this-window', icon: statusIconEmoji('activeWindow'), name: 'legend.thisWindow.name', text: 'legend.thisWindow.text' },
+  { id: 'working-now', icon: statusIconEmoji('activeSession'), name: 'legend.workingNow.name', text: 'legend.workingNow.text' },
+  { id: 'issues', icon: statusIconEmoji('issues'), name: 'legend.issues.name', text: 'legend.issues.text' },
+  { id: 'issue', icon: actionIconEmoji('inProgress'), name: 'legend.issue.name', text: 'legend.issue.text' },
+  { id: 'done', icon: statusIconEmoji('done'), name: 'legend.done.name', text: 'legend.done.text' },
+  { id: 'closed', icon: statusIconEmoji('closed'), name: 'legend.closed.name', text: 'legend.closed.text' },
+  { id: 'history', icon: statusIconEmoji('history'), name: 'legend.history.name', text: 'legend.history.text' },
+  { id: 'commit', icon: statusIconEmoji('commit'), name: 'legend.commit.name', text: 'legend.commit.text' },
+  { id: 'pr', icon: statusIconEmoji('pr'), name: 'legend.pr.name', text: 'legend.pr.text' },
+  { id: 'session', icon: statusIconEmoji('session'), name: 'legend.sessionEvent.name', text: 'legend.sessionEvent.text' },
+  { id: 'milestone', icon: actionIconEmoji('milestone'), name: 'legend.milestone.name', text: 'legend.milestone.text' },
+  { id: 'due', icon: statusIconEmoji('due'), name: 'legend.due.name', text: 'legend.due.text' },
+  { id: 'warning', icon: actionIconEmoji('error'), name: 'legend.warning.name', text: 'legend.warning.text' },
+  { id: 'priority', icon: PRIORITIES.map(priority => priorityEmoji(priority)).join(' '), name: 'legend.priority.name', text: 'legend.priority.text' },
+  { id: 'sessions', icon: statusIconEmoji('sessions'), name: 'legend.sessions.name', text: 'legend.sessions.text' },
 ]
 
-// The legend: a bold heading, then a row per entry: the icon in a fixed-width cell, then its meaning. Each key is the entry's id, so
-// it is the same on every draw.
+// The legend: a bold heading, then a row per entry: the icon in a fixed-width cell, then the entry's name and a sentence on when it
+// appears. Each key is the entry's id, so it is the same on every draw.
 function renderLegend(view: View): RenderElement {
   const { Box, Text } = view.ui
   return (
@@ -673,10 +673,28 @@ function renderLegend(view: View): RenderElement {
           <Box width={LEGEND_ICON_COLUMNS}>
             <Text>{entry.icon}</Text>
           </Box>
-          <Text>{t(view.lang, entry.meaning)}</Text>
+          {renderLegendMeaning(view, entry)}
         </Box>
       ))}
     </Box>
+  )
+}
+
+// The name in bold, then ": " and the sentence as one paragraph, so a long sentence wraps under the text column, not under the icon.
+// The desktop draws it as Markdown (bold with **, as the issue lines do); the terminal nests a bold Text in a Text.
+function renderLegendMeaning(view: View, entry: LegendEntry): RenderElement {
+  const { Text } = view.ui
+  const name = t(view.lang, entry.name)
+  const sentence = t(view.lang, entry.text)
+  if (view.desktop && 'Markdown' in view.ui) {
+    const { Markdown } = view.ui
+    return <Markdown key={`legend-${entry.id}-text`} text={`**${escapeMarkdown(name)}**: ${escapeMarkdown(sentence)}`} />
+  }
+  return (
+    <Text key={`legend-${entry.id}-text`}>
+      <Text bold>{name}</Text>
+      {`: ${sentence}`}
+    </Text>
   )
 }
 

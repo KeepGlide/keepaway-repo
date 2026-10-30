@@ -47,7 +47,7 @@
 
 ## 📌 Status
 
-Beta (`0.2.0-beta.15`). O projeto segue o [SemVer](https://semver.org/): enquanto a versão for `0.y.z`, qualquer release pode mudar o comportamento sem aviso.
+Beta (`0.2.0-beta.16`). O projeto segue o [SemVer](https://semver.org/): enquanto a versão for `0.y.z`, qualquer release pode mudar o comportamento sem aviso.
 
 ## 💡 Por que existe
 
@@ -64,7 +64,7 @@ Ele **não** altera nada no GitHub nem no seu repositório. Não registra tempo,
 - **Sessões agrupadas como na barra lateral do Desktop**: no topo o rótulo do grupo, em negrito simples, abaixo as sessões dele. Uma sessão que está num Grupo da barra lateral do Desktop (o dela ou o da raiz dela) é desenhada sob o nome do Grupo; toda sessão sem Grupo fica num único grupo com o rótulo `Recents`, como a barra lateral do Desktop as chama. O rótulo é `Recents` nos dois idiomas, porque o app do Desktop não tem rótulo traduzido, e um Grupo do Desktop chamado "Recents" mantém o rótulo próprio ao lado dele. Cada sessão do topo é uma linha `├`/`└` com título, estado, issue e milestone, e as derivadas (fork ou spawn) ficam aninhadas embaixo dela, a 1, 3 e 5 células. Primeiro vem o grupo desta janela, depois os Grupos com nome pela atividade mais recente, e por último `Recents`; dentro de um grupo, primeiro a sessão desta janela, depois as mais recentes. Cada título de sessão leva à sessão no Desktop.
 - **Sessões encerradas não são listadas**: uma sessão arquivada no Desktop sai da árvore na hora, a menos que seja a sessão desta janela. Uma raiz arquivada não é desenhada: as derivadas ativas dela viram linhas do grupo delas (`Recents` quando não têm Grupo), com o título da mãe na linha do tempo.
 - **Issues abertas por milestone**: as issues abertas que nenhuma sessão trabalha, agrupadas por milestone aberto, com o progresso do milestone. Os milestones ordenam pelo prazo, o mais cedo primeiro; dentro de um grupo as issues ordenam por prioridade (`P0` a `P3`, lida dos rótulos), e cada linha traz a sua marca.
-- **Uma faixa acima do prompt** com o estado desta janela: executando ou ociosa, a ferramenta ou o servidor MCP atual com seu ícone, a quantidade de agentes, o tempo decorrido, um estado de espera por você, um estado de erro de dados, o progresso do milestone e o número da issue. A faixa diz `Executando` e `Parada`, e o painel diz `trabalhando` e `ociosa`, por desenho: os dois vocabulários são mantidos separados de propósito.
+- **Uma faixa acima do prompt** com o estado desta janela: executando ou ociosa, a ferramenta ou o servidor MCP atual com seu ícone, a quantidade de agentes, o tempo decorrido, um estado de espera por você, um estado de erro de dados, o progresso do milestone e o número da issue. A faixa mostra o estado só pelo ícone, sem palavra.
 - **Um botão Open** na faixa, com a marca KeepGlide antes dele (a marca aparece só no Desktop).
 - **Inglês e português do Brasil** no painel e na faixa.
 - **Ícones depois do título**: estado (🟢 trabalhando, ⏳ esperando você, 💤 ociosa, sem palavra de estado), as marcas ativas (▶️ esta janela, 🔄 uma sessão trabalhando agora), o histórico (🕘 linha do tempo: 📝 commit, 🔀 PR, 🚀 sessão), issues a fazer (📋) ou em andamento (🛠️), milestones (🎯) com barra de progresso em texto, prazo (📅) e marca de atraso (⚠️), e prioridades (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3). A legenda no rodapé do painel nomeia cada um. A tabela completa está na [SPEC, seção 19](plugins/keeptrack-repo-pane/SPEC.md). As capturas ainda mostram o desenho anterior aos ícones.
@@ -189,7 +189,7 @@ Regras de base:
 | 1 | Conferir se o gh está logado | `gh auth status` | Saída 0 e uma linha `Logged in to github.com`. Se não, a pessoa roda `gh auth login`. |
 | 2 | Conferir se o repositório tem um remote no GitHub | `git remote get-url origin` | Saída 0 e uma URL cujo host é `github.com`, ou um alias SSH com `github` no nome (por exemplo `git@github-<label>:<owner>/<repo>.git`). Se não, o painel mostra `sem remote no GitHub para este repo`. |
 | 3 🧑 | Adicionar o marketplace, a menos que `claude plugin marketplace list` já mostre `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Saída 0, e `claude plugin marketplace list` mostra `sophia-mods` com `Source: Folder (<path>)`. |
-| 4 🧑 | Instalar o plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Saída 0, e `claude plugin list` mostra `keeptrack-repo-pane@sophia-mods` com `Version: 0.2.0-beta.15` e `Status: ✔ enabled`. |
+| 4 🧑 | Instalar o plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Saída 0, e `claude plugin list` mostra `keeptrack-repo-pane@sophia-mods` com `Version: 0.2.0-beta.16` e `Status: ✔ enabled`. |
 | 5 | Conferir se o comando está registrado | Em uma sessão do Desktop, `/keeptrack bogus` | Um toast com a linha de uso `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em inglês, ou `Uso: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em português. Nada muda. |
 | 6 | Abrir o painel | `/keeptrack` | Abre um painel com o título `KeepTrack`. Mostra `Carregando o repo...`, depois as issues abertas por milestone, ou uma linha de erro de [Solução de problemas](#-solução-de-problemas). |
 | 7 | Trocar o idioma para português | `/keeptrack lang pt-BR` | O painel e a faixa mudam para português. Durante o carregamento, o painel mostra `Carregando o repo...`. |
