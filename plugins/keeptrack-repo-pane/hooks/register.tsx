@@ -1002,6 +1002,46 @@ function pullRequestsByBranch(prs: readonly PullRequest[]): Map<string, PullRequ
   return byBranch
 }
 
+// ---- the legend's accordion (SPEC section 19): open in the store under `legendOpen`, true when open and absent when closed ----
+
+const LEGEND_OPEN_KEY = 'legendOpen'
+// The legend store operations this window has logged a failure of, once each (the operation's name only).
+const loggedLegendFailures = new Set<string>()
+
+// Forgets this window's legend failure log. The tests call it before each host starts.
+export function resetLegendMemory(): void {
+  loggedLegendFailures.clear()
+}
+
+// A legend store failure: logged once per operation, by the error's name.
+function logLegendStoreFailureOnce($: EngineInterface, operation: string, error: unknown): void {
+  if (loggedLegendFailures.has(operation)) return
+  loggedLegendFailures.add(operation)
+  logLine($, `legend store ${operation} failed (${failureNameOf(error)})`)
+}
+
+// Whether the legend is open. A refused read draws it closed, logged once.
+async function legendOpenOf($: EngineInterface): Promise<boolean> {
+  try {
+    return (await $.store.get(LEGEND_OPEN_KEY)) === true
+  } catch (error) {
+    logLegendStoreFailureOnce($, 'read', error)
+    return false
+  }
+}
+
+// Flips the legend from the store: opening stores `true`, closing deletes the key. A refused write is logged once, and the redraw goes on.
+async function toggleLegend($: EngineInterface): Promise<void> {
+  const open = await legendOpenOf($)
+  try {
+    if (open) await $.store.delete(LEGEND_OPEN_KEY)
+    else await $.store.set(LEGEND_OPEN_KEY, true)
+  } catch (error) {
+    logLegendStoreFailureOnce($, open ? 'delete' : 'write', error)
+  }
+  $.ui.invalidate('ui.render')
+}
+
 // ---- repo logos (SPEC section 11): one lookup per repo per TTL, kept in the store and in this window's memory; the render reads them and starts nothing ----
 
 // The store keys whose lookup runs now in this window: a repo is looked up one at a time, however many polls start meanwhile.
@@ -2262,6 +2302,9 @@ export const register: Register = on => {
       lang: await read($, langAtom),
       surface: e.surface,
       utcOffsetMinutes: await read($, utcOffsetAtom),
+      legendOpen: await legendOpenOf($),
+      onLegendToggle: () => void toggleLegend($).catch((error: unknown) => logLine($, `legend toggle failed (${failureNameOf(error)})`)),
+      held: heldFor(e.surface, e.requestId),
     })
   })
 

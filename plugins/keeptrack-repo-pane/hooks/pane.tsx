@@ -22,8 +22,9 @@ import type {
 import { actionIconEmoji, priorityEmoji, statusIconEmoji, type ActionIconKey, type StatusIconKey } from './action-icons'
 import { t, type Lang, type MessageKey } from './i18n'
 import { PAGE_URL, RECENTS_GROUP, TEXT_MAX, TIMELINE_LIMIT, cutAtWord, isSessionLinkId, milestonePageOf, plain, priorityOf, repoPageOf } from './model'
-import { BAR_EMPTY, BAR_FILLED, BRANCH_GLYPH, DETAILS_FILL, EMPHASISED_PRIORITIES, LINK_MARK } from './look'
+import { BAR_EMPTY, BAR_FILLED, BRANCH_GLYPH, DETAILS_FILL, DISCLOSURE_CLOSED, DISCLOSURE_OPEN, EMPHASISED_PRIORITIES, LINK_MARK } from './look'
 import { KEEPGLIDE_HEADER_SIZE, renderKeepGlide, renderKeepTrackLogo, renderRepoLogo } from './logo-element'
+import type { HeldButtons } from './held'
 import { repoLabelOf } from './repo-logo'
 
 type Ui = Elements[RenderSurface]
@@ -40,6 +41,10 @@ export type PaneContext = {
   utcOffsetMinutes: number
   // The stored SVG of each repo's logo, by SessionNode.logoKey (register.tsx reads the store); a repo with no entry draws no logo.
   logos?: ReadonlyMap<string, string>
+  // The legend's accordion (SPEC section 19): open when true. Its button calls onLegendToggle; held keeps its press handle across redraws.
+  legendOpen: boolean
+  onLegendToggle: () => void
+  held: HeldButtons
 }
 
 // What every drawing function reads: the element table, the language, the clock of this draw, the host's UTC offset, the surface,
@@ -55,6 +60,9 @@ type View = {
   repoPage: string | null
   // The drawn logo of each repo, by SessionNode.logoKey (PaneContext.logos).
   logos: ReadonlyMap<string, string>
+  legendOpen: boolean
+  onLegendToggle: () => void
+  held: HeldButtons
 }
 
 // Where a session row sits: its branch glyph ("├" or "└"), the parent's issue (breadcrumb), and the level it is drawn at
@@ -167,6 +175,9 @@ export function renderPane(elements: Ui, context: PaneContext): RenderElement {
     thisIssue: snapshot?.thisIssue ?? null,
     repoPage: snapshot?.repo ? repoPageOf({ host: 'github.com', ...snapshot.repo }) : null,
     logos: context.logos ?? new Map(),
+    legendOpen: context.legendOpen,
+    onLegendToggle: context.onLegendToggle,
+    held: context.held,
   }
   const { Box, Text } = elements
   return (
@@ -232,7 +243,7 @@ function renderSnapshot(view: View, snapshot: Snapshot): RenderElement[] {
     ...hero,
     ...renderSessionGroups(view, snapshot),
     ...issues,
-    renderLegend(view),
+    ...renderLegend(view),
     renderFooter(view, snapshot),
   ]
 }
@@ -933,11 +944,31 @@ const LEGEND_ENTRIES: readonly LegendEntry[] = [
   { id: 'sessions', icon: statusIconEmoji('sessions'), name: 'legend.sessions.name', text: 'legend.sessions.text' },
 ]
 
-// The legend: a bold heading, then a row per entry: the icon in a fixed-width cell, then the entry's name and a sentence on when it
+// The legend, an accordion (SPEC section 19): a button that reads ▸ closed and ▾ open, then the bordered table while it is open. The
+// button is drawn on every draw; the table only when open, so a closed legend draws no row.
+function renderLegend(view: View): RenderElement[] {
+  const toggle = renderLegendToggle(view)
+  return view.legendOpen ? [toggle, renderLegendTable(view)] : [toggle]
+}
+
+// The legend's button. Its press handle is kept across redraws (held.ts), and its look is the label, so a state change makes a new one.
+function renderLegendToggle(view: View): RenderElement {
+  const { Button } = view.ui
+  const glyph = view.legendOpen ? DISCLOSURE_OPEN : DISCLOSURE_CLOSED
+  const label = `${glyph} ${t(view.lang, 'legend.title')}`
+  view.held.begin()
+  const toggle = view.held.hold('legend-toggle', label, view.onLegendToggle, press => (
+    <Button key="legend-toggle" label={label} onPress={press} />
+  ))
+  view.held.end()
+  return toggle
+}
+
+// The table: a bold heading, then a row per entry: the icon in a fixed-width cell, then the entry's name and a sentence on when it
 // appears. Each key is the entry's id, so it is the same on every draw. The block is bordered, so the table reads as one unit.
 // The icon cell never shrinks (flexShrink 0): a wrapped sentence otherwise squeezes it, and its text starts further left than the
 // other rows'. Rows align to the top, so a two-line sentence keeps its icon on the first line.
-function renderLegend(view: View): RenderElement {
+function renderLegendTable(view: View): RenderElement {
   const { Box, Text } = view.ui
   return (
     <Box key="legend" flexDirection="column" borderStyle="round" borderDimColor paddingX={1} paddingY={1}>

@@ -48,7 +48,8 @@ export function makePr(overrides: Partial<PullRequest> = {}): PullRequest {
 // Three open milestones: one with open issues, one with a single open issue, one with none (ready to close).
 export const SAMPLE_MILESTONES: Milestone[] = [
   { number: 23, title: 'Milestone B', openIssues: 6, closedIssues: 10, dueOn: null, countsExact: true, description: null },
-  { number: 22, title: 'Milestone A', openIssues: 1, closedIssues: 0, dueOn: '2026-10-31', countsExact: true, description: null },
+  // Milestone A is due far ahead: the pane reads the real clock, so a near date would turn it overdue as days pass.
+  { number: 22, title: 'Milestone A', openIssues: 1, closedIssues: 0, dueOn: '2099-10-31', countsExact: true, description: null },
   { number: 21, title: 'Milestone Z', openIssues: 0, closedIssues: 1, dueOn: null, countsExact: true, description: null },
 ]
 

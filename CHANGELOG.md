@@ -8,6 +8,14 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+## [0.2.0-beta.20] - 2026-11-01
+
+### Changed
+- The footer's legend is an accordion named `Labels Descriptions` (pt-BR `Labels Descriptions`), closed by default: a button above the `Updated` line reads `▸ Labels Descriptions`, and a press opens its bordered table and reads `▾ Labels Descriptions`; a second press closes it. The open state is kept in the store under `legendOpen`, so it survives a reload; a store that refuses it is logged once and the legend draws closed (`hooks/pane.tsx`, `hooks/register.tsx`, `hooks/look.ts`, `hooks/i18n.ts`, SPEC section 19).
+
+### Fixed
+- Test fixtures no longer expire: Milestone A is due in 2099, so the pane tests that read the real clock do not turn it overdue.
+
 ## [0.2.0-beta.19] - 2026-10-30
 
 ### Added

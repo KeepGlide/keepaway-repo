@@ -17,5 +17,9 @@ export const BAR_EMPTY = '▱' as const
 // The branch glyphs of the derived rows: a child that is not the last one, and the last child.
 export const BRANCH_GLYPH = { middle: '├', last: '└' } as const
 
+// The disclosure marks of the legend's button: closed and open. Text glyphs, not emoji (the look gate scans for emoji only).
+export const DISCLOSURE_CLOSED = '▸' as const
+export const DISCLOSURE_OPEN = '▾' as const
+
 // The priorities whose issue row draws bold. The look has no colour for it: bold is the emphasis the pane already uses for titles.
 export const EMPHASISED_PRIORITIES: readonly Priority[] = ['P0', 'P1']

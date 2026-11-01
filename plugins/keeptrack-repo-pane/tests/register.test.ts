@@ -9,7 +9,7 @@ import { actionIconEmoji } from '../hooks/action-icons'
 import { RECORD_MAX_BYTES, WAITING_WINDOW_MS } from '../hooks/model'
 import { TURN_MAX_AGE_MS } from '../hooks/turn'
 import { SUMMARY_RETRY_MS } from '../hooks/summary'
-import { TOOL_NAME_MAX, resetDesktopConfigCache, resetLogoMemory, resetSummaryMemory } from '../hooks/register'
+import { TOOL_NAME_MAX, resetDesktopConfigCache, resetLegendMemory, resetLogoMemory, resetSummaryMemory } from '../hooks/register'
 import {
   AVATAR_FETCH_SCRIPT,
   LOGO_FOLDERS,
@@ -158,6 +158,8 @@ type StubOptions = {
   links?: string[]
   // The store refuses every read, write and delete of a logo key (logo:, logo-lock:): the pane must go on.
   logoStoreRefuses?: boolean
+  // The store refuses every read, write and delete of the legend's open state (legendOpen): the pane draws the legend closed and goes on.
+  legendStoreRefuses?: boolean
   // `glab --version` times out (the engine's process timeout): the answer is asked again, not kept.
   glabTimesOut?: boolean
   // glab is installed, answers the project's JSON with `glabAvatarUrl`, or fails (`glabFails`).
@@ -207,6 +209,7 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   resetDesktopConfigCache()
   resetLogoMemory()
   resetSummaryMemory()
+  resetLegendMemory()
   const records = options.records ?? [OWN_RECORD]
   const host: Host = {
     argvs: [],
@@ -256,7 +259,8 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   // Without lookLogos the repo's logo reads as stored none that never ages out, kept out of host.store so the store keeps what the test wrote.
   const seededLogo = { source: null, at: Number.MAX_SAFE_INTEGER, failed: false }
   // The logo keys (logo: and logo-lock:) are refused when the test says so; every other key is kept as before.
-  const refusesKey = (key: string): boolean => options.logoStoreRefuses === true && key.startsWith('logo')
+  const refusesKey = (key: string): boolean =>
+    (options.logoStoreRefuses === true && key.startsWith('logo')) || (options.legendStoreRefuses === true && key === 'legendOpen')
   on('store.get', (_$, event) => {
     if (refusesKey(event.key)) return refuse('logo store unavailable')
     return {
@@ -2774,6 +2778,76 @@ test('a store that refuses its writes and reads is logged once per operation, an
   await host.clock.settle()
   expect(contentsCalls(host)).toBe(3)
   expect(logoStoreLogs(host)).toEqual(lines)
+})
+
+// The Pane mounted on a surface: the caller reads or presses it, then unmounts it (the engine keeps no other copy).
+const mountPane = ($: Engine, surface: 'desktop' | 'terminal' = 'terminal') =>
+  $.ui.mount({ plugin: 'keeptrack-repo-pane', surface, component: 'Pane', requestId: PANE_ID, props: {} as never })
+// The legend's button and its table in a mounted Pane.
+const legendButtonLabelOf = async (mounted: Awaited<ReturnType<typeof mountPane>>): Promise<string | undefined> =>
+  (await mounted.find({ type: 'Button', key: 'legend-toggle' }))?.props.label as string | undefined
+// The legend's store lines the window logged.
+const legendStoreLogs = (host: Host): string[] => host.logs.filter(line => line.startsWith('keeptrack: legend store'))
+
+// SPEC section 19: the legend is an accordion, closed by default. A press opens it and stores `legendOpen`; the next press closes it and
+// removes the key. The state is read from the store on every draw, so a reload draws the same state.
+for (const surface of ['desktop', 'terminal'] as const) {
+  test(`the legend on the ${surface} is closed by default, a press opens it and stores the state, a second press closes it and removes the key`, async ($: Engine, on) => {
+    const host = stubHost(on)
+    await openPane($)
+    await host.clock.settle()
+    const closed = await mountPane($, surface)
+    expect(await legendButtonLabelOf(closed)).toBe('▸ Labels Descriptions')
+    expect(await closed.find({ type: 'Box', key: 'legend' })).toBeFalsy()
+    await closed.press({ key: 'legend-toggle' })
+    await host.clock.settle()
+    await closed.unmount()
+    expect(host.store.get('legendOpen')).toBe(true)
+
+    const opened = await mountPane($, surface)
+    expect(await legendButtonLabelOf(opened)).toBe('▾ Labels Descriptions')
+    expect(await opened.find({ type: 'Box', key: 'legend' })).toBeTruthy()
+    await opened.press({ key: 'legend-toggle' })
+    await host.clock.settle()
+    await opened.unmount()
+    expect(host.store.get('legendOpen')).toBeUndefined()
+
+    const reclosed = await mountPane($, surface)
+    expect(await legendButtonLabelOf(reclosed)).toBe('▸ Labels Descriptions')
+    expect(await reclosed.find({ type: 'Box', key: 'legend' })).toBeFalsy()
+    await reclosed.unmount()
+    await expectClean(host, $)
+  })
+}
+
+test('a legend the store holds open draws its table on the next draw, before any press', async ($: Engine, on) => {
+  const host = stubHost(on)
+  host.store.set('legendOpen', true)
+  await openPane($)
+  await host.clock.settle()
+  const mounted = await mountPane($)
+  expect(await legendButtonLabelOf(mounted)).toBe('▾ Labels Descriptions')
+  expect(await mounted.find({ type: 'Box', key: 'legend' })).toBeTruthy()
+  await mounted.unmount()
+  await expectClean(host, $)
+})
+
+test('a store that refuses the legend state is logged once, the legend draws closed and the pane goes on', async ($: Engine, on) => {
+  const host = stubHost(on, { legendStoreRefuses: true })
+  await openPane($)
+  await host.clock.settle()
+  const mounted = await mountPane($)
+  expect(await legendButtonLabelOf(mounted)).toBe('▸ Labels Descriptions')
+  await mounted.press({ key: 'legend-toggle' })
+  await host.clock.settle()
+  await mounted.press({ key: 'legend-toggle' })
+  await host.clock.settle()
+  expect(await legendButtonLabelOf(mounted)).toBe('▸ Labels Descriptions')
+  await mounted.unmount()
+  expect(await drawnPane($)).toContain('Fix disk full')
+  const lines = legendStoreLogs(host)
+  expect(lines.length).toBeGreaterThan(0)
+  expect(new Set(lines).size).toBe(lines.length)
 })
 
 test('the store keeps at most LOGO_STORE_MAX repo logos: the oldest ones of the other repos go first', async ($: Engine, on) => {

@@ -1,4 +1,4 @@
-# KeepTrack: spec (as built, v0.2.0-beta.19)
+# KeepTrack: spec (as built, v0.2.0-beta.20)
 
 Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepTrack, the command is `/keeptrack`.
 
@@ -339,7 +339,7 @@ scale as the rows: `just now` (pt-BR `agora`) under one minute, then `N min ago`
   clear it. `/keeptrack lang <choice>`. `/keeptrack summary on|off` (section 21). Any other argument: a toast with the usage line and no change. `/keeptrack open` and
   `/keeptrack issue <n>` followed by extra words also show the usage toast and change nothing.
 - A window that is not a Desktop session (no record with its `cliSessionId`) cannot set an issue: a toast says so.
-- Store keys: `override:<sessionId>` = `{ issue, ts }`, `lang`, `summary` (boolean, absent is on; section 21). Nothing else is persisted. The `summary:<sessionId>` keys an earlier build wrote are deleted once per window. An override is dropped on a poll when no record in the records folder names its session (any repo's: the store is shared by every window) or its `ts` is over 30 days old (not on a poll with an unreadable folder). The 30-day lifetime (`OVERRIDE_TTL_MS`) also applies on read: an expired override is ignored
+- Store keys: `override:<sessionId>` = `{ issue, ts }`, `lang`, `summary` (boolean, absent is on; section 21), `legendOpen` (`true` while the legend is open, absent when closed; section 19). Nothing else is persisted. The `summary:<sessionId>` keys an earlier build wrote are deleted once per window. An override is dropped on a poll when no record in the records folder names its session (any repo's: the store is shared by every window) or its `ts` is over 30 days old (not on a poll with an unreadable folder). The 30-day lifetime (`OVERRIDE_TTL_MS`) also applies on read: an expired override is ignored
   even when the record scan was partial and the prune did not run. Module memory holds the file read
   cache, git lookups and the last good gh data.
 - The state lives in the mod's `$.store`, keyed by the plugin name (`keeptrack-repo-pane`), so the store of the old name
@@ -366,7 +366,7 @@ Run from the mod folder:
 3. `scripts/keeptrack-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
    `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only (it holds every emoji of KeepTrack). `scripts/keeptrack-look-selftest.sh` runs the gate on a copy and checks those cases.
 4. `agentic-mod-release-tool.sh keeptrack-repo-pane --check` must pass before the mod is installed (CLAUDE.md rule 6a).
-   The mod is published as 0.2.0-beta.19 and installed from `sophia-mods` (README, Installation).
+   The mod is published as 0.2.0-beta.20 and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
 or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`, `parseUtcOffset`) and do not depend on the zone the test process runs in; the register test answers `date +%z` through the process stub, including a refused call.
@@ -427,7 +427,7 @@ otherwise): a GitHub Enterprise host whose name contains `github` is read from g
 
 Done in the Claude Desktop with the mod installed, not by the build:
 
-1. Light and dark theme: the Labels block is bordered, its icon column is aligned and each priority has its row; a session title opens its repo page and `open session` opens the session; text readable, the highlighted block's fill visible, the logo violet, the KeepGlide mark at the header's right.
+1. Light and dark theme: the Labels Descriptions button reads ▸ closed and ▾ open (the table, when open, is bordered), its icon column is aligned and each priority has its row; a session title opens its repo page and `open session` opens the session; text readable, the highlighted block's fill visible, the logo violet, the KeepGlide mark at the header's right.
 2. A 360 px wide pane and a wide one: no horizontal scroll; long titles and commit subjects wrap.
 3. The session title opens its session; the `#n` in the breadcrumb and the GitHub line open the issue page in the browser.
 4. The first click on the highlighted block works (a block that grows must not swallow the first click on a button below it).
@@ -548,7 +548,7 @@ PT), and the icon sits before its word. The pane draws its emoji as text on both
 | Priority P0 / P1 / P2 / P3 | 🔴 / 🟠 / 🟡 / ⚪ | issue row, before the tag |
 | Band: no issue, no remote, tool, MCP | 📭, 🚫, 🔧, 🔌 | band words (section 18) |
 
-- Legend (the footer's block above `Updated`), a table headed `Labels` (`legend.title`, both languages) in a bordered block with padding (`borderStyle` round, dimmed border, one column across and one row above and below), its icon column fixed so it never shrinks and each row aligned to its first line: a bold heading row, then one
+- Legend (the footer's block above `Updated`), an accordion named `Labels Descriptions` (`legend.title`, both languages), closed by default. Its button (`legend-toggle`, a `Button` on both surfaces, its label `▸ Labels Descriptions` closed and `▾ Labels Descriptions` open; the glyphs `DISCLOSURE_CLOSED` and `DISCLOSURE_OPEN` in `hooks/look.ts`, text and not emoji) sits above `Updated`. A press flips the state: the open state is in the store under `legendOpen` (`register.tsx` reads it on every draw, sets `true` on open and deletes the key on close; a refused store is logged once, `legend store <operation> failed`, and the legend draws closed). The button's press handle is kept across redraws (`held.ts`). Open, the table below the button is a bordered block with padding (`legend`: `borderStyle` round, dimmed border, one column across and one row above and below), headed `Labels Descriptions` (`legend-heading`), its icon column fixed so it never shrinks and each row aligned to its first line: a bold heading row, then one
   row per icon a snapshot draws. Each row is the emoji in a fixed-width cell (`LEGEND_ICON_COLUMNS`, 4 columns: one emoji and its gap), then its name in bold,
   `: `, and a sentence on when the icon appears (one paragraph, so a long sentence wraps under the name, not under the emoji). The
   rows run in four groups: session states (🟢 ⏳ 💤 ▶️), work (📋 🛠️ ✅ ☑️), history (🕘 📝 🔀 🚀), project (🎯 📅 ⚠️ priorities 🖥️).
@@ -556,7 +556,7 @@ PT), and the icon sits before its word. The pane draws its emoji as text on both
   (`LEGEND_ENTRIES`, `hooks/pane.tsx`) and the name and the sentence from `legend.<id>.name` and `legend.<id>.text` in `hooks/i18n.ts` (EN and
   PT). The desktop draws the row as one Markdown line (`**name**: sentence`); the terminal draws the name as a bold `Text` nested in a
   `Text`. Each priority is its own row (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3), named `priority P0` to `priority P3`. The band-only rows (📭, 🚫, ⭕, 🔧, 🔌) are not listed, and neither are the loading and failure lines (⏳, ❌), which draw
-  without the footer. Keys: `legend`, `legend-heading`, `legend-<id>` per row, and `legend-<id>-text` for its sentence, the same on every draw. Below the rows, one muted note line (`legend-note`, `dimColor`) says ↗, ~, #n and "no priority icon" as text; it is not a row (Mock S delta 15). A session row's state icon is text inside
+  without the footer. Keys: `legend-toggle` (the button, always), `legend` (open only), `legend-heading`, `legend-<id>` per row, and `legend-<id>-text` for its sentence, the same on every draw. Below the rows, one muted note line (`legend-note`, `dimColor`) says ↗, ~, #n and "no priority icon" as text; it is not a row (Mock S delta 15). A session row's state icon is text inside
   `title-<session id>`; the separate `state` element is gone. `tests/pane.test.ts` checks that the legend lists every icon a snapshot
   draws, and no other, in both languages.
 - Progress bar: ten cells of plain characters, `▰` filled and `▱` empty, then the rounded percentage (`▰▰▰▰▰▰▱▱▱▱ 60%`). It is drawn

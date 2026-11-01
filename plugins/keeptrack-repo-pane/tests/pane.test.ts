@@ -3,7 +3,8 @@ import { clockOf, dateOf, daysUntilDue, isDueSoon, isOverdue, progressBarOf, ren
 import { priorityEmoji, statusIconEmoji } from '../hooks/action-icons'
 import { TEXT_MAX, WORKING_WINDOW_MS, buildTree, groupIssues, type DesktopGroups } from '../hooks/model'
 import { t } from '../hooks/i18n'
-import { DETAILS_FILL } from '../hooks/look'
+import { DETAILS_FILL, DISCLOSURE_CLOSED, DISCLOSURE_OPEN } from '../hooks/look'
+import { heldButtons } from '../hooks/held'
 import type { Issue, Milestone, PaneError, SessionInput, SessionNode, Snapshot, TimelineEvent } from '../types'
 import {
   HOUR,
@@ -23,11 +24,12 @@ type Drawn = { tag: string; props: Record<string, unknown> }
 const fakeElement = (tag: string) => (props: Record<string, unknown>): Drawn => ({ tag, props })
 const DESKTOP = {
   Box: fakeElement('Box'),
+  Button: fakeElement('Button'),
   Text: fakeElement('Text'),
   Markdown: fakeElement('Markdown'),
   Svg: fakeElement('Svg'),
 }
-const TERMINAL = { Box: fakeElement('Box'), Text: fakeElement('Text') }
+const TERMINAL = { Box: fakeElement('Box'), Button: fakeElement('Button'), Text: fakeElement('Text') }
 
 const SIX_TITLES = [
   'Synthetic session one',
@@ -127,7 +129,16 @@ function snapshotWith(overrides: Partial<Snapshot> = {}): Snapshot {
 }
 
 function contextWith(surface: string, overrides: Partial<PaneContext> = {}): PaneContext {
-  return { snapshot: snapshotWith(), lang: 'en', surface, utcOffsetMinutes: 0, ...overrides }
+  return {
+    snapshot: snapshotWith(),
+    lang: 'en',
+    surface,
+    utcOffsetMinutes: 0,
+    legendOpen: false,
+    onLegendToggle: () => {},
+    held: heldButtons(),
+    ...overrides,
+  }
 }
 
 const drawDesktop = (overrides: Partial<PaneContext> = {}) =>
@@ -677,8 +688,9 @@ test('a session row reads its title first, then its state icon and active marker
   }
 })
 
-// The legend's rows in drawn order: each row is keyed legend-<id>; its sentence element (legend-<id>-text) and the note (legend-note) are not rows.
-const LEGEND_ROW_KEY = /^legend-(?!heading$)(?!note$)(?!.*-text$)/
+// The legend's rows in drawn order: each row is keyed legend-<id>; its sentence element (legend-<id>-text), the heading, the note and the
+// button (legend-toggle) are not rows.
+const LEGEND_ROW_KEY = /^legend-(?!heading$)(?!note$)(?!toggle$)(?!.*-text$)/
 const legendRowsOf = (tree: unknown): Drawn[] => nodesOf(tree).filter(node => LEGEND_ROW_KEY.test(String(node.props.key)))
 
 // Each legend row as [icon, name, sentence]. The desktop draws the name in Markdown's ** (the text, bold); the terminal nests a bold
@@ -749,13 +761,13 @@ test('the legend is a Labels table: a bold heading, then one row per icon in gro
     ['⚪', 'prioridade P3', 'baixa, pelos rótulos da issue.'],
     ['🖥️', 'sessões', 'quantas sessões deste repositório estão listadas.'],
   ]
-  for (const tree of [drawDesktop({ lang: 'en' }), drawTerminal({ lang: 'en' })]) {
-    expect(drawnTexts(keyed(tree, 'legend-heading'))).toEqual(['Labels'])
+  for (const tree of [drawDesktop({ lang: 'en', legendOpen: true }), drawTerminal({ lang: 'en', legendOpen: true })]) {
+    expect(drawnTexts(keyed(tree, 'legend-heading'))).toEqual(['Labels Descriptions'])
     expect(keyed(tree, 'legend-heading')?.props.bold).toBe(true)
     expect(legendPartsOf(tree)).toEqual(english)
   }
-  for (const tree of [drawDesktop({ lang: 'pt' }), drawTerminal({ lang: 'pt' })]) {
-    expect(drawnTexts(keyed(tree, 'legend-heading'))).toEqual(['Labels'])
+  for (const tree of [drawDesktop({ lang: 'pt', legendOpen: true }), drawTerminal({ lang: 'pt', legendOpen: true })]) {
+    expect(drawnTexts(keyed(tree, 'legend-heading'))).toEqual(['Labels Descriptions'])
     expect(legendPartsOf(tree)).toEqual(portuguese)
   }
 })
@@ -763,7 +775,7 @@ test('the legend is a Labels table: a bold heading, then one row per icon in gro
 // Each row is a fixed-width icon cell, then its name and sentence (Markdown on the desktop, Text on the terminal), so the rows read as a
 // table on both surfaces.
 test('each legend row is a fixed-width icon cell, then its name and sentence, on both surfaces', () => {
-  for (const tree of [drawDesktop(), drawTerminal()]) {
+  for (const tree of [drawDesktop({ legendOpen: true }), drawTerminal({ legendOpen: true })]) {
     for (const row of legendRowsOf(tree)) {
       const [cell, text] = row.props.children as Drawn[]
       expect(cell?.tag).toBe('Box')
@@ -781,7 +793,7 @@ test('each legend row is a fixed-width icon cell, then its name and sentence, on
 })
 
 test('the legend is a bordered block with padding, on both surfaces', () => {
-  for (const tree of [drawDesktop(), drawTerminal()]) {
+  for (const tree of [drawDesktop({ legendOpen: true }), drawTerminal({ legendOpen: true })]) {
     const block = keyed(tree, 'legend')
     expect(block?.props.borderStyle).toBe('round')
     expect(block?.props.borderDimColor).toBe(true)
@@ -793,7 +805,7 @@ test('the legend is a bordered block with padding, on both surfaces', () => {
 test('the legend lists every icon a snapshot draws, and no other, in both languages and on both surfaces', () => {
   for (const lang of ['en', 'pt'] as const) {
     for (const draw of [drawDesktop, drawTerminal]) {
-      const tree = draw({ lang, snapshot: richSnapshot() })
+      const tree = draw({ lang, snapshot: richSnapshot(), legendOpen: true })
       const legendTexts = drawnTexts(keyed(tree, 'legend'))
       const body = bodyTextsOf(tree)
       expect(new Set(iconsIn(legendTexts))).toEqual(new Set(iconsIn(body)))
@@ -802,16 +814,16 @@ test('the legend lists every icon a snapshot draws, and no other, in both langua
 })
 
 test('the legend sits above the footer, which stays the last line; its keys are unique and the same on both surfaces', () => {
-  const tree = drawDesktop()
+  const tree = drawDesktop({ legendOpen: true })
   const texts = drawnTexts(tree)
   const legend = drawnTexts(keyed(tree, 'legend'))
   expect(texts.at(-1)?.startsWith('Updated ')).toBe(true)
   expect(texts.slice(-legend.length - 1, -1)).toEqual(legend)
   const keysOf = (drawn: unknown): string[] => nodesOf(drawn).map(node => String(node.props.key)).filter(key => key.startsWith('legend-'))
-  const keys = keysOf(drawDesktop())
+  const keys = keysOf(drawDesktop({ legendOpen: true }))
   expect(keys.length).toBeGreaterThan(15)
   expect(new Set(keys).size).toBe(keys.length)
-  expect(keysOf(drawTerminal())).toEqual(keys)
+  expect(keysOf(drawTerminal({ legendOpen: true }))).toEqual(keys)
 })
 
 test('the records line names one unreadable record in the singular, in both languages (RP2)', () => {
@@ -836,11 +848,11 @@ test('a milestone title is followed by its closed and total issues, in both lang
   const texts = drawnTexts(drawDesktop())
   const at = (list: string[], text: string): number => list.indexOf(text)
   expect(texts[at(texts, 'Milestone B ↗ 🎯') + 1]).toBe('▰▰▰▰▰▰▱▱▱▱ 63% · 10 of 16 issues closed')
-  expect(texts[at(texts, 'Milestone A ↗ 🎯') + 1]).toBe('▱▱▱▱▱▱▱▱▱▱ 0% · 0 of 1 issue closed · 📅 due 2026-10-31')
+  expect(texts[at(texts, 'Milestone A ↗ 🎯') + 1]).toBe('▱▱▱▱▱▱▱▱▱▱ 0% · 0 of 1 issue closed · 📅 due 2099-10-31')
   expect(texts[at(texts, 'Milestone Z ↗ ✅ · all closed · ready to close') + 1]).toBe('▰▰▰▰▰▰▰▰▰▰ 100% · 1 of 1 issue closed')
   const pt = drawnTexts(drawDesktop({ lang: 'pt' }))
   expect(pt[at(pt, 'Milestone B ↗ 🎯') + 1]).toBe('▰▰▰▰▰▰▱▱▱▱ 63% · 10 de 16 issues fechadas')
-  expect(pt[at(pt, 'Milestone A ↗ 🎯') + 1]).toBe('▱▱▱▱▱▱▱▱▱▱ 0% · 0 de 1 issue fechada · 📅 prazo 2026-10-31')
+  expect(pt[at(pt, 'Milestone A ↗ 🎯') + 1]).toBe('▱▱▱▱▱▱▱▱▱▱ 0% · 0 de 1 issue fechada · 📅 prazo 2099-10-31')
   expect(pt[at(pt, 'Milestone Z ↗ ✅ · todas fechadas · pronto para fechar') + 1]).toBe('▰▰▰▰▰▰▰▰▰▰ 100% · 1 de 1 issue fechada')
 })
 
@@ -1153,7 +1165,7 @@ test('the active marker is this window ▶️ alone: a session working now carri
 
 test('the idle legend names the working window in minutes: no activity for more than that long', () => {
   const minutes = WORKING_WINDOW_MS / 60_000
-  const texts = drawnTexts(drawTerminal())
+  const texts = drawnTexts(drawTerminal({ legendOpen: true }))
   expect(texts.some(text => text.includes(`no activity recorded in the Desktop app for more than ${minutes} minutes.`))).toBe(true)
   expect(texts.some(text => text.includes('🔄') || text.includes('session working now'))).toBe(false)
 })
@@ -1594,21 +1606,71 @@ test('a milestone heading draws its title first, cut at the first " · " and at 
 test('the legend ends with one muted note line that explains ↗, ~, #n and the missing priority icon, in both languages (Mock S delta 15)', () => {
   for (const lang of ['en', 'pt'] as const) {
     for (const draw of [drawDesktop, drawTerminal]) {
-      const note = keyed(draw({ lang }), 'legend-note')
+      const note = keyed(draw({ lang, legendOpen: true }), 'legend-note')
       expect(drawnTexts(note)).toEqual([t(lang, 'legend.note')])
       expect(note?.props.dimColor).toBe(true)
     }
   }
-  expect(drawnTexts(keyed(drawTerminal(), 'legend-note'))[0]).toContain('no priority icon: the issue has no priority label.')
-  expect(drawnTexts(keyed(drawTerminal({ lang: 'pt' }), 'legend-note'))[0]).toContain('sem ícone de prioridade: a issue não tem label de prioridade.')
+  expect(drawnTexts(keyed(drawTerminal({ legendOpen: true }), 'legend-note'))[0]).toContain('no priority icon: the issue has no priority label.')
+  expect(drawnTexts(keyed(drawTerminal({ lang: 'pt', legendOpen: true }), 'legend-note'))[0]).toContain(
+    'sem ícone de prioridade: a issue não tem label de prioridade.',
+  )
 })
 
 // Mock S delta 15: a closed PR keeps its ☑️ in the body and in the Labels table; ❌ is in no row.
 test('a closed PR draws ☑️ with its state word, and the Labels table explains it; no row draws ❌ (Mock S delta 15)', () => {
-  const tree = drawDesktop({ snapshot: richSnapshot() })
+  const tree = drawDesktop({ snapshot: richSnapshot(), legendOpen: true })
   expect(drawnTexts(keyed(tree, 'legend')).join('')).toContain('☑')
   expect(bodyTextsOf(tree).some(text => text.includes('#111 Synthetic change · ☑️ closed'))).toBe(true)
   expect(drawnTexts(keyed(tree, 'legend')).join('')).not.toContain('❌')
+})
+
+// The legend is an accordion (SPEC section 19): closed by default, its button reads ▸ and no table or row is drawn. Open, the button
+// reads ▾ and the table follows it. The store and the press are the register's (register.test.ts); the button only calls onLegendToggle.
+test('the legend is closed by default: its button reads ▸ with its title, and no table or row is drawn, on both surfaces and languages', () => {
+  for (const lang of ['en', 'pt'] as const) {
+    for (const draw of [drawDesktop, drawTerminal]) {
+      const tree = draw({ lang })
+      expect(keyed(tree, 'legend-toggle')?.tag).toBe('Button')
+      expect(keyed(tree, 'legend-toggle')?.props.label).toBe(`${DISCLOSURE_CLOSED} ${t(lang, 'legend.title')}`)
+      expect(keyed(tree, 'legend')).toBeUndefined()
+      expect(legendRowsOf(tree)).toEqual([])
+      expect(keyed(tree, 'legend-note')).toBeUndefined()
+    }
+  }
+  expect(keyed(drawDesktop(), 'legend-toggle')?.props.label).toBe('▸ Labels Descriptions')
+})
+
+test('the open legend: its button reads ▾ with the same title, and the table follows it with one row per entry', () => {
+  for (const draw of [drawDesktop, drawTerminal]) {
+    const tree = draw({ legendOpen: true })
+    expect(keyed(tree, 'legend-toggle')?.props.label).toBe(`${DISCLOSURE_OPEN} Labels Descriptions`)
+    expect(keyed(tree, 'legend')).toBeDefined()
+    expect(legendRowsOf(tree)).toHaveLength(20)
+  }
+})
+
+test('the legend button calls onLegendToggle when pressed, on both surfaces', () => {
+  for (const draw of [drawDesktop, drawTerminal]) {
+    let presses = 0
+    const onPress = keyed(draw({ onLegendToggle: () => (presses += 1) }), 'legend-toggle')?.props.onPress
+    if (typeof onPress !== 'function') throw new Error('the legend button has no press handler')
+    onPress()
+    expect(presses).toBe(1)
+  }
+})
+
+test('a redraw keeps the legend button and its press handle, and a press runs the latest handler', () => {
+  const held = heldButtons()
+  let first = 0
+  let second = 0
+  const before = keyed(drawDesktop({ held, onLegendToggle: () => (first += 1) }), 'legend-toggle')
+  const after = keyed(drawDesktop({ held, onLegendToggle: () => (second += 1) }), 'legend-toggle')
+  expect(after).toBe(before)
+  const onPress = after?.props.onPress
+  if (typeof onPress !== 'function') throw new Error('the legend button has no press handler')
+  onPress()
+  expect([first, second]).toEqual([0, 1])
 })
 
 // Mock S Q7: a group draws its first 20 top-level sessions; the rest sit behind one "+k more" line (pt-BR "+k mais"). 20 or fewer draw none.
