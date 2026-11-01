@@ -43,6 +43,57 @@ test('pasted content: the typed text stays and the paste goes; a message that is
   expect(summaryOfTranscript(line('<pasted_content id="2">Stack line one</pasted_content>'))).toBe('Stack line one')
 })
 
+test('pasted content with an attributed close (the Desktop form): a message that is only the paste gives its text, with no tag', () => {
+  expect(summaryOfTranscript(line('<pasted_content id="7ff7">1. Header Repository: keeptrack</pasted_content id="7ff7">'))).toBe(
+    '1. Header Repository: keeptrack',
+  )
+})
+
+test('pasted content with an attributed close: the typed text stays and the paste goes, tags and all', () => {
+  expect(
+    summaryOfTranscript(line('Check this trace\n<pasted_content id="7ff7">Error: ENOSPC at write()</pasted_content id="7ff7">')),
+  ).toBe('Check this trace')
+})
+
+test('an opening paste tag with no closing tag stays as text', () => {
+  expect(summaryOfTranscript(line('<pasted_content id="1">no close here'))).toBe('<pasted_content id="1">no close here')
+})
+
+test('a paste nested in a paste: the outer block is the one taken, its inner tags with it, so the typed text stays and no tag does', () => {
+  expect(
+    summaryOfTranscript(line('Hi <pasted_content>a <pasted_content id="B">x</pasted_content id="B"> b</pasted_content> bye')),
+  ).toBe('Hi bye')
+})
+
+test('a paste nested in a paste, message only the paste: the inner text stays and its tags go', () => {
+  expect(summaryOfTranscript(line('<pasted_content>a <pasted_content id="B">x</pasted_content id="B"> b</pasted_content>'))).toBe('a x b')
+})
+
+test('an outer paste with no closing tag stays as text, with nothing taken from it, even when its inner paste is closed', () => {
+  const unclosed = '<pasted_content id="1">AAA <pasted_content id="2">BBB</pasted_content id="2">'
+  expect(summaryOfTranscript(line(unclosed))).toBe(unclosed)
+})
+
+test('an unclosed outer paste keeps a later complete paste inside it, so the whole text stays as text', () => {
+  const unclosed = '<pasted_content id="1">A <pasted_content>x</pasted_content> B'
+  expect(summaryOfTranscript(line(unclosed))).toBe(unclosed)
+})
+
+test('two attributed pastes in one message: both go, the typed text between them stays', () => {
+  expect(
+    summaryOfTranscript(
+      line('Compare <pasted_content id="1">one</pasted_content id="1"> with <pasted_content id="2">two</pasted_content id="2">'),
+    ),
+  ).toBe('Compare with')
+})
+
+test('a closing tag with 256 characters after its name closes the paste; one with 257 stays as text', () => {
+  expect(summaryOfTranscript(line(`<pasted_content id="1">x</pasted_content ${'a'.repeat(255)}>`))).toBe('x')
+  // The paste never closes, so the text stays (cut to SUMMARY_MAX like any prompt): the opening tag is still there.
+  const longer = `<pasted_content id="1">x</pasted_content ${'a'.repeat(256)}>`
+  expect(summaryOfTranscript(line(longer))?.startsWith('<pasted_content id="1">x</pasted_content')).toBe(true)
+})
+
 test('array content: the text parts join and the other parts carry no prompt', () => {
   const content = [{ type: 'tool_result', content: 'ignored' }, { type: 'text', text: 'Map the store' }, { type: 'image' }]
   expect(summaryOfTranscript(line(content))).toBe('Map the store')
@@ -95,12 +146,14 @@ test('a head that is the whole file keeps its last line, even with no newline af
 
 test('unclosed wrapper and paste tags in a 256 KiB head: the scan stays linear, each head under 200 ms (no ReDoS)', () => {
   // One complete user line of about 256 KiB whose text is the unclosed tag over and over: no closing tag ever comes.
-  const filled = (unit: string): string => line(unit.repeat(Math.floor((TRANSCRIPT_HEAD_BYTES - 200) / unit.length)))
+  const filled = (unit: string, lead = ''): string => line(lead + unit.repeat(Math.floor((TRANSCRIPT_HEAD_BYTES - 200) / unit.length)))
   const heads = [
     filled('<system-reminder>'),
     filled('<command-name>'),
     filled('<pasted_content id=1>'),
     filled('<pasted_content'),
+    // One paste opens, then attributed closing tags that never reach a `>`: the closing scan runs to the end and finds none.
+    filled('</pasted_content id=1 ', '<pasted_content id=1>'),
   ]
   for (const head of heads) {
     expect(head.length).toBeLessThan(TRANSCRIPT_HEAD_BYTES)

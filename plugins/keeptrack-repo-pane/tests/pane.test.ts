@@ -736,7 +736,6 @@ test('the legend is a Labels table: a bold heading, then one row per icon in gro
     ['🛠️', 'issue of a session', 'an issue a session is working on (in progress).'],
     ['✅', 'done', 'a closed issue, a merged PR, or a milestone with every issue closed.'],
     ['☑️', 'closed PR', 'a pull request closed without merging.'],
-    ['🕘', 'timeline', 'what already happened in the session, newest first (history).'],
     ['📝', 'commit', "a commit made on the session's branch."],
     ['🔀', 'open PR', "a pull request opened from the session's branch."],
     ['🚀', 'session event', 'the session started, or was forked or spawned from another.'],
@@ -762,7 +761,6 @@ test('the legend is a Labels table: a bold heading, then one row per icon in gro
     ['🛠️', 'issue de uma sessão', 'uma issue em que uma sessão está trabalhando (em andamento).'],
     ['✅', 'feito', 'uma issue fechada, um PR mesclado ou um milestone com todas as issues fechadas.'],
     ['☑️', 'PR fechado', 'um pull request fechado sem ser mesclado.'],
-    ['🕘', 'linha do tempo', 'o que já aconteceu na sessão, do mais recente ao mais antigo (histórico).'],
     ['📝', 'commit', 'um commit feito no branch da sessão.'],
     ['🔀', 'PR aberto', 'um pull request aberto a partir do branch da sessão.'],
     ['🚀', 'evento de sessão', 'a sessão começou ou foi derivada (fork ou spawn) de outra.'],
@@ -1184,14 +1182,19 @@ test('the idle legend names the working window in minutes: no activity for more 
   expect(texts.some(text => text.includes('🔄') || text.includes('session working now'))).toBe(false)
 })
 
-test('the timeline has a 🕘 heading, and its events carry the icon of their kind: PR 🔀, session 🚀', () => {
+test('the timeline draws no heading in either language, on either surface: no 🕘 and no Timeline word (owner, 2026-11-01)', () => {
+  for (const lang of ['en', 'pt'] as const) {
+    for (const tree of [drawDesktop({ lang }), drawTerminal({ lang })]) {
+      const texts = drawnTexts(tree)
+      expect(texts.some(text => text.includes('🕘') || text.includes('Timeline') || text.includes('Linha do tempo'))).toBe(false)
+    }
+  }
+})
+
+test('the timeline events keep the icon of their kind: PR 🔀, session 🚀, commit 📝', () => {
   const texts = drawnTexts(drawTerminal())
-  expect(texts).toContain('🕘 Timeline')
-  // Only this window's block takes the heading; the other sessions' timelines are drawn without it.
-  expect(texts.filter(text => text === '🕘 Timeline')).toHaveLength(1)
   expect(texts).toContain('🔀')
   expect(texts).toContain('🚀')
-  expect(statusIconEmoji('history')).toBe('🕘')
   expect(statusIconEmoji('commit')).toBe('📝')
 })
 
@@ -1660,7 +1663,7 @@ test('the open legend: its button reads ▾ with the same title, and the table f
     const tree = draw({ legendOpen: true })
     expect(keyed(tree, 'legend-toggle')?.props.label).toBe(`${DISCLOSURE_OPEN} Labels Descriptions`)
     expect(keyed(tree, 'legend')).toBeDefined()
-    expect(legendRowsOf(tree)).toHaveLength(20)
+    expect(legendRowsOf(tree)).toHaveLength(19)
   }
 })
 

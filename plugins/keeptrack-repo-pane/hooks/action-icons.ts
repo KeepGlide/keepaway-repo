@@ -3,7 +3,7 @@
 // - the band's action icons: each key has its terminal emoji and its desktop SVG, drawn on a 24 px grid with a 2 px stroke, round caps
 //   and joins, and `currentColor`, so the icon takes the theme's own text colour on light and dark. The desktop draws the SVG, because an
 //   emoji renders as an odd glyph in the Desktop band font; the terminal writes the emoji as text. The pane draws the same keys' emoji as text.
-// - the pane's status icons: emoji only, drawn as text on both surfaces (active rows, history, the project counters, the due date).
+// - the pane's status icons: emoji only, drawn as text on both surfaces (active rows, timeline events, the project counters, the due date).
 // - the priority icons: one emoji per priority tag, drawn before the tag.
 
 import type { Priority } from '../types'
@@ -32,7 +32,6 @@ export type StatusIconKey =
   | 'activeWindow'
   | 'issues'
   | 'sessions'
-  | 'history'
   | 'commit'
   | 'pr'
   | 'session'
@@ -79,7 +78,6 @@ const STATUS_EMOJI: Readonly<Record<StatusIconKey, string>> = {
   activeWindow: '▶️',
   issues: '📋',
   sessions: '🖥️',
-  history: '🕘',
   commit: '📝',
   pr: '🔀',
   session: '🚀',
@@ -106,7 +104,7 @@ export function actionIconSvg(key: ActionIconKey, size: number = ACTION_ICON_SIZ
   )
 }
 
-// The emoji of a pane status (active rows, history, counters, due date, loading, failure).
+// The emoji of a pane status (active rows, timeline events, counters, due date, loading, failure).
 export function statusIconEmoji(key: StatusIconKey): string {
   return STATUS_EMOJI[key]
 }

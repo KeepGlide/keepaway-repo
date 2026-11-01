@@ -468,7 +468,7 @@ function renderThisWindow(view: View, node: SessionNode, place: RowPlace): Rende
     >
       {renderSessionHead(view, node, place)}
       {node.issue !== null && thisIssue !== null && renderDetails(view, node, thisIssue, BODY_INDENT)}
-      {renderTimeline(view, node, BODY_INDENT, true)}
+      {renderTimeline(view, node, BODY_INDENT)}
       {node.issue !== null && renderGithubLink(view, node.issue.number, thisIssue?.url ?? node.issueUrl, BODY_INDENT)}
     </Box>
   )
@@ -753,14 +753,12 @@ function renderGithubLink(view: View, number: number, url: string | null, indent
   )
 }
 
-// The timeline, newest first: time, kind glyph, text. Always drawn, at most TIMELINE_LIMIT events, never folded. Only this
-// window's block takes the history heading: one per session would repeat it down the pane.
-function renderTimeline(view: View, node: SessionNode, indent: number, heading = false): RenderElement {
+// The timeline, newest first: time, kind glyph, text. Always drawn, at most TIMELINE_LIMIT events, never folded, and with no heading.
+function renderTimeline(view: View, node: SessionNode, indent: number): RenderElement {
   const { Box, Text } = view.ui
   const events = [...node.timeline].sort((a, b) => b.at - a.at).slice(0, TIMELINE_LIMIT)
   return (
     <Box key={`timeline-${node.id}`} flexDirection="column" gap={1} paddingLeft={indent}>
-      {heading && events.length > 0 && <Text key="heading" bold>{withIcon(statusIconEmoji('history'), t(view.lang, 'timeline.heading'))}</Text>}
       {events.map((event, index) => (
         <Box key={`event-${node.id}-${index}`} flexDirection="row" gap={1}>
           <Text key="time">{clockOf(event.at, view.utcOffsetMinutes)}</Text>
@@ -935,7 +933,6 @@ const LEGEND_ENTRIES: readonly LegendEntry[] = [
   { id: 'issue', icon: actionIconEmoji('inProgress'), name: 'legend.issue.name', text: 'legend.issue.text' },
   { id: 'done', icon: statusIconEmoji('done'), name: 'legend.done.name', text: 'legend.done.text' },
   { id: 'closed', icon: statusIconEmoji('closed'), name: 'legend.closed.name', text: 'legend.closed.text' },
-  { id: 'history', icon: statusIconEmoji('history'), name: 'legend.history.name', text: 'legend.history.text' },
   { id: 'commit', icon: statusIconEmoji('commit'), name: 'legend.commit.name', text: 'legend.commit.text' },
   { id: 'pr', icon: statusIconEmoji('pr'), name: 'legend.pr.name', text: 'legend.pr.text' },
   { id: 'session', icon: statusIconEmoji('session'), name: 'legend.sessionEvent.name', text: 'legend.sessionEvent.text' },

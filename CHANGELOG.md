@@ -8,6 +8,15 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+## [0.2.0-beta.22] - 2026-11-01
+
+### Changed
+- The timeline has no `🕘 Timeline` heading, in this window's block or any other; the Labels table no longer lists the 🕘 icon (`hooks/pane.tsx`, `hooks/i18n.ts`, `hooks/action-icons.ts`, SPEC sections 10 and 19).
+
+### Fixed
+- SPEC section 3 now says the open-PR scan covers the newest 256 non-archived records, as the code does.
+- A session summary whose first prompt is only a paste no longer shows the raw `<pasted_content>` tag when the paste closes with its attributes (`</pasted_content id="…">`, as the Desktop writes it): the paste's text is the summary; nested pastes are paired by depth, so only the outermost one is taken, and an outer paste with no closing tag stays as text (`hooks/summary.ts`, SPEC section 21).
+
 ## [0.2.0-beta.21] - 2026-11-01
 
 ### Changed

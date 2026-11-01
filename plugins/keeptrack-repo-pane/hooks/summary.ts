@@ -11,12 +11,12 @@ export const SUMMARY_KEEP_MAX = 200
 // A summary that is not final (its transcript is missing, refused, or has no user line yet) is read again after this long (Mock S delta 7).
 export const SUMMARY_RETRY_MS = 10 * 60_000
 
-// A span of text from an opening tag to the closing string after it: its bounds, and the text between the two tags.
+// A span of text from an opening tag to the closing tag after it: its bounds, and the text between the two tags.
 type Span = { start: number; end: number; inner: string }
 
-// The spans from each opening tag to the closing string after it, left to right. An opening tag with no closing string after it ends the
+// The spans from each opening tag to the closing tag after it, left to right. An opening tag with no closing tag after it ends the
 // scan, since no later opening tag has one either: the cost is linear, however many unclosed tags the text holds.
-function spansOf(text: string, open: RegExp, close: string): Span[] {
+function spansOf(text: string, open: RegExp, close: RegExp): Span[] {
   const spans: Span[] = []
   let from = 0
   for (;;) {
@@ -24,10 +24,12 @@ function spansOf(text: string, open: RegExp, close: string): Span[] {
     const match = open.exec(text)
     if (match === null) return spans
     const innerStart = match.index + match[0].length
-    const closeAt = text.indexOf(close, innerStart)
-    if (closeAt === -1) return spans
-    spans.push({ start: match.index, end: closeAt + close.length, inner: text.slice(innerStart, closeAt) })
-    from = closeAt + close.length
+    close.lastIndex = innerStart
+    const closing = close.exec(text)
+    if (closing === null) return spans
+    const end = closing.index + closing[0].length
+    spans.push({ start: match.index, end, inner: text.slice(innerStart, closing.index) })
+    from = end
   }
 }
 
@@ -43,16 +45,17 @@ function withoutSpans(text: string, spans: readonly Span[], replacement: string)
 }
 
 // Wrappers the Desktop puts around a typed prompt: a system reminder and a command's name and message go, with their text.
-const WRAPPERS: readonly { open: RegExp; close: string }[] = [
-  { open: /<system-reminder>/g, close: '</system-reminder>' },
-  { open: /<command-name>/g, close: '</command-name>' },
-  { open: /<command-message>/g, close: '</command-message>' },
+const WRAPPERS: readonly { open: RegExp; close: RegExp }[] = [
+  { open: /<system-reminder>/g, close: /<\/system-reminder>/g },
+  { open: /<command-name>/g, close: /<\/command-name>/g },
+  { open: /<command-message>/g, close: /<\/command-message>/g },
 ]
 // A command's arguments stay: only their tags go.
 const COMMAND_ARGS = /<\/?command-args>/g
-// A pasted block opens with attributes (`id="1"`), bounded so an opening tag with no `>` costs no more than the bound.
-const PASTED_OPEN = /<pasted_content\b[^>]{0,256}>/g
-const PASTED_CLOSE = '</pasted_content>'
+// A pasted block's opening tag carries attributes (`id="1"`), at most 256 characters after the name, so an opening tag with no `>` costs
+// no more than the bound. Its closing tag is the bare tag or the same tag with attributes (the Desktop writes `</pasted_content id="1">`),
+// at most 256 characters after the name too. Both forms are one alternation, so one scan finds every tag of a paste.
+const PASTED_TAG = /<pasted_content\b[^>]{0,256}>|<\/pasted_content(?:\s[^>]{0,255})?>/g
 // Markdown heading markers at the start of a line (an issue reference such as #106 stays), and the emphasis and code markers.
 const HEADING = /^[ \t]*#{1,6}[ \t]+/gm
 const MARKERS = /[*`]/g
@@ -63,12 +66,37 @@ const stripWrappers = (text: string): string =>
 // The text as one line: markdown markers out, control characters and whitespace collapsed by plain(); no cut here, cutAtWord cuts it.
 const oneLine = (text: string): string => plain(text.replace(HEADING, ' ').replace(MARKERS, ''), Number.POSITIVE_INFINITY)
 
+// The outermost pasted blocks, left to right, paired by depth in one linear pass: a closing tag closes the innermost open block, so a paste
+// nested in another lies inside the outer span. An outer block whose closing tag never comes gets no span, and every tag after it lies
+// inside it, so no later span is made either (SPEC section 21): nothing is taken from an unclosed block.
+function pastedSpansOf(text: string): Span[] {
+  const spans: Span[] = []
+  let depth = 0
+  let outer: { start: number; innerStart: number } | null = null
+  for (const match of text.matchAll(PASTED_TAG)) {
+    const at = match.index ?? 0
+    const end = at + match[0].length
+    if (!match[0].startsWith('</')) {
+      if (depth === 0) outer = { start: at, innerStart: end }
+      depth += 1
+    } else if (depth > 0) {
+      depth -= 1
+      if (depth === 0 && outer !== null) spans.push({ start: outer.start, end, inner: text.slice(outer.innerStart, at) })
+    }
+  }
+  return spans
+}
+
 // The prompt a user message carries: its typed text, or the text of its pasted content when the message is only a paste.
 function promptOf(content: string): string {
   const stripped = stripWrappers(content)
-  const typed = oneLine(withoutSpans(stripped, spansOf(stripped, PASTED_OPEN, PASTED_CLOSE), ' '))
+  const typed = oneLine(withoutSpans(stripped, pastedSpansOf(stripped), ' '))
   if (typed !== '') return typed
-  return oneLine(stripWrappers(spansOf(content, PASTED_OPEN, PASTED_CLOSE).map(span => span.inner).join(' ')))
+  // A paste nested in the outer block keeps its text: only its own tags go.
+  const pasted = pastedSpansOf(content)
+    .map(span => span.inner.replace(PASTED_TAG, ' '))
+    .join(' ')
+  return oneLine(stripWrappers(pasted))
 }
 
 // The text of a message's content: a string as it is, or the text parts of an array (the other parts carry no prompt).
