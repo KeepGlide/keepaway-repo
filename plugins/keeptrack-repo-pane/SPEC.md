@@ -1,4 +1,4 @@
-# KeepTrack: spec (as built, v0.2.0-beta.20)
+# KeepTrack: spec (as built, v0.2.0-beta.21)
 
 Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepTrack, the command is `/keeptrack`.
 
@@ -366,7 +366,7 @@ Run from the mod folder:
 3. `scripts/keeptrack-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
    `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only (it holds every emoji of KeepTrack). `scripts/keeptrack-look-selftest.sh` runs the gate on a copy and checks those cases.
 4. `agentic-mod-release-tool.sh keeptrack-repo-pane --check` must pass before the mod is installed (CLAUDE.md rule 6a).
-   The mod is published as 0.2.0-beta.20 and installed from `sophia-mods` (README, Installation).
+   The mod is published as 0.2.0-beta.21 and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
 or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`, `parseUtcOffset`) and do not depend on the zone the test process runs in; the register test answers `date +%z` through the process stub, including a refused call.
@@ -574,8 +574,7 @@ PT), and the icon sits before its word. The pane draws its emoji as text on both
 
 Above the session groups, in github mode only, since its milestones come from GitHub (`renderHero`, `hooks/pane.tsx`). Top to bottom:
 
-1. Kicker (`hero-kicker`): `Done` (pt-BR `Feito`).
-2. Risk chips (`hero-risks`): a row of bordered chips that wraps. Each chip is its icon, then its text as a plain `Text`, so a title is never read as markup. Order: one chip per open milestone that is overdue or due soon, in milestone order (the open milestones by due date), then the waiting chip.
+1. Risk chips (`hero-risks`): a row of bordered chips that wraps. Each chip is its icon, then its text as a plain `Text`, so a title is never read as markup. Order: one chip per open milestone that is overdue or due soon, in milestone order (the open milestones by due date), then the waiting chip.
    - Overdue (`hero-overdue-<number>`): `⚠️ <title> overdue · N issues without session` (pt-BR `⚠️ <title> atrasado · N issues sem sessão`). The due date falls before today in the host's zone (`isOverdue`), the milestone has open issues, and the count is exact.
    - Due soon (`hero-due-<number>`): `📅 <title> due in N days · N issues without session` (pt-BR `📅 <title> vence em N dias · …`; one day reads `1 day` and `1 dia`). The due date falls from today to 14 days ahead in the host's zone (`isDueSoon`, `DUE_SOON_DAYS`, Q10). Due today reads `due today` (pt-BR `vence hoje`), with no count to name.
    - `<title>` is the milestone title up to the first ` · `. N is the milestone's open issues that no session shows (its issue group). The count is exact only when the milestone's counts are exact and the issue list is whole (not cut at 500); otherwise the milestone gets no chip.
@@ -587,14 +586,14 @@ Idle sessions are not in the hero (idle stays as 💤 on the session row). The L
 
 ## 21. Session summary and `/keeptrack summary`
 
-Mock S delta 7 (owner decisions Q3 and Q12, 2026-10-30). Under the title and breadcrumb of each session row, on the desktop and in the terminal alike, the pane draws `Summary: <text>` (pt-BR `Resumo: <text>`). The text is the session's first real prompt, deterministic, with no model call.
+Mock S delta 7 (owner decisions Q3 and Q12, 2026-10-30). Right under the title of each session row, before its breadcrumb, on the desktop and in the terminal alike, the pane draws the summary text itself, with no label (owner's review, 2026-11-01). The row's branch glyph stays on the title's first line (`alignItems: flex-start`). The text is the session's first real prompt, deterministic, with no model call.
 
 - Source: the transcript `~/.claude/projects/<folder>/<cliSessionId>.jsonl`. The folder is the session's cwd with every character that is not a letter or a digit replaced by `-` (checked against the real folder names: `/.cache` gives `--cache`). A session id that is not a plain letter, digit or `-` string is not read.
 - Read: `head -c 262144` through `$.process.run`, not `$.fs.read`, which refuses files over 4 MiB. The first prompt is near the top, so the head is enough. The last segment of the head is never read, since the head limit may have cut it.
 - Cleaning (`hooks/summary.ts`): the first user line that is not a meta or a sidechain line and has usable text. `<system-reminder>` blocks go. `<command-name>` and `<command-message>` go with their text; `<command-args>` tags go and their text stays. A `<pasted_content>` block goes when the message has typed text; when the message is only a paste, the paste's text is the prompt. Array content counts its `text` parts only. Markdown heading markers at a line start and `*` and backticks go; an issue reference such as `#106` stays. Control characters and whitespace collapse. The wrapper and paste tags are removed by a linear scan: an opening tag with no closing tag stays as text (256 KiB of unclosed tags costs milliseconds), and a `<pasted_content>` opening tag has at most 256 characters of attributes. The last line of a head is dropped only when the head was cut at `TRANSCRIPT_HEAD_BYTES`. The cut to 93 characters counts graphemes, so an emoji sequence is never split.
 - Cut: 93 characters, the `…` counted (Q17), at the last space before the limit; a hard cut when there is none; `…` whenever the text is cut. Text within the limit is unchanged.
-- No usable text: `no summary` (pt-BR `sem resumo`). No line while the summary is not known yet (a session past this poll's reads) or while the setting is off.
-- Reads per poll: at most 5 transcripts. Each session is read once: this window's memory, then the transcript. A final summary (a prompt, or a transcript with a user line that has no usable text) is kept for the window's life. A transcript that is missing, whose read is refused, or that has no user line yet (a session that has just started) is kept in memory only, shows `no summary` meanwhile, and is read again after 10 minutes (`SUMMARY_RETRY_MS`); it is never stored. A refused read is logged once, by the error's name; a prompt or a path never reaches the log.
+- No usable text: no line. No line either while the summary is not known yet (a session past this poll's reads) or while the setting is off.
+- Reads per poll: at most 5 transcripts. Each session is read once: this window's memory, then the transcript. A final summary (a prompt, or a transcript with a user line that has no usable text) is kept for the window's life. A transcript that is missing, whose read is refused, or that has no user line yet (a session that has just started) is kept in memory only, draws no line meanwhile, and is read again after 10 minutes (`SUMMARY_RETRY_MS`); it is never stored. A refused read is logged once, by the error's name; a prompt or a path never reaches the log.
 - Memory only: no summary is written to the store. This window keeps at most 200 (`SUMMARY_KEEP_MAX`); the oldest go first. A poll admits at most 64 candidate sessions (`CANDIDATE_MAX`), so the cap is reached only over a long window life. Once per window, the `summary:<sessionId>` keys an earlier build stored are deleted (`clearStoredSummaries`), and the `summary` setting is kept.
 - Command: `/keeptrack summary on|off` stores `summary` (boolean; absent is on) and answers with a toast in the session's language (`Session summary lines: on` or `off`; pt-BR `Linhas de resumo das sessões: ligadas` or `desligadas`). An open pane polls at once, so the lines appear or go. Off: no transcript is read and no line is drawn. Any other argument: the usage toast, no change.
 - Labels: no icon; the line is text, so the Labels table is unchanged.

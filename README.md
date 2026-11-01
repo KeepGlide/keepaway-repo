@@ -47,7 +47,7 @@
 
 ## 📌 Status
 
-Beta (`0.2.0-beta.20`). The project follows [SemVer](https://semver.org/): while the version is `0.y.z`, any release may change behavior without notice.
+Beta (`0.2.0-beta.21`). The project follows [SemVer](https://semver.org/): while the version is `0.y.z`, any release may change behavior without notice.
 
 ## 💡 Why it exists
 
@@ -71,7 +71,7 @@ It does **not** change anything on GitHub or in your repository. It does not tra
 - **Links**: a session title opens its GitHub or GitLab page when the session's remote is known, and an `open session` link opens the session itself. On the desktop, milestones, commits, PRs and issues link to their pages.
 - **Risks first**: above the sessions, chips for an overdue milestone (⚠️), a milestone due within 14 days (📅, `due today` on the day) and the other sessions that stopped waiting for you (⏳, with their issue numbers); then `14 of 24 closed in the open milestones`, the bar, the issues left and the sessions working.
 - **Waiting sessions**: another session whose last turn stopped needing you (the Desktop's post-turn summary, last activity under 24 h) shows ⏳ and a `Needs you:` line of up to 90 characters, and sorts right after this window's session. A group lists 20 top sessions, then `+k more`.
-- **Summary of each session**: a `Summary:` line with the session's first prompt, cleaned and cut to 93 characters. `/keeptrack summary off` hides it.
+- **Summary of each session**: a line right under the session's title with its first prompt, cleaned and cut to 93 characters, with no label. `/keeptrack summary off` hides it.
 - **Decisions and objectives**: this window's block shows `Decided:` from the newest issue comment by the owner, a member or a collaborator that starts with `Decision:` or `Decisão:`; each milestone shows its description as `Objective:`.
 - **Icons after the title**: state (🟢 working, ⏳ waiting for you, 💤 idle, with no state word), the active mark (▶️ this window), the history (🕘 timeline: 📝 commit, 🔀 PR, 🚀 session), issues to do (📋) or in progress (🛠️), milestones (🎯) with a text progress bar, due date (📅) and overdue marker (⚠️), and priorities (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3). A legend at the foot of the pane, an accordion named Labels Descriptions that is closed by default, names each one. The full table is in [SPEC section 19](plugins/keeptrack-repo-pane/SPEC.md). The screenshots still show the design from before the icons.
 
@@ -195,7 +195,7 @@ Ground rules:
 | 1 | Check that gh is signed in | `gh auth status` | Exit 0 and a line `Logged in to github.com`. If not, the human runs `gh auth login`. |
 | 2 | Check that the repository has a GitHub remote | `git remote get-url origin` | Exit 0 and a URL whose host is `github.com`, or an SSH alias with `github` in its name (for example `git@github-<label>:<owner>/<repo>.git`). Otherwise the pane shows `no GitHub remote for this repo`. |
 | 3 🧑 | Add the marketplace, unless `claude plugin marketplace list` already shows `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Exit 0, and `claude plugin marketplace list` shows `sophia-mods` with `Source: Folder (<path>)`. |
-| 4 🧑 | Install the plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Exit 0, and `claude plugin list` shows `keeptrack-repo-pane@sophia-mods` with `Version: 0.2.0-beta.20` and `Status: ✔ enabled`. |
+| 4 🧑 | Install the plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Exit 0, and `claude plugin list` shows `keeptrack-repo-pane@sophia-mods` with `Version: 0.2.0-beta.21` and `Status: ✔ enabled`. |
 | 5 | Check that the command is registered | In a Desktop session, `/keeptrack bogus` | A toast with the usage line `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto`. Nothing changes. |
 | 6 | Open the pane | `/keeptrack` | A pane titled `KeepTrack` opens. It shows `Loading the repo...`, then the open issues by milestone, or an error line from [Troubleshooting](#-troubleshooting). |
 | 7 | Switch the language to Portuguese | `/keeptrack lang pt-BR` | The pane and the band switch to Portuguese. While loading, the pane shows `Carregando o repo...`. |
@@ -250,7 +250,7 @@ Restart Claude Code, or run `/reload-plugins`, afterwards. What the mod leaves b
 | `/keeptrack issue <n>` | Sets the issue of this window, from 1 to 999999. Stored per session as `override:<session id>` for 30 days. Only a Desktop session can set it; any other window gets a toast. |
 | `/keeptrack issue none` | Clears the issue of this window. |
 | `/keeptrack lang en\|pt-BR\|auto` | Stores the language (case does not matter) and switches it at once. `auto` removes the stored choice and follows the environment. |
-| `/keeptrack summary on\|off` | Shows or hides the `Summary:` line of each session (on by default). Off, no transcript is read. |
+| `/keeptrack summary on\|off` | Shows or hides the summary line of each session (on by default). Off, no transcript is read. |
 | Any other argument | A toast with the usage line. Nothing changes. Extra words after `open` or `issue <n>` (for example `/keeptrack open now`) count as another argument. |
 
 ## 🎛️ Configuration
@@ -329,14 +329,14 @@ Known limitations, as the code does them today:
 | Rules: remote parsing, session tree, issue groups, timelines, record projection, UTC offset parsing (`tests/model.test.ts`) | 122 |
 | Hooks module: poll, pane command, timers, close and host UTC offset (`tests/register.test.ts`) | 205 |
 | Band: status line, states and Open button (`tests/band.test.ts`) | 41 |
-| Pane: snapshot drawing, host clock and due dates (`tests/pane.test.ts`) | 111 |
+| Pane: snapshot drawing, host clock and due dates (`tests/pane.test.ts`) | 112 |
 | Language: English and pt-BR dictionaries (`tests/i18n.test.ts`) | 10 |
 | Turn transitions of the band (`tests/turn.test.ts`) | 8 |
 | Repo logo: file lookup, raster checks and the avatar fetch script (`tests/repo-logo.test.ts`) | 15 |
 | Summary: transcript cleanup, cuts and the linear tag scan (`tests/summary.test.ts`) | 16 |
-| **Total** | **528** |
+| **Total** | **529** |
 
-Counts from `claude plugin test plugins/keeptrack-repo-pane` on the Unreleased tree (the row order and the legend): 528 pass, 0 fail, 8 files. The look self-check (`scripts/keeptrack-look-selftest.sh`) is a shell script and is not counted.
+Counts from `claude plugin test plugins/keeptrack-repo-pane` on the Unreleased tree (the row order and the legend): 529 pass, 0 fail, 8 files. The look self-check (`scripts/keeptrack-look-selftest.sh`) is a shell script and is not counted.
 
 ## 🔧 Development
 

@@ -513,7 +513,7 @@ test('a session waiting for you draws its needs line under its title, in both la
   }
 })
 
-test('a session row draws its summary under the title, in both languages, on both surfaces; "no summary" when there is none; no line while unknown (Mock S delta 7)', () => {
+test('a session row draws its summary under the title, in both languages, on both surfaces, with no label; no line when there is none or while unknown (Mock S delta 7)', () => {
   const summarized = buildTree(
     [
       makeRecord({ sessionId: 'local_aaaa0601', summary: { text: 'Fix the disk full error' } }),
@@ -522,14 +522,28 @@ test('a session row draws its summary under the title, in both languages, on bot
     ],
     { now: NOW, cutoffMs: 24 * HOUR, thisCliSessionId: null },
   )
-  for (const [lang, line] of [['en', 'Summary: Fix the disk full error'], ['pt', 'Resumo: Fix the disk full error']] as const) {
+  for (const [lang, line] of [['en', 'Fix the disk full error'], ['pt', 'Fix the disk full error']] as const) {
     for (const tree of [drawDesktop({ lang, snapshot: snapshotWith({ sessions: summarized }) }), drawTerminal({ lang, snapshot: snapshotWith({ sessions: summarized }) })]) {
       expect(drawnTexts(keyed(tree, 'summary-local_aaaa0601'))).toEqual([line])
     }
   }
   const tree = drawTerminal({ snapshot: snapshotWith({ sessions: summarized }) })
-  expect(drawnTexts(keyed(tree, 'summary-local_aaaa0602'))).toEqual(['Summary: no summary'])
+  expect(keyed(tree, 'summary-local_aaaa0602')).toBeUndefined()
   expect(keyed(tree, 'summary-local_aaaa0603')).toBeUndefined()
+})
+
+// The owner's review of the live pane (2026-11-01): the branch glyph sits on the title's line, and the summary comes right under the title.
+test('a session head keeps its branch glyph on the title line, and draws the summary right under the title, before the breadcrumb', () => {
+  const sessions = buildTree([makeRecord({ sessionId: 'local_aaaa0611', summary: { text: 'Run a gauntlet loop' } })], {
+    now: NOW,
+    cutoffMs: 24 * HOUR,
+    thisCliSessionId: null,
+  })
+  const tree = drawTerminal({ snapshot: snapshotWith({ sessions }) })
+  expect(keyed(tree, 'head-local_aaaa0611')?.props.alignItems).toBe('flex-start')
+  const lines = drawnTexts(keyed(tree, 'head-local_aaaa0611'))
+  expect(lines.slice(1, 4)).toEqual([lines[1], 'Run a gauntlet loop', 'no issue'])
+  expect(lines[0]).toBe('└')
 })
 
 test('a derived session whose parent has no title says so without a name (W6)', () => {
@@ -1438,29 +1452,29 @@ test('the hero draws the count in bold, then the bar with its percentage once, t
   ]
   const snapshot = snapshotWith({ milestones, issueGroups: [], sessions: working })
   const tree = drawDesktop({ snapshot })
-  expect(heroTextsOf(tree)).toEqual(['Done', '10 of 17 closed in the open milestones', '▰▰▰▰▰▰▱▱▱▱ 59% · 7 left · 1 working'])
+  expect(heroTextsOf(tree)).toEqual(['10 of 17 closed in the open milestones', '▰▰▰▰▰▰▱▱▱▱ 59% · 7 left · 1 working'])
   expect(keyed(tree, 'hero-number')?.props.bold).toBe(true)
   expect(heroTextsOf(drawDesktop({ snapshot, lang: 'pt' }))).toEqual([
-    'Feito',
     '10 de 17 fechadas nos milestones abertos',
     '▰▰▰▰▰▰▱▱▱▱ 59% · faltam 7 · 1 trabalhando',
   ])
   expect(heroTextsOf(drawTerminal({ snapshot }))).toEqual(heroTextsOf(tree))
 })
 
-test('no open milestone, or a total of 0, reads the empty wording with no bar and no percentage (pt-BR too)', () => {
+test('no open milestone, or a total of 0, reads the empty wording and the working sessions on one plain line, with no bar (pt-BR too)', () => {
   const none = drawDesktop({ snapshot: snapshotWith({ milestones: [], issueGroups: [], sessions: [] }) })
-  expect(heroTextsOf(none)).toEqual(['Done', 'no open milestone', '0 working'])
+  expect(heroTextsOf(none)).toEqual(['no open milestone · 0 working'])
+  expect(keyed(none, 'hero-number')?.props.bold).toBeUndefined()
   const zero = drawDesktop({ snapshot: oneMilestone(milestoneOf({ openIssues: 0, closedIssues: 0 })) })
-  expect(heroTextsOf(zero)[1]).toBe('no open milestone')
+  expect(heroTextsOf(zero)).toEqual(['no open milestone · 0 working'])
   expect(heroTextsOf(zero).join(' ')).not.toMatch(/[▰▱%]/)
   const zeroPt = drawDesktop({ snapshot: oneMilestone(milestoneOf({ openIssues: 0, closedIssues: 0 })), lang: 'pt' })
-  expect(heroTextsOf(zeroPt)[1]).toBe('nenhum milestone aberto')
+  expect(heroTextsOf(zeroPt)).toEqual(['nenhum milestone aberto · 0 trabalhando'])
 })
 
 test('inexact counts read the partial count, with no bar, no percentage and no "faltam"', () => {
   const texts = heroTextsOf(drawDesktop({ snapshot: oneMilestone(milestoneOf({ countsExact: false, openIssues: 4, closedIssues: 10 })) }))
-  expect(texts).toEqual(['Done', '~10 of ~14 closed (partial count)', '0 working'])
+  expect(texts).toEqual(['~10 of ~14 closed (partial count)', '0 working'])
 })
 
 test('an overdue milestone with open issues reads a chip with its count; the progress line and the boundaries carry no chip (Mock S, delta 2)', () => {

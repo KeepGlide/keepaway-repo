@@ -3215,7 +3215,7 @@ test('a session row draws its summary from the head of its transcript, read by h
   await $.session.start(SESSION)
   await openPane($)
   await host.clock.settle()
-  expect(await drawnPane($)).toContain('Summary: Fix the disk full error')
+  expect(await drawnPane($)).toContain('Fix the disk full error')
   expect(host.argvs).toContainEqual(['head', '-c', '262144', TRANSCRIPT_OWN])
   expect(host.readPaths).not.toContain(TRANSCRIPT_OWN)
   expect(summaryKeys(host)).toEqual([])
@@ -3229,7 +3229,7 @@ test('a transcript over 4 MiB gives its summary from the head alone', async ($: 
   await $.session.start(SESSION)
   await openPane($)
   await host.clock.settle()
-  expect(await drawnPane($)).toContain('Summary: Map the store writes')
+  expect(await drawnPane($)).toContain('Map the store writes')
   expect(host.argvs).toContainEqual(['head', '-c', '262144', TRANSCRIPT_OWN])
   expect(host.readPaths).not.toContain(TRANSCRIPT_OWN)
   await expectClean(host, $)
@@ -3244,7 +3244,7 @@ test('a session summary is read once: a later poll reads no transcript again', a
   await host.clock.advance(POLL_MS)
   await host.clock.settle()
   expect(headCalls(host)).toHaveLength(1)
-  expect(await drawnPane($)).toContain('Summary: Fix the disk full error')
+  expect(await drawnPane($)).toContain('Fix the disk full error')
 })
 
 test('at most five transcripts are read per poll; the rest are read on a later poll, each one once', async ($: Engine, on) => {
@@ -3263,15 +3263,15 @@ test('at most five transcripts are read per poll; the rest are read on a later p
   await openPane($)
   await host.clock.settle()
   expect(headCalls(host)).toHaveLength(8)
-  expect(await drawnPane($)).toContain('Summary: Prompt 6')
+  expect(await drawnPane($)).toContain('Prompt 6')
 })
 
-test('a transcript with no prompt draws "no summary"; the line is never left empty', async ($: Engine, on) => {
+test('a transcript with no prompt draws no summary line', async ($: Engine, on) => {
   const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine('<system-reminder>Context only</system-reminder>') } })
   await $.session.start(SESSION)
   await openPane($)
   await host.clock.settle()
-  expect(await drawnPane($)).toContain('Summary: no summary')
+  expect(await drawnPane($)).not.toContain('Context only')
   expect(summaryKeys(host)).toEqual([])
   await expectClean(host, $)
 })
@@ -3289,7 +3289,7 @@ test('/keeptrack summary off hides the lines and stops transcript reads; on draw
   await $.command.run({ command: 'keeptrack', args: 'summary on', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(host.toasts.at(-1)).toBe('Session summary lines: on')
-  expect(await drawnPane($)).toContain('Summary: Fix the disk full error')
+  expect(await drawnPane($)).toContain('Fix the disk full error')
   await expectClean(host, $)
 })
 
@@ -3312,7 +3312,7 @@ test('summaries are never stored: the summary:<id> keys an earlier build left ar
   expect(host.store.has('summary:old-1')).toBe(false)
   expect(summaryKeys(host)).toEqual([])
   expect(host.store.get('summary')).toBe(true)
-  expect(await drawnPane($)).toContain('Summary: Fix the disk full error')
+  expect(await drawnPane($)).toContain('Fix the disk full error')
   await expectClean(host, $)
 })
 
@@ -3327,7 +3327,7 @@ test('a refused transcript read is logged once by its name, keeps the other line
   expect(host.logs[0]).toMatch(/^keeptrack: session summary failed \(\w+\)$/)
   expect(host.logs.join('\n')).not.toContain(TRANSCRIPT_OWN)
   expect(headCalls(host)).toHaveLength(1)
-  expect(await drawnPane($)).toContain('Summary: no summary')
+  expect(await drawnPane($)).not.toContain('Fix the disk full error')
   expect(await drawnPane($)).toContain('Fix disk full')
 })
 
@@ -3393,7 +3393,7 @@ test('a transcript that is missing is not stored: it is read again after ten min
   await host.clock.settle()
   expect(headCalls(host)).toHaveLength(1)
   expect(summaryKeys(host)).toHaveLength(0)
-  expect(await drawnPane($)).toContain('Summary: no summary')
+  expect(await drawnPane($)).not.toContain('Fix the disk full error')
   // The transcript appears after the session started: no read before the retry time, then the prompt is read and stored.
   transcripts[TRANSCRIPT_OWN] = userLine('Fix the disk full error')
   await host.clock.advance(SUMMARY_RETRY_MS - POLL_MS)
@@ -3402,7 +3402,7 @@ test('a transcript that is missing is not stored: it is read again after ten min
   await host.clock.advance(POLL_MS)
   await host.clock.settle()
   expect(headCalls(host)).toHaveLength(2)
-  expect(await drawnPane($)).toContain('Summary: Fix the disk full error')
+  expect(await drawnPane($)).toContain('Fix the disk full error')
   expect(summaryKeys(host)).toEqual([])
   await expectClean(host, $)
 })
@@ -3418,7 +3418,7 @@ test('a transcript with no user line yet is not stored, and is read again after 
   await host.clock.advance(SUMMARY_RETRY_MS)
   await host.clock.settle()
   expect(headCalls(host).length).toBeGreaterThanOrEqual(2)
-  expect(await drawnPane($)).toContain('Summary: Fix the disk full error')
+  expect(await drawnPane($)).toContain('Fix the disk full error')
   expect(summaryKeys(host)).toEqual([])
 })
 
@@ -3431,5 +3431,5 @@ test('a user line with no usable text is final: it is kept for the window life, 
   await host.clock.advance(SUMMARY_RETRY_MS * 2)
   await host.clock.settle()
   expect(headCalls(host)).toHaveLength(1)
-  expect(await drawnPane($)).toContain('Summary: no summary')
+  expect(await drawnPane($)).not.toContain('Fix the disk full error')
 })

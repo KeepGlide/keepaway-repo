@@ -265,12 +265,17 @@ function renderErrors(view: View, snapshot: Snapshot): RenderElement[] {
 function renderHero(view: View, snapshot: Snapshot): RenderElement {
   const { Box, Text } = view.ui
   const chips = [...riskChipsOf(view, snapshot), ...waitingChipOf(view, snapshot)]
+  // With no open milestone there is no count to stress: the empty wording and the working sessions share one plain line.
+  const empty = openTotalsOf(snapshot.milestones).total === 0
   return (
     <Box key="hero" flexDirection="column" gap={1}>
-      <Text key="hero-kicker">{t(view.lang, 'hero.kicker')}</Text>
       {chips.length > 0 && <Box key="hero-risks" flexDirection="row" flexWrap="wrap" gap={1}>{chips}</Box>}
-      <Text key="hero-number" bold>{countLineOf(view, snapshot)}</Text>
-      <Text key="hero-bar">{barLineOf(view, snapshot)}</Text>
+      {empty ? (
+        <Text key="hero-number">{[countLineOf(view, snapshot), barLineOf(view, snapshot)].join(TITLE_SEPARATOR)}</Text>
+      ) : (
+        <Text key="hero-number" bold>{countLineOf(view, snapshot)}</Text>
+      )}
+      {!empty && <Text key="hero-bar">{barLineOf(view, snapshot)}</Text>}
     </Box>
   )
 }
@@ -480,30 +485,30 @@ function renderOtherSession(view: View, node: SessionNode, place: RowPlace): Ren
   )
 }
 
-// The title line (branch glyph, title with its icons after it) and the breadcrumb under it. The state is an icon alone, with no
+// The title line (branch glyph, title with its icons after it), the summary and the breadcrumb under it; the glyph stays on the title's
+// first line (alignItems flex-start), not in the middle of the block. The state is an icon alone, with no
 // state word, on every row; the footer's legend names each icon (SPEC section 19).
 function renderSessionHead(view: View, node: SessionNode, place: RowPlace): RenderElement {
   const { Box, Text } = view.ui
   return (
-    <Box key={`head-${node.id}`} flexDirection="row" gap={1}>
+    <Box key={`head-${node.id}`} flexDirection="row" alignItems="flex-start" gap={1}>
       <Text key="branch">{place.branch}</Text>
       <Box key="title-block" flexDirection="column" flexGrow={1}>
         {renderTitleLine(view, node, node.isThisWindow)}
-        {renderCrumb(view, node, place)}
         {renderSummaryLine(view, node)}
+        {renderCrumb(view, node, place)}
         {renderNeedsLine(view, node)}
       </Box>
     </Box>
   )
 }
 
-// The summary line under the title (Mock S delta 7, SPEC section 21): the session's first prompt, cut, as plain text; "no summary" when its
-// transcript has no prompt. No line while the summary is unknown or the setting is off.
+// The summary line right under the title (Mock S delta 7, SPEC section 21): the session's first prompt, cut, as plain text with no label.
+// No line when the transcript has no prompt, while the summary is unknown, or while the setting is off.
 function renderSummaryLine(view: View, node: SessionNode): RenderElement | false {
-  if (node.summary === null) return false
+  if (node.summary === null || node.summary.text === null) return false
   const { Text } = view.ui
-  const text = node.summary.text ?? t(view.lang, 'session.noSummary')
-  return <Text key={`summary-${node.id}`}>{t(view.lang, 'session.summary', { text })}</Text>
+  return <Text key={`summary-${node.id}`}>{node.summary.text}</Text>
 }
 
 // The needs line under a session that stopped for the person (D7, Q14): what its Desktop summary says it needs, as plain text; no line

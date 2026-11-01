@@ -8,6 +8,15 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+## [0.2.0-beta.21] - 2026-11-01
+
+### Changed
+- The session summary sits right under the title, before the breadcrumb, as the text itself with no `Summary:` / `Resumo:` label; a session with no prompt draws no line instead of `no summary`.
+- The hero drops its `Done` kicker; with no open milestone, the empty wording and the working sessions share one plain line.
+
+### Fixed
+- A session row's branch glyph (`├`, `└`) stays on the title's first line instead of the middle of its block.
+
 ## [0.2.0-beta.20] - 2026-11-01
 
 ### Changed

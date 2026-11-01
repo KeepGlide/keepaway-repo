@@ -47,7 +47,7 @@
 
 ## 📌 Status
 
-Beta (`0.2.0-beta.20`). O projeto segue o [SemVer](https://semver.org/): enquanto a versão for `0.y.z`, qualquer release pode mudar o comportamento sem aviso.
+Beta (`0.2.0-beta.21`). O projeto segue o [SemVer](https://semver.org/): enquanto a versão for `0.y.z`, qualquer release pode mudar o comportamento sem aviso.
 
 ## 💡 Por que existe
 
@@ -71,7 +71,7 @@ Ele **não** altera nada no GitHub nem no seu repositório. Não registra tempo,
 - **Links**: o título de uma sessão abre a página dela no GitHub ou no GitLab quando o remoto da sessão é conhecido, e um link `abrir sessão` abre a própria sessão. No desktop, milestones, commits, PRs e issues levam às suas páginas.
 - **Riscos primeiro**: acima das sessões, chips para milestone atrasado (⚠️), milestone que vence em até 14 dias (📅, `vence hoje` no dia) e as outras sessões que pararam esperando você (⏳, com os números das issues); depois `14 de 24 fechadas nos milestones abertos`, a barra, as issues que faltam e as sessões trabalhando.
 - **Sessões em espera**: outra sessão cujo último turno parou precisando de você (o resumo de fim de turno do Desktop, última atividade há menos de 24 h) mostra ⏳ e uma linha `Precisa de você:` de até 90 caracteres, e vem logo depois da sessão desta janela. Um grupo lista 20 sessões de topo e depois `+k mais`.
-- **Resumo de cada sessão**: uma linha `Resumo:` com o primeiro prompt da sessão, limpo e cortado em 93 caracteres. `/keeptrack summary off` esconde a linha.
+- **Resumo de cada sessão**: uma linha logo abaixo do título da sessão com o primeiro prompt, limpo e cortado em 93 caracteres, sem rótulo. `/keeptrack summary off` esconde a linha.
 - **Decisões e objetivos**: o bloco desta janela mostra `Decidido:` a partir do comentário mais novo da issue, do dono, de um membro ou de um colaborador, que começa com `Decisão:` ou `Decision:`; cada milestone mostra sua descrição como `Objetivo:`.
 - **Ícones depois do título**: estado (🟢 trabalhando, ⏳ esperando você, 💤 ociosa, sem palavra de estado), a marca ativa (▶️ esta janela), o histórico (🕘 linha do tempo: 📝 commit, 🔀 PR, 🚀 sessão), issues a fazer (📋) ou em andamento (🛠️), milestones (🎯) com barra de progresso em texto, prazo (📅) e marca de atraso (⚠️), e prioridades (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3). A legenda no rodapé do painel, uma sanfona chamada Labels Descriptions que começa fechada, nomeia cada um. A tabela completa está na [SPEC, seção 19](plugins/keeptrack-repo-pane/SPEC.md). As capturas ainda mostram o desenho anterior aos ícones.
 
@@ -195,7 +195,7 @@ Regras de base:
 | 1 | Conferir se o gh está logado | `gh auth status` | Saída 0 e uma linha `Logged in to github.com`. Se não, a pessoa roda `gh auth login`. |
 | 2 | Conferir se o repositório tem um remote no GitHub | `git remote get-url origin` | Saída 0 e uma URL cujo host é `github.com`, ou um alias SSH com `github` no nome (por exemplo `git@github-<label>:<owner>/<repo>.git`). Se não, o painel mostra `sem remote no GitHub para este repo`. |
 | 3 🧑 | Adicionar o marketplace, a menos que `claude plugin marketplace list` já mostre `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Saída 0, e `claude plugin marketplace list` mostra `sophia-mods` com `Source: Folder (<path>)`. |
-| 4 🧑 | Instalar o plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Saída 0, e `claude plugin list` mostra `keeptrack-repo-pane@sophia-mods` com `Version: 0.2.0-beta.20` e `Status: ✔ enabled`. |
+| 4 🧑 | Instalar o plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Saída 0, e `claude plugin list` mostra `keeptrack-repo-pane@sophia-mods` com `Version: 0.2.0-beta.21` e `Status: ✔ enabled`. |
 | 5 | Conferir se o comando está registrado | Em uma sessão do Desktop, `/keeptrack bogus` | Um toast com a linha de uso `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em inglês, ou `Uso: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em português. Nada muda. |
 | 6 | Abrir o painel | `/keeptrack` | Abre um painel com o título `KeepTrack`. Mostra `Carregando o repo...`, depois as issues abertas por milestone, ou uma linha de erro de [Solução de problemas](#-solução-de-problemas). |
 | 7 | Trocar o idioma para português | `/keeptrack lang pt-BR` | O painel e a faixa mudam para português. Durante o carregamento, o painel mostra `Carregando o repo...`. |
@@ -250,7 +250,7 @@ Reinicie o Claude Code, ou rode `/reload-plugins`, depois. O que o mod deixa par
 | `/keeptrack issue <n>` | Define a issue desta janela, de 1 a 999999. Guardada por sessão como `override:<id da sessão>` por 30 dias. Só uma sessão do Desktop pode defini-la; qualquer outra janela recebe um toast. |
 | `/keeptrack issue none` | Limpa a issue desta janela. |
 | `/keeptrack lang en\|pt-BR\|auto` | Guarda o idioma (não importa maiúsculas) e troca na hora. `auto` remove a escolha guardada e segue o ambiente. |
-| `/keeptrack summary on\|off` | Mostra ou esconde a linha `Resumo:` de cada sessão (ligada por padrão). Desligada, nenhum transcript é lido. |
+| `/keeptrack summary on\|off` | Mostra ou esconde a linha de resumo de cada sessão (ligada por padrão). Desligada, nenhum transcript é lido. |
 | Qualquer outro argumento | Um toast com a linha de uso. Nada muda. Palavras a mais depois de `open` ou de `issue <n>` (por exemplo `/keeptrack open now`) contam como outro argumento. |
 
 ## 🎛️ Configuração
@@ -329,14 +329,14 @@ Limitações conhecidas, como o código se comporta hoje:
 | Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo, projeção de registros, leitura do fuso UTC (`tests/model.test.ts`) | 122 |
 | Módulo de hooks: consulta, comando do painel, temporizadores, fechamento e fuso UTC do host (`tests/register.test.ts`) | 205 |
 | Faixa: linha de status, estados e botão Open (`tests/band.test.ts`) | 41 |
-| Painel: desenho do snapshot, relógio do host e datas de prazo (`tests/pane.test.ts`) | 111 |
+| Painel: desenho do snapshot, relógio do host e datas de prazo (`tests/pane.test.ts`) | 112 |
 | Idioma: dicionários em inglês e português do Brasil (`tests/i18n.test.ts`) | 10 |
 | Transições de turno da faixa (`tests/turn.test.ts`) | 8 |
 | Logo do repo: busca do arquivo, checagem da imagem e script de download do avatar (`tests/repo-logo.test.ts`) | 15 |
 | Resumo: limpeza do transcript, cortes e a varredura linear das tags (`tests/summary.test.ts`) | 16 |
-| **Total** | **528** |
+| **Total** | **529** |
 
-Contagens de `claude plugin test plugins/keeptrack-repo-pane` na árvore Unreleased (a ordem das linhas e a legenda): 528 aprovados, 0 falhas, 8 arquivos. A verificação de aparência (`scripts/keeptrack-look-selftest.sh`) é um script de shell e não entra na contagem.
+Contagens de `claude plugin test plugins/keeptrack-repo-pane` na árvore Unreleased (a ordem das linhas e a legenda): 529 aprovados, 0 falhas, 8 arquivos. A verificação de aparência (`scripts/keeptrack-look-selftest.sh`) é um script de shell e não entra na contagem.
 
 ## 🔧 Desenvolvimento
 
