@@ -11,6 +11,7 @@ Commit hashes name the change in `git log`.
 ## [0.2.0-beta.20] - 2026-11-01
 
 ### Changed
+- The README pair links the product page on keepglide.com from the top navigation line.
 - The footer's legend is an accordion named `Labels Descriptions` (pt-BR `Labels Descriptions`), closed by default: a button above the `Updated` line reads `▸ Labels Descriptions`, and a press opens its bordered table and reads `▾ Labels Descriptions`; a second press closes it. The open state is kept in the store under `legendOpen`, so it survives a reload; a store that refuses it is logged once and the legend draws closed (`hooks/pane.tsx`, `hooks/register.tsx`, `hooks/look.ts`, `hooks/i18n.ts`, SPEC section 19).
 
 ### Fixed
