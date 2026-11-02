@@ -496,7 +496,7 @@ function renderSessionHead(view: View, node: SessionNode, place: RowPlace): Rend
       <Box key="title-block" flexDirection="column" flexGrow={1}>
         {renderTitleLine(view, node, node.isThisWindow)}
         {renderSummaryLine(view, node)}
-        {renderCrumb(view, node, place)}
+        {renderCrumb(view, node)}
         {renderNeedsLine(view, node)}
       </Box>
     </Box>
@@ -536,7 +536,7 @@ function renderTitleLine(view: View, node: SessionNode, isThis: boolean): Render
 
 // The row's repo logo, drawn with its alt text ("owner/name logo"); false when the repo has none, or on the terminal.
 function repoLogoOf(view: View, node: SessionNode): RenderElement | false {
-  if (node.repoPage === null || node.logoKey === null) return false
+  if (node.kind !== 'root' || node.repoPage === null || node.logoKey === null) return false
   const source = view.logos.get(node.logoKey)
   if (source === undefined) return false
   return renderRepoLogo(view.ui, view.desktop, source, t(view.lang, 'session.logoAlt', { repo: repoLabelOf(node.repoPage) }))
@@ -573,7 +573,7 @@ function renderSessionTitle(view: View, node: SessionNode, isThis: boolean): Ren
   if (view.desktop && 'Markdown' in ui && isSessionLinkId(node.id)) {
     const { Markdown } = ui
     const repo = linkTargetOf(view, node.repoPage)
-    const anchor = `[${escapeMarkdown(`${node.title} ↗`)}](${repo ?? `#${node.id}`})`
+    const anchor = `[${escapeMarkdown(node.title)}](${repo ?? `#${node.id}`})`
     const title = isThis ? `**${anchor}**` : anchor
     const sessionLink = repo === null ? '' : `[${escapeMarkdown(t(lang, 'link.session', { title: shortLabel(node.title) }))}](#${node.id})`
     return <Markdown key={`title-${node.id}`} text={joinWords([title, icons, escapeMarkdown(marker), sessionLink])} />
@@ -599,26 +599,20 @@ function milestonePartOf(lang: Lang, node: SessionNode, repoPage: string | null)
   return [{ text: titleLabel(node.milestoneTitle), url: milestonePageOf(repoPage, node.milestoneNumber) }]
 }
 
-// The breadcrumb parts: the issue (linked to its page), the milestone part, then a derived session's origin (none for a root).
-function crumbPartsOf(view: View, node: SessionNode, place: RowPlace): CrumbPart[] {
+// The breadcrumb parts: the issue (linked to its page) and the milestone part.
+function crumbPartsOf(view: View, node: SessionNode): CrumbPart[] {
   const { lang } = view
   const issue: CrumbPart =
     node.issue === null
       ? { text: t(lang, 'crumb.noIssue'), url: null }
       : { text: withIcon(actionIconEmoji('inProgress'), `#${node.issue.number}`), url: node.issueUrl }
-  const milestone = milestonePartOf(lang, node, view.repoPage)
-  if (node.kind === 'root') return [issue, ...milestone]
-  const origin =
-    place.parentIssue === null
-      ? t(lang, 'crumb.derived')
-      : t(lang, 'crumb.derivedFrom', { number: place.parentIssue.number })
-  return [issue, ...milestone, { text: origin, url: null }]
+  return [issue, ...milestonePartOf(lang, node, view.repoPage)]
 }
 
-// The breadcrumb: "#n · milestone · origin". On the desktop each part with a page (the issue, the milestone) links to it when the address
+// The breadcrumb: "#n · milestone". On the desktop each part with a page (the issue, the milestone) links to it when the address
 // passes PAGE_URL; the rest is plain text.
-function renderCrumb(view: View, node: SessionNode, place: RowPlace): RenderElement {
-  const parts = crumbPartsOf(view, node, place)
+function renderCrumb(view: View, node: SessionNode): RenderElement {
+  const parts = crumbPartsOf(view, node)
   const { ui } = view
   const linkOf = (part: CrumbPart): string | null => linkTargetOf(view, part.url)
   if ('Markdown' in ui && parts.some(part => linkOf(part) !== null)) {

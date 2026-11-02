@@ -157,7 +157,7 @@ test('this window is the first session, in one highlighted block with its detail
   const block = nodesOf(tree).find(node => node.props.backgroundColor === DETAILS_FILL)
   expect(block !== undefined).toBe(true)
   const blockTexts = drawnTexts(block)
-  expect(texts).toContain('Synthetic session one ↗ 🟢 ▶️ ← this window')
+  expect(texts).toContain('Synthetic session one 🟢 ▶️ ← this window')
   expect(blockTexts).toContain('State:')
   expect(blockTexts).toContain('working')
   expect(blockTexts).toContain('Branch:')
@@ -235,8 +235,8 @@ test('the GitHub link of this window is a Markdown https link on the desktop and
 test('the breadcrumb carries the issue, its milestone and the origin; a window with no issue has no details and no link', () => {
   const texts = drawnTexts(drawDesktop())
   expect(texts).toContain('🛠️ #106 · Milestone B')
-  expect(texts).toContain('🛠️ #106 · Milestone B · derived from #106')
-  expect(texts).toContain('no issue · derived')
+  expect(texts).toContain('🛠️ #106 · Milestone B')
+  expect(texts).toContain('no issue')
 
   const noIssue = buildTree(
     sampleSessions().map(record => (record.sessionId === THIS_WINDOW ? { ...record, override: null } : record)),
@@ -291,7 +291,7 @@ test('a session title is escaped before it goes into its link', () => {
       ),
     }),
   })
-  expect(sessionLinksIn(tree)).toEqual(['[Fix \\[x\\]\\(y\\) \\*now\\* ↗](#local_aaaa1111) 🟢'])
+  expect(sessionLinksIn(tree)).toEqual(['[Fix \\[x\\]\\(y\\) \\*now\\*](#local_aaaa1111) 🟢'])
 })
 
 test('derived rows nest under their parents, one level deeper, with branch glyphs', () => {
@@ -366,18 +366,18 @@ test('the Recents label is bold Text, never Markdown, and its tops are titled �
   expect(nodesOf(tree).some(node => node.tag === 'Markdown' && String(node.props.text).includes('Recents'))).toBe(false)
 
   expect(drawnTexts(keyed(tree, 'head-local_1a2b0005'))[0]).toBe('├')
-  expect(drawnTexts(keyed(tree, 'head-local_1a2b0005'))).toContain('Synthetic docs ↗ 💤')
+  expect(drawnTexts(keyed(tree, 'head-local_1a2b0005'))).toContain('Synthetic docs 💤')
   expect(drawnTexts(keyed(tree, 'head-local_9b040003'))[0]).toBe('└')
-  expect(drawnTexts(keyed(tree, 'head-local_9b040003'))).toContain('Synthetic session three ↗ 💤')
+  expect(drawnTexts(keyed(tree, 'head-local_9b040003'))).toContain('Synthetic session three 💤')
   // Every session, a top or a derived one, is titled with its own link.
   expect(sessionLinksIn(tree).length).toBe(SIX_TITLES.length)
 })
 
 test('this window as a top of Recents: its titled row opens the highlighted block, with the glyphs and the marker', () => {
   const tree = drawDesktop()
-  expect(sessionLinksIn(tree)[0]).toBe(`**[Synthetic session one ↗](#${THIS_WINDOW})** 🟢 ▶️ ← this window`)
+  expect(sessionLinksIn(tree)[0]).toBe(`**[Synthetic session one](#${THIS_WINDOW})** 🟢 ▶️ ← this window`)
   const block = nodesOf(tree).find(node => node.props.backgroundColor === DETAILS_FILL)
-  expect(drawnTexts(block).slice(0, 2)).toEqual(['├', 'Synthetic session one ↗ 🟢 ▶️ ← this window'])
+  expect(drawnTexts(block).slice(0, 2)).toEqual(['├', 'Synthetic session one 🟢 ▶️ ← this window'])
 })
 
 test('a Desktop Group label is plain bold Text, never Markdown, and its family roots are titled ├/└ rows with their children nested', () => {
@@ -402,9 +402,9 @@ test('a Desktop Group label is plain bold Text, never Markdown, and its family r
   expect(textOf(label?.props.children)).toBe('Release 0.3 [x](y)')
   expect(nodesOf(tree).some(node => node.tag === 'Markdown' && String(node.props.text).includes('Release'))).toBe(false)
 
-  expect(drawnTexts(keyed(tree, `head-${THIS_WINDOW}`)).slice(0, 2)).toEqual(['├', 'Synthetic session one ↗ 🟢 ▶️ ← this window'])
+  expect(drawnTexts(keyed(tree, `head-${THIS_WINDOW}`)).slice(0, 2)).toEqual(['├', 'Synthetic session one 🟢 ▶️ ← this window'])
   expect(drawnTexts(keyed(tree, 'head-local_1a2b0005'))[0]).toBe('└')
-  expect(drawnTexts(keyed(tree, 'head-local_1a2b0005'))).toContain('Synthetic docs ↗ 💤')
+  expect(drawnTexts(keyed(tree, 'head-local_1a2b0005'))).toContain('Synthetic docs 💤')
   expect(drawnTexts(keyed(tree, 'head-local_c21d0002'))[0]).toBe('└')
   expect(indentBefore(tree, `session-${THIS_WINDOW}`)).toBe(1)
   expect(indentBefore(tree, 'session-local_c21d0002')).toBe(3)
@@ -449,7 +449,7 @@ test('an ended root draws no row and no label; its live derived sessions are tit
     { now: NOW, cutoffMs: 24 * HOUR, thisCliSessionId: null },
   )
   const tree = drawDesktop({ snapshot: snapshotWith({ sessions }) })
-  expect(sessionLinksIn(tree)).toEqual(['[Fork A ↗](#local_a0000002) 🟢', '[Spawn B ↗](#local_a0000003) 🟢'])
+  expect(sessionLinksIn(tree)).toEqual(['[Fork A](#local_a0000002) 🟢', '[Spawn B](#local_a0000003) 🟢'])
   expect(keyed(tree, 'session-local_a0000001') === undefined).toBe(true)
   expect(drawnTexts(keyed(tree, 'head-local_a0000002'))[0]).toBe('├')
   expect(drawnTexts(keyed(tree, 'head-local_a0000003'))[0]).toBe('└')
@@ -469,7 +469,7 @@ test('a top without a group is drawn under Recents as a titled └ row', () => {
   const tree = drawDesktop({ snapshot: snapshotWith({ sessions: [loose] }) })
   expect(textOf(groupLabelIn(tree, 'recents')?.props.children)).toBe('Recents')
   expect(drawnTexts(keyed(tree, 'head-local_b0000003'))[0]).toBe('└')
-  expect(sessionLinksIn(tree)).toEqual(['[Loose top ↗](#local_b0000003) 🟢'])
+  expect(sessionLinksIn(tree)).toEqual(['[Loose top](#local_b0000003) 🟢'])
 })
 
 test("on the terminal the Recents label and this window's title are plain bold Text, with no link", () => {
@@ -608,7 +608,7 @@ test('an archived window is still drawn, with the state of its activity in its d
   })
   const tree = drawDesktop({ snapshot })
   const block = nodesOf(tree).find(node => node.props.backgroundColor === DETAILS_FILL)
-  expect(drawnTexts(tree)).toContain('Synthetic session one ↗ 🟢 ▶️ ← this window')
+  expect(drawnTexts(tree)).toContain('Synthetic session one 🟢 ▶️ ← this window')
   expect(drawnTexts(block)).toContain('working')
 })
 
@@ -1371,9 +1371,9 @@ test('each session title links to its own repo page: two sessions with two origi
   const withPage = (node: SessionNode): SessionNode => ({ ...node, repoPage: pages[node.title] ?? null, children: node.children.map(withPage) })
   const base = snapshotWith()
   const texts = markdownTextsOf(drawDesktop({ snapshot: { ...base, sessions: base.sessions.map(withPage) } })).join('\n')
-  expect(texts).toContain('[Synthetic session one ↗](https://github.com/acme/app)')
-  expect(texts).toContain('[Synthetic docs ↗](https://gitlab.example.test/acme/app)')
-  expect(texts).not.toContain('Synthetic docs ↗](https://github.com/acme/app)')
+  expect(texts).toContain('[Synthetic session one](https://github.com/acme/app)')
+  expect(texts).toContain('[Synthetic docs](https://gitlab.example.test/acme/app)')
+  expect(texts).not.toContain('Synthetic docs](https://github.com/acme/app)')
 })
 
 test('an exact milestone with no issue at all reads "no issues" with no done icon and no ready to close; one with closed issues still reads all closed', () => {

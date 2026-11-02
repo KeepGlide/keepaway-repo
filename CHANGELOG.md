@@ -8,6 +8,13 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+## [0.2.0-beta.23] - 2026-11-02
+
+### Changed
+- A repo logo is drawn 32 px square, beside a root session's title only; a derived session's row draws none (`hooks/logo-element.tsx`, `hooks/pane.tsx`).
+- Session titles have no ↗ arrow; the link colour already marks them as clickable.
+- The breadcrumb no longer ends with `derived` / `derived from #n`; the branch glyph and the indent already show a derived session (`hooks/pane.tsx`, `hooks/i18n.ts`).
+
 ## [0.2.0-beta.22] - 2026-11-01
 
 ### Changed

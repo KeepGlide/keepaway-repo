@@ -2443,8 +2443,8 @@ test('two sessions with two origins each draw their own repo page: each title li
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const desktop = await drawnPane($, 'desktop')
-  expect(desktop).toContain('[Second origin ↗](https://github.com/Acme/App)')
-  expect(desktop).toContain('[Fix disk full ↗](https://github.com/acme/app)')
+  expect(desktop).toContain('[Second origin](https://github.com/Acme/App)')
+  expect(desktop).toContain('[Fix disk full](https://github.com/acme/app)')
 })
 
 test('SP5-1: /keeptrack open or issue with extra words toasts usage and changes nothing', async ($: Engine, on) => {
@@ -2660,7 +2660,7 @@ test('a logo file in the checkout is drawn before the title on the desktop, and 
   await host.clock.settle()
   const logo = repoLogoOf(await drawnTree($, 'desktop'))[0]
   expect(logo?.type).toBe('Svg')
-  expect(logo?.props).toMatchObject({ source: LOGO_FRAME, alt: 'acme/app logo', width: 16, height: 16 })
+  expect(logo?.props).toMatchObject({ source: LOGO_FRAME, alt: 'acme/app logo', width: 32, height: 32 })
   expect(contentsCalls(host)).toBe(0)
   expect(host.denies).toEqual([])
   expect(host.logs).toEqual([])
@@ -2991,7 +2991,7 @@ test('an ssh alias that resolves to github.com is GitHub: its logo comes from gh
   expect(contentsCalls(host)).toBe(1)
   expect(host.store.has(LOGO_STORE_KEY)).toBe(true)
   expect(repoLogoOf(await drawnTree($, 'desktop'))).toHaveLength(1)
-  expect(await drawnPane($, 'desktop')).toContain('[Fix disk full ↗](https://github.com/acme/app)')
+  expect(await drawnPane($, 'desktop')).toContain('[Fix disk full](https://github.com/acme/app)')
 })
 
 test('an ssh alias that resolves to gitlab.com takes the GitLab path with the real host: glab is asked on gitlab.com', async ($: Engine, on) => {
@@ -3092,7 +3092,7 @@ test('a failed ssh alias lookup is asked again after LOGO_RETRY_MS, not before, 
   await host.clock.settle()
   expect(sshCalls(host)).toHaveLength(2)
   expect(contentsCalls(host)).toBe(1)
-  expect(await drawnPane($, 'desktop')).toContain('[Fix disk full ↗](https://github.com/acme/app)')
+  expect(await drawnPane($, 'desktop')).toContain('[Fix disk full](https://github.com/acme/app)')
 })
 
 test('a remote whose host starts with a dash is no remote: no ssh or glab call names it, and the pane still draws', async ($: Engine, on) => {
@@ -3127,7 +3127,7 @@ test('an organization owner avatar is drawn when the checkout and the contents h
   expect(contentsCalls(host)).toBe(3)
   expect(host.argvs.find(argv => argv[0] === 'sh')).toEqual(['sh', '-c', AVATAR_FETCH_SCRIPT, 'keeptrack-logo', ORG_AVATAR_SIZED])
   const logo = repoLogoOf(await drawnTree($, 'desktop'))[0]
-  expect(logo?.props).toMatchObject({ alt: 'acme/app logo', width: 16, height: 16 })
+  expect(logo?.props).toMatchObject({ alt: 'acme/app logo', width: 32, height: 32 })
   expect(String(logo?.props?.source)).toContain(`data:image/png;base64,${TINY_PNG}`)
   expect(host.store.get(LOGO_STORE_KEY)).toMatchObject({ failed: false })
   expect(host.denies).toEqual([])
