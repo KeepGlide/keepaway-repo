@@ -9,6 +9,7 @@ Commit hashes name the change in `git log`.
 ## [Unreleased]
 
 ### Changed
+- The summary line shows the first prompt whole up to 300 characters. A longer prompt (a handoff, for one) is condensed by Haiku into one sentence in the pane's language, stored under `briefs` (the line only, never the prompt), and drawn in place of the cut prompt; a failed call keeps the cut prompt and retries after 10 minutes. This reverses Q3 for long prompts (`hooks/summary.ts`, `hooks/register.tsx`, SPEC section 21).
 - A session title opens its session (`#local_<id>`) on the desktop, even when its repo page is known; the separate `open session: <title>` link, the `▶️` active-window marker and the `← this window` words are gone, and the Labels table no longer lists ▶️. The state icon (🟢 ⏳ 💤) stays after the title (`hooks/pane.tsx`, `hooks/action-icons.ts`, `hooks/i18n.ts`, SPEC sections 11 and 19).
 
 ## [0.2.0-beta.23] - 2026-11-02

@@ -3318,6 +3318,80 @@ test('summaries are never stored: the summary:<id> keys an earlier build left ar
   await expectClean(host, $)
 })
 
+// ---- condensed lines of long prompts (SPEC section 21, owner's review 2026-11-02) ----
+
+const LONG_PROMPT = `1. Header Repository: /work/app · date: 2026-11-01 ${'context '.repeat(60)}`
+const NO_USAGE = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
+// Answers every model call with this reply and records each request.
+function stubModel(on: On, reply: { isAnswered: true; text: string } | { isAnswered: false; reason: string }): Array<{ model: string; prompt: string }> {
+  const calls: Array<{ model: string; prompt: string }> = []
+  on('model.complete', (_$, event) => {
+    calls.push({ model: event.model, prompt: event.prompt })
+    return {
+      value: reply.isAnswered
+        ? { isAnswered: true, text: reply.text, usage: NO_USAGE }
+        : { isAnswered: false, reason: reply.reason, status: 500, error: 'api_error', usage: NO_USAGE },
+    }
+  })
+  return calls
+}
+
+test('a long first prompt is condensed by Haiku once: its line replaces the cut prompt and only the line is stored', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine(LONG_PROMPT) } })
+  const calls = stubModel(on, { isAnswered: true, text: 'Handoff: verify the beta.21 layout and ship beta.22' })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  await host.clock.settle()
+  expect(calls).toHaveLength(1)
+  expect(calls[0]?.model).toBe('haiku')
+  expect(await drawnPane($)).toContain('Handoff: verify the beta.21 layout and ship beta.22')
+  const stored = JSON.stringify(host.store.get('briefs'))
+  expect(stored).toContain('Handoff: verify the beta.21 layout')
+  expect(stored).not.toContain('Header Repository')
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(calls).toHaveLength(1)
+})
+
+test('a stored condensed line is drawn with no model call', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine(LONG_PROMPT) } })
+  host.store.set('briefs', { [OWN_RECORD.sessionId]: { text: 'Handoff: stored goal line', at: 1 } })
+  const calls = stubModel(on, { isAnswered: true, text: 'never asked' })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain('Handoff: stored goal line')
+  expect(calls).toHaveLength(0)
+})
+
+test('a failed condensing keeps the cut prompt, is logged once by its reason, and is asked again after SUMMARY_RETRY_MS', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine(LONG_PROMPT) } })
+  const calls = stubModel(on, { isAnswered: false, reason: 'api-error' })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain('1. Header Repository')
+  expect(host.logs).toEqual(['keeptrack: session brief failed (api-error)'])
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(calls).toHaveLength(1)
+  await host.clock.advance(SUMMARY_RETRY_MS)
+  await host.clock.settle()
+  expect(calls).toHaveLength(2)
+  expect(host.logs).toHaveLength(1)
+})
+
+test('a prompt that fits PROMPT_SHOWN_MAX is drawn whole and makes no model call', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine('Fix the disk full error') } })
+  const calls = stubModel(on, { isAnswered: true, text: 'never asked' })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  expect(calls).toHaveLength(0)
+  expect(await drawnPane($)).toContain('Fix the disk full error')
+})
+
 test('a refused transcript read is logged once by its name, keeps the other lines, and is not read again', async ($: Engine, on) => {
   const host = stubHost(on, { transcriptRefuses: true })
   await $.session.start(SESSION)

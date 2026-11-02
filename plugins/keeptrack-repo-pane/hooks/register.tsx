@@ -9,7 +9,18 @@ import { renderPane } from './pane'
 import { renderBand, type BandIssue, type BandRepo } from './band'
 import { heldButtons, type HeldButtons } from './held'
 import { IDLE_TURN, bandRedrawDue, turnEnded, turnExpired, turnStarted, turnTimedOut, turnToolNamed } from './turn'
-import { SUMMARY_KEEP_MAX, SUMMARY_RETRY_MS, TRANSCRIPT_HEAD_BYTES, hasUserLine, summaryOfTranscript, transcriptFolderOf } from './summary'
+import {
+  SUMMARY_KEEP_MAX,
+  SUMMARY_RETRY_MS,
+  TRANSCRIPT_HEAD_BYTES,
+  briefOfReply,
+  briefRequestOf,
+  hasUserLine,
+  needsBrief,
+  promptOfTranscript,
+  shownPromptOf,
+  transcriptFolderOf,
+} from './summary'
 import {
   COMMIT_SHA,
   LABEL_MAX,
@@ -23,6 +34,7 @@ import {
   commitPageOf,
   isGithubHost,
   isGitlabHost,
+  isObject,
   isSessionLinkId,
   issueFactsOf,
   logoKeyOf,
@@ -908,9 +920,21 @@ const SUMMARY_CHOICES: ReadonlyMap<string, boolean> = new Map([
   ['on', true],
   ['off', false],
 ])
+// The condensed lines of long prompts, in the store by session id (`briefs`), so a window that opens later shows them without a model
+// call. Only the model's line is kept, never the prompt (owner's review, 2026-11-02: this replaces the memory-only rule for these lines).
+const BRIEFS_KEY = 'briefs'
+// The most model calls started per poll, and the most condensed lines kept in the store (the oldest out).
+const BRIEFS_PER_POLL = 2
+const BRIEF_KEEP_MAX = 200
+type StoredBrief = { text: string; at: number }
 // The summaries this window holds, by session id. A final one (a prompt, or a user line with no usable text) lasts the window's life; one
-// that is not final is read again once its retryAt has passed (null for a final one).
-type RememberedSummary = { summary: SessionSummary; retryAt: number | null }
+// that is not final is read again once its retryAt has passed (null for a final one). `longPrompt` is a prompt too long to show whole
+// whose condensed line is not known yet; null once it is, or for a prompt that fits.
+type RememberedSummary = { summary: SessionSummary; retryAt: number | null; longPrompt?: string | null }
+// The sessions whose condensed line is being asked for, and when a failed one may be asked again.
+const briefsInFlight = new Set<string>()
+const briefRetryAt = new Map<string, number>()
+let briefFailureLogged = false
 const summaryMemory = new Map<string, RememberedSummary>()
 // Whether a summary failure has been logged in this window (once, by the error's name).
 let summaryFailureLogged = false
@@ -920,6 +944,9 @@ let storedSummariesCleared = false
 // Forgets this window's summaries, its failure log and its cleanup flag. The tests call it before each host starts.
 export function resetSummaryMemory(): void {
   summaryMemory.clear()
+  briefsInFlight.clear()
+  briefRetryAt.clear()
+  briefFailureLogged = false
   summaryFailureLogged = false
   storedSummariesCleared = false
 }
@@ -966,11 +993,90 @@ async function transcriptHeadOf($: EngineInterface, record: ProjectedRecord): Pr
 // A session's summary from its transcript, and whether it is final: the first prompt, cut, or no text when the transcript has a user line
 // with none, which is final. A missing or refused transcript, or one with no user line yet (a session that has just started), is not:
 // it is read again after SUMMARY_RETRY_MS.
-async function readSummaryOf($: EngineInterface, record: ProjectedRecord): Promise<{ summary: SessionSummary; final: boolean }> {
+async function readSummaryOf($: EngineInterface, record: ProjectedRecord): Promise<{ summary: SessionSummary; final: boolean; longPrompt: string | null }> {
   const head = await transcriptHeadOf($, record)
-  if (head === null) return { summary: { text: null }, final: false }
-  const text = summaryOfTranscript(head)
-  return { summary: { text }, final: text !== null || hasUserLine(head) }
+  if (head === null) return { summary: { text: null }, final: false, longPrompt: null }
+  const prompt = promptOfTranscript(head)
+  const text = prompt === null ? null : shownPromptOf(prompt)
+  return { summary: { text }, final: text !== null || hasUserLine(head), longPrompt: prompt !== null && needsBrief(prompt) ? prompt : null }
+}
+
+// The stored condensed lines, by session id; anything malformed is left out.
+async function storedBriefsOf($: EngineInterface): Promise<Record<string, StoredBrief>> {
+  const raw = await $.store.get(BRIEFS_KEY)
+  const briefs: Record<string, StoredBrief> = {}
+  if (!isObject(raw)) return briefs
+  for (const [id, value] of Object.entries(raw)) {
+    if (isObject(value) && typeof value.text === 'string' && typeof value.at === 'number') briefs[id] = { text: value.text, at: value.at }
+  }
+  return briefs
+}
+
+// Stores one condensed line, keeping the BRIEF_KEEP_MAX newest.
+async function storeBriefOf($: EngineInterface, sessionId: string, brief: StoredBrief): Promise<void> {
+  const briefs = { ...(await storedBriefsOf($)), [sessionId]: brief }
+  const kept = Object.entries(briefs)
+    .sort((a, b) => b[1].at - a[1].at)
+    .slice(0, BRIEF_KEEP_MAX)
+  await $.store.set(BRIEFS_KEY, Object.fromEntries(kept))
+}
+
+// A brief failure, logged once by its reason or the error's name: a prompt never reaches the log.
+function logBriefFailureOnce($: EngineInterface, reason: string): void {
+  if (briefFailureLogged) return
+  briefFailureLogged = true
+  logLine($, `session brief failed (${reason})`)
+}
+
+// Asks the model for one session's condensed line, without waiting: the line is stored and remembered and the pane polls again, so it
+// is drawn. A failure keeps the cut prompt and is asked again after SUMMARY_RETRY_MS.
+function startBrief($: EngineInterface, sessionId: string, prompt: string, now: number): void {
+  if (briefsInFlight.has(sessionId)) return
+  briefsInFlight.add(sessionId)
+  const ask = async (): Promise<void> => {
+    const reply = await $.model.complete(briefRequestOf(prompt, await read($, langAtom)))
+    const text = reply.isAnswered ? briefOfReply(reply.text) : null
+    if (text === null) {
+      logBriefFailureOnce($, reply.isAnswered ? 'empty-reply' : reply.reason)
+      briefRetryAt.set(sessionId, now + SUMMARY_RETRY_MS)
+      return
+    }
+    await storeBriefOf($, sessionId, { text, at: await $.clock.now() })
+    rememberBriefOf(sessionId, text)
+    if (await read($, openAtom)) repollSoon($)
+  }
+  void ask()
+    .catch((error: unknown) => {
+      logBriefFailureOnce($, failureNameOf(error))
+      briefRetryAt.set(sessionId, now + SUMMARY_RETRY_MS)
+    })
+    .finally(() => briefsInFlight.delete(sessionId))
+}
+
+// Puts a condensed line in place of a session's cut prompt in this window's memory.
+function rememberBriefOf(sessionId: string, text: string): void {
+  const remembered = summaryMemory.get(sessionId)
+  if (remembered !== undefined) summaryMemory.set(sessionId, { ...remembered, summary: { text }, longPrompt: null })
+}
+
+// The condensed lines of this poll's long prompts: a stored one takes the cut prompt's place; a missing one is asked of the model, at
+// most BRIEFS_PER_POLL per poll, never while one for the same session runs or before a failed one's retry time.
+async function applyBriefs($: EngineInterface, summaries: Map<string, SessionSummary>, now: number): Promise<void> {
+  const waiting = [...summaries.keys()].filter(id => (summaryMemory.get(id)?.longPrompt ?? null) !== null)
+  if (waiting.length === 0) return
+  const stored = await storedBriefsOf($)
+  let started = 0
+  for (const id of waiting) {
+    const brief = stored[id]
+    if (brief !== undefined) {
+      rememberBriefOf(id, brief.text)
+      summaries.set(id, { text: brief.text })
+      continue
+    }
+    if (started >= BRIEFS_PER_POLL || briefsInFlight.has(id) || now < (briefRetryAt.get(id) ?? 0)) continue
+    started += 1
+    startBrief($, id, summaryMemory.get(id)?.longPrompt ?? '', now)
+  }
 }
 
 // The summary of each candidate session this poll: from this window's memory, else from its transcript, which is read for at most
@@ -989,9 +1095,10 @@ async function summariesOf($: EngineInterface, records: readonly ProjectedRecord
   }
   for (const record of unknown.slice(0, SUMMARY_READS_PER_POLL)) {
     const read = await readSummaryOf($, record)
-    rememberSummary(record.sessionId, { summary: read.summary, retryAt: read.final ? null : now + SUMMARY_RETRY_MS })
+    rememberSummary(record.sessionId, { summary: read.summary, retryAt: read.final ? null : now + SUMMARY_RETRY_MS, longPrompt: read.longPrompt })
     summaries.set(record.sessionId, read.summary)
   }
+  await applyBriefs($, summaries, now)
   return summaries
 }
 
