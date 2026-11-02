@@ -47,7 +47,7 @@
 
 ## 📌 Status
 
-Beta (`0.2.0-beta.23`). O projeto segue o [SemVer](https://semver.org/): enquanto a versão for `0.y.z`, qualquer release pode mudar o comportamento sem aviso.
+Beta (`0.2.0-beta.24`). O projeto segue o [SemVer](https://semver.org/): enquanto a versão for `0.y.z`, qualquer release pode mudar o comportamento sem aviso.
 
 ## 💡 Por que existe
 
@@ -61,6 +61,7 @@ Ele **não** altera nada no GitHub nem no seu repositório. Não registra tempo,
 
 - **`/keeptrack`** abre o painel (`/keeptrack open` faz o mesmo). `/keeptrack issue <n>` define a issue desta janela, `/keeptrack issue none` a limpa, e `/keeptrack lang en|pt-BR|auto` define o idioma.
 - **Esta janela primeiro**: a sessão da janela com os detalhes e a linha do tempo da sua issue.
+- **Tarefa atual e linha do tempo**: cada sessão mostra `Agora: <tarefa>` (a etapa do plano em andamento) e as etapas do plano, commits e PR, da mais nova para a mais antiga; as 5 mais novas aparecem e o resto fica atrás de `▸ Anteriores (N)`.
 - **Sessões agrupadas como na barra lateral do Desktop**: no topo o rótulo do grupo, em negrito simples, abaixo as sessões dele. Uma sessão que está num Grupo da barra lateral do Desktop (o dela ou o da raiz dela) é desenhada sob o nome do Grupo; toda sessão sem Grupo fica num único grupo com o rótulo `Recents`, como a barra lateral do Desktop as chama. O rótulo é `Recents` nos dois idiomas, porque o app do Desktop não tem rótulo traduzido, e um Grupo do Desktop chamado "Recents" mantém o rótulo próprio ao lado dele. Cada sessão do topo é uma linha `├`/`└` com título, estado, issue e milestone, e as derivadas (fork ou spawn) ficam aninhadas embaixo dela, a 1, 3 e 5 células. Primeiro vem o grupo desta janela, depois os Grupos com nome pela atividade mais recente, e por último `Recents`; dentro de um grupo, primeiro a sessão desta janela, depois as que esperam você, depois as mais recentes. Cada título de sessão leva à sessão no Desktop.
 - **Sessões encerradas não são listadas**: uma sessão arquivada no Desktop sai da árvore na hora, a menos que seja a sessão desta janela. Uma raiz arquivada não é desenhada: as derivadas ativas dela viram linhas do grupo delas (`Recents` quando não têm Grupo), com o título da mãe na linha do tempo.
 - **Issues abertas por milestone**: as issues abertas que nenhuma sessão trabalha, agrupadas por milestone aberto, com o progresso do milestone. Os milestones ordenam pelo prazo, o mais cedo primeiro; dentro de um grupo as issues ordenam por prioridade (`P0` a `P3`, lida dos rótulos), e cada linha traz a sua marca.
@@ -68,12 +69,12 @@ Ele **não** altera nada no GitHub nem no seu repositório. Não registra tempo,
 - **Um botão Open** na faixa, com a marca KeepGlide antes dele (a marca aparece só no Desktop).
 - **Inglês e português do Brasil** no painel e na faixa.
 - **Logo do repositório**: no desktop, a linha de uma sessão mostra o logo do repositório (16 px) antes do título, quando o repositório tem um: um arquivo de logo PNG ou JPEG no checkout (sem SVG), senão o conteúdo do GitHub, senão o avatar de uma organização do GitHub dona do repositório. Um repositório GitLab recebe o avatar do projeto pelo `glab`. Um remoto nomeado por um alias de SSH é lido como o host para o qual o alias resolve. Sem logo, nada é desenhado.
-- **Links**: o título de uma sessão abre a página dela no GitHub ou no GitLab quando o remoto da sessão é conhecido, e um link `abrir sessão` abre a própria sessão. No desktop, milestones, commits, PRs e issues levam às suas páginas.
+- **Links**: no desktop o título de uma sessão abre essa sessão. No desktop, milestones, commits, PRs e issues levam às suas páginas.
 - **Riscos primeiro**: acima das sessões, chips para milestone atrasado (⚠️), milestone que vence em até 14 dias (📅, `vence hoje` no dia) e as outras sessões que pararam esperando você (⏳, com os números das issues); depois `14 de 24 fechadas nos milestones abertos`, a barra, as issues que faltam e as sessões trabalhando.
 - **Sessões em espera**: outra sessão cujo último turno parou precisando de você (o resumo de fim de turno do Desktop, última atividade há menos de 24 h) mostra ⏳ e uma linha `Precisa de você:` de até 90 caracteres, e vem logo depois da sessão desta janela. Um grupo lista 20 sessões de topo e depois `+k mais`.
 - **Resumo de cada sessão**: uma linha logo abaixo do título da sessão com o primeiro prompt, limpo e cortado em 93 caracteres, sem rótulo. `/keeptrack summary off` esconde a linha.
 - **Decisões e objetivos**: o bloco desta janela mostra `Decidido:` a partir do comentário mais novo da issue, do dono, de um membro ou de um colaborador, que começa com `Decisão:` ou `Decision:`; cada milestone mostra sua descrição como `Objetivo:`.
-- **Ícones depois do título**: estado (🟢 trabalhando, ⏳ esperando você, 💤 ociosa, sem palavra de estado), a marca ativa (▶️ esta janela), a linha do tempo (📝 commit, 🔀 PR, 🚀 sessão), issues a fazer (📋) ou em andamento (🛠️), milestones (🎯) com barra de progresso em texto, prazo (📅) e marca de atraso (⚠️), e prioridades (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3). A legenda no rodapé do painel, uma sanfona chamada Labels Descriptions que começa fechada, nomeia cada um. A tabela completa está na [SPEC, seção 19](plugins/keeptrack-repo-pane/SPEC.md). As capturas ainda mostram o desenho anterior aos ícones.
+- **Ícones depois do título**: estado (🟢 trabalhando, ⏳ esperando você, 💤 ociosa, sem palavra de estado), a linha do tempo (📝 commit, 🔀 PR, 🚀 sessão), issues a fazer (📋) ou em andamento (🛠️), milestones (🎯) com barra de progresso em texto, prazo (📅) e marca de atraso (⚠️), e prioridades (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3). A legenda no rodapé do painel, uma sanfona chamada Labels Descriptions que começa fechada, nomeia cada um. A tabela completa está na [SPEC, seção 19](plugins/keeptrack-repo-pane/SPEC.md). As capturas ainda mostram o desenho anterior aos ícones.
 
 ## 📸 Screenshots
 
@@ -195,7 +196,7 @@ Regras de base:
 | 1 | Conferir se o gh está logado | `gh auth status` | Saída 0 e uma linha `Logged in to github.com`. Se não, a pessoa roda `gh auth login`. |
 | 2 | Conferir se o repositório tem um remote no GitHub | `git remote get-url origin` | Saída 0 e uma URL cujo host é `github.com`, ou um alias SSH com `github` no nome (por exemplo `git@github-<label>:<owner>/<repo>.git`). Se não, o painel mostra `sem remote no GitHub para este repo`. |
 | 3 🧑 | Adicionar o marketplace, a menos que `claude plugin marketplace list` já mostre `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Saída 0, e `claude plugin marketplace list` mostra `sophia-mods` com `Source: Folder (<path>)`. |
-| 4 🧑 | Instalar o plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Saída 0, e `claude plugin list` mostra `keeptrack-repo-pane@sophia-mods` com `Version: 0.2.0-beta.23` e `Status: ✔ enabled`. |
+| 4 🧑 | Instalar o plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Saída 0, e `claude plugin list` mostra `keeptrack-repo-pane@sophia-mods` com `Version: 0.2.0-beta.24` e `Status: ✔ enabled`. |
 | 5 | Conferir se o comando está registrado | Em uma sessão do Desktop, `/keeptrack bogus` | Um toast com a linha de uso `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em inglês, ou `Uso: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em português. Nada muda. |
 | 6 | Abrir o painel | `/keeptrack` | Abre um painel com o título `KeepTrack`. Mostra `Carregando o repo...`, depois as issues abertas por milestone, ou uma linha de erro de [Solução de problemas](#-solução-de-problemas). |
 | 7 | Trocar o idioma para português | `/keeptrack lang pt-BR` | O painel e a faixa mudam para português. Durante o carregamento, o painel mostra `Carregando o repo...`. |
@@ -326,17 +327,18 @@ Limitações conhecidas, como o código se comporta hoje:
 
 | Categoria | Testes |
 |---|---|
-| Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo, projeção de registros, leitura do fuso UTC (`tests/model.test.ts`) | 122 |
-| Módulo de hooks: consulta, comando do painel, temporizadores, fechamento e fuso UTC do host (`tests/register.test.ts`) | 205 |
+| Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo, projeção de registros, leitura do fuso UTC (`tests/model.test.ts`) | 125 |
+| Módulo de hooks: consulta, comando do painel, temporizadores, fechamento, fuso UTC do host e leitura das etapas do plano (`tests/register.test.ts`) | 213 |
 | Faixa: linha de status, estados e botão Open (`tests/band.test.ts`) | 41 |
-| Painel: desenho do snapshot, relógio do host e datas de prazo (`tests/pane.test.ts`) | 113 |
+| Painel: desenho do snapshot, relógio do host, datas de prazo e o acordeão Anteriores (`tests/pane.test.ts`) | 119 |
 | Idioma: dicionários em inglês e português do Brasil (`tests/i18n.test.ts`) | 10 |
 | Transições de turno da faixa (`tests/turn.test.ts`) | 8 |
 | Logo do repo: busca do arquivo, checagem da imagem e script de download do avatar (`tests/repo-logo.test.ts`) | 15 |
-| Resumo: limpeza do transcript, cortes e a varredura linear das tags (`tests/summary.test.ts`) | 25 |
-| **Total** | **539** |
+| Resumo: limpeza do transcript, cortes, a varredura linear das tags e a linha condensada (`tests/summary.test.ts`) | 30 |
+| Etapas do plano: entradas de update_plan e TodoWrite, eventos e a etapa atual (`tests/steps.test.ts`) | 7 |
+| **Total** | **568** |
 
-Contagens de `claude plugin test plugins/keeptrack-repo-pane` na árvore 0.2.0-beta.23 (a ordem das linhas e a legenda): 539 aprovados, 0 falhas, 8 arquivos. A verificação de aparência (`scripts/keeptrack-look-selftest.sh`) é um script de shell e não entra na contagem.
+Contagens de `claude plugin test plugins/keeptrack-repo-pane` na árvore 0.2.0-beta.24 (a tarefa atual e o acordeão Anteriores): 568 aprovados, 0 falhas, 9 arquivos. A verificação de aparência (`scripts/keeptrack-look-selftest.sh`) é um script de shell e não entra na contagem.
 
 ## 🔧 Desenvolvimento
 

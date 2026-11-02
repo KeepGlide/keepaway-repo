@@ -1,4 +1,4 @@
-# KeepTrack: spec (as built, v0.2.0-beta.23)
+# KeepTrack: spec (as built, v0.2.0-beta.24)
 
 Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepTrack, the command is `/keeptrack`.
 
@@ -366,7 +366,7 @@ Run from the mod folder:
 3. `scripts/keeptrack-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
    `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only (it holds every emoji of KeepTrack). `scripts/keeptrack-look-selftest.sh` runs the gate on a copy and checks those cases.
 4. `agentic-mod-release-tool.sh keeptrack-repo-pane --check` must pass before the mod is installed (CLAUDE.md rule 6a).
-   The mod is published as 0.2.0-beta.23 and installed from `sophia-mods` (README, Installation).
+   The mod is published as 0.2.0-beta.24 and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
 or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`, `parseUtcOffset`) and do not depend on the zone the test process runs in; the register test answers `date +%z` through the process stub, including a refused call.
@@ -614,7 +614,7 @@ Owner's review, 2026-11-02: each session shows the task it is on now and the tas
   transcript over 4 MiB is read in steps. A partial last line is kept for the next poll. A session is read again only when its record's
   activity is newer than at its last read. At most 5 transcripts per poll; this window keeps the cursors of the 64 sessions read most recently, in
   memory only, never in the store. A single line over the engine's 4 MiB output cap never completes, so that session's steps stop there. A refused read is logged once by the error's name.
-- Current task: the step in progress in the last plan; with none, the `status_detail` of the session's `postTurnSummary`; with neither,
+- Current task: the step in progress in the last plan; with none, the `status_detail` of the session's `postTurnSummary` unless its `status_category` is `completed`; with neither,
   no line. Drawn first in the timeline as `Now: <task>` (pt-BR `Agora: <task>`).
 - Height: the pane has no inner scroll, so a session draws its 5 newest events (`TIMELINE_SHOWN`); the older ones, up to 30, sit behind
   an `Earlier (N)` button (pt-BR `Anteriores (N)`), `▸` closed, `▾` open, like the Labels accordion. Each session opens on its own; the

@@ -818,7 +818,7 @@ function needsActionOf(value: unknown): string | null {
 // malformed gives no line but keeps the status.
 function postTurnOf(value: unknown): PostTurnSummary | null {
   if (!isObject(value) || typeof value.status_category !== 'string') return null
-  return { blocked: value.status_category === 'blocked', needsAction: needsActionOf(value.needs_action), detail: needsActionOf(value.status_detail) }
+  return { blocked: value.status_category === 'blocked', needsAction: needsActionOf(value.needs_action), detail: value.status_category === 'completed' ? null : needsActionOf(value.status_detail) }
 }
 
 // Projects one raw Desktop session record onto the fields the pane reads (repo-work-pane-design-spec.md section 2.7) and nothing else. Returns

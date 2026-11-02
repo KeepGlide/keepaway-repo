@@ -8,6 +8,8 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+## [0.2.0-beta.24] - 2026-11-02
+
 ### Changed
 - Each session shows its current task first (`Now: <task>`, pt-BR `Agora: <task>`) and its plan steps as timeline events, newest first, read incrementally from its transcript (the Desktop's task list or `TodoWrite`); with no step in progress, the stop detail is the current task (`hooks/steps.ts`, `hooks/register.tsx`, `hooks/model.ts`, SPEC section 22).
 - A timeline keeps up to 30 events: the 5 newest are drawn, the rest sit behind a per-session `▸ Earlier (N)` button (`Anteriores (N)`), whose open state is stored under `timelineOpen` (`hooks/pane.tsx`, SPEC sections 10 and 22).

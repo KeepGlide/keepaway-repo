@@ -1055,6 +1055,13 @@ test('buildTree: the current task is the plan step in progress, else the stop de
   expect(bare?.currentTask).toBeNull()
 })
 
+test('projectRecord: a completed stop gives no detail, so a finished session draws no Now line', () => {
+  const done = projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'completed', status_detail: 'Released beta.22' } }))
+  expect(done?.postTurn?.detail).toBeNull()
+  const waiting = projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'blocked', status_detail: 'Waiting for review' } }))
+  expect(waiting?.postTurn?.detail).toBe('Waiting for review')
+})
+
 test('buildTree: a session that stopped blocked within 24 h is waiting for you, and its row carries the needs line (D7)', () => {
   const [node] = buildTree([makeRecord({ sessionId: 'local_aaaa0301', lastActivityAt: NOW - 3 * HOUR, postTurn: STOPPED })], OPTS)
   expect(node?.state).toBe('waiting')
