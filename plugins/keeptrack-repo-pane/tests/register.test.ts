@@ -2431,7 +2431,7 @@ test('a 52-hex commit id is no full hash: no commit link; its commit row is stil
   expect(drawn).not.toContain('/commit/')
 })
 
-test('two sessions with two origins each draw their own repo page: each title links to its own origin', async ($: Engine, on) => {
+test('two sessions with two origins: each title opens its own session, and neither title links to a repo page', async ($: Engine, on) => {
   const OTHER_FOLDER = '/work/app-b'
   const OTHER = recordOf('local_7f3a0002', {
     title: 'Second origin',
@@ -2443,8 +2443,10 @@ test('two sessions with two origins each draw their own repo page: each title li
   await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const desktop = await drawnPane($, 'desktop')
-  expect(desktop).toContain('[Second origin](https://github.com/Acme/App)')
-  expect(desktop).toContain('[Fix disk full](https://github.com/acme/app)')
+  expect(desktop).toContain('[Second origin](#local_7f3a0002)')
+  expect(desktop).toMatch(/\[Fix disk full\]\(#local_[0-9a-z-]+\)/)
+  expect(desktop).not.toContain('](https://github.com/Acme/App)')
+  expect(desktop).not.toContain('](https://github.com/acme/app)')
 })
 
 test('SP5-1: /keeptrack open or issue with extra words toasts usage and changes nothing', async ($: Engine, on) => {
@@ -2974,7 +2976,7 @@ test('a glab that times out is retried after its hour: the next lookup asks glab
 
 const sshCalls = (host: Host): string[][] => host.argvs.filter(argv => argv[0] === 'ssh')
 
-test('an ssh alias that resolves to github.com is GitHub: its logo comes from gh under github.com, its links go there, and ssh is asked once', async ($: Engine, on) => {
+test('an ssh alias that resolves to github.com is GitHub: its logo comes from gh under github.com, its alt names the repo, and ssh is asked once', async ($: Engine, on) => {
   const ALIAS = 'git@github-keepglide:acme/app.git'
   const host = stubHost(on, {
     lookLogos: true,
@@ -2991,7 +2993,7 @@ test('an ssh alias that resolves to github.com is GitHub: its logo comes from gh
   expect(contentsCalls(host)).toBe(1)
   expect(host.store.has(LOGO_STORE_KEY)).toBe(true)
   expect(repoLogoOf(await drawnTree($, 'desktop'))).toHaveLength(1)
-  expect(await drawnPane($, 'desktop')).toContain('[Fix disk full](https://github.com/acme/app)')
+  expect(await drawnPane($, 'desktop')).toContain('acme/app logo')
 })
 
 test('an ssh alias that resolves to gitlab.com takes the GitLab path with the real host: glab is asked on gitlab.com', async ($: Engine, on) => {
@@ -3092,7 +3094,7 @@ test('a failed ssh alias lookup is asked again after LOGO_RETRY_MS, not before, 
   await host.clock.settle()
   expect(sshCalls(host)).toHaveLength(2)
   expect(contentsCalls(host)).toBe(1)
-  expect(await drawnPane($, 'desktop')).toContain('[Fix disk full](https://github.com/acme/app)')
+  expect(await drawnPane($, 'desktop')).toContain('acme/app logo')
 })
 
 test('a remote whose host starts with a dash is no remote: no ssh or glab call names it, and the pane still draws', async ($: Engine, on) => {

@@ -8,6 +8,9 @@ Commit hashes name the change in `git log`.
 
 ## [Unreleased]
 
+### Changed
+- A session title opens its session (`#local_<id>`) on the desktop, even when its repo page is known; the separate `open session: <title>` link, the `▶️` active-window marker and the `← this window` words are gone, and the Labels table no longer lists ▶️. The state icon (🟢 ⏳ 💤) stays after the title (`hooks/pane.tsx`, `hooks/action-icons.ts`, `hooks/i18n.ts`, SPEC sections 11 and 19).
+
 ## [0.2.0-beta.23] - 2026-11-02
 
 ### Changed

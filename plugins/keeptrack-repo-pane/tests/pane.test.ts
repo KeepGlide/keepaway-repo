@@ -157,7 +157,7 @@ test('this window is the first session, in one highlighted block with its detail
   const block = nodesOf(tree).find(node => node.props.backgroundColor === DETAILS_FILL)
   expect(block !== undefined).toBe(true)
   const blockTexts = drawnTexts(block)
-  expect(texts).toContain('Synthetic session one 🟢 ▶️ ← this window')
+  expect(texts).toContain('Synthetic session one 🟢')
   expect(blockTexts).toContain('State:')
   expect(blockTexts).toContain('working')
   expect(blockTexts).toContain('Branch:')
@@ -276,7 +276,7 @@ test('the six session titles are links on the desktop and plain text on the term
   expect(nodesOf(terminal).some(node => node.tag === 'Markdown')).toBe(false)
   expect(sessionLinksIn(terminal).length).toBe(0)
   const terminalTexts = drawnTexts(terminal)
-  expect(terminalTexts).toContain('Synthetic session one 🟢 ▶️ ← this window')
+  expect(terminalTexts).toContain('Synthetic session one 🟢')
   for (const title of SIX_TITLES.slice(1)) {
     expect(terminalTexts.some(text => text.includes(title))).toBe(true)
   }
@@ -375,9 +375,9 @@ test('the Recents label is bold Text, never Markdown, and its tops are titled �
 
 test('this window as a top of Recents: its titled row opens the highlighted block, with the glyphs and the marker', () => {
   const tree = drawDesktop()
-  expect(sessionLinksIn(tree)[0]).toBe(`**[Synthetic session one](#${THIS_WINDOW})** 🟢 ▶️ ← this window`)
+  expect(sessionLinksIn(tree)[0]).toBe(`**[Synthetic session one](#${THIS_WINDOW})** 🟢`)
   const block = nodesOf(tree).find(node => node.props.backgroundColor === DETAILS_FILL)
-  expect(drawnTexts(block).slice(0, 2)).toEqual(['├', 'Synthetic session one 🟢 ▶️ ← this window'])
+  expect(drawnTexts(block).slice(0, 2)).toEqual(['├', 'Synthetic session one 🟢'])
 })
 
 test('a Desktop Group label is plain bold Text, never Markdown, and its family roots are titled ├/└ rows with their children nested', () => {
@@ -402,7 +402,7 @@ test('a Desktop Group label is plain bold Text, never Markdown, and its family r
   expect(textOf(label?.props.children)).toBe('Release 0.3 [x](y)')
   expect(nodesOf(tree).some(node => node.tag === 'Markdown' && String(node.props.text).includes('Release'))).toBe(false)
 
-  expect(drawnTexts(keyed(tree, `head-${THIS_WINDOW}`)).slice(0, 2)).toEqual(['├', 'Synthetic session one 🟢 ▶️ ← this window'])
+  expect(drawnTexts(keyed(tree, `head-${THIS_WINDOW}`)).slice(0, 2)).toEqual(['├', 'Synthetic session one 🟢'])
   expect(drawnTexts(keyed(tree, 'head-local_1a2b0005'))[0]).toBe('└')
   expect(drawnTexts(keyed(tree, 'head-local_1a2b0005'))).toContain('Synthetic docs 💤')
   expect(drawnTexts(keyed(tree, 'head-local_c21d0002'))[0]).toBe('└')
@@ -482,10 +482,10 @@ test("on the terminal the Recents label and this window's title are plain bold T
   const thisTitle = keyed(tree, `title-${THIS_WINDOW}`)
   expect(thisTitle?.tag).toBe('Text')
   expect(thisTitle?.props.bold).toBe(true)
-  expect(textOf(thisTitle?.props.children)).toBe('Synthetic session one 🟢 ▶️ ← this window')
+  expect(textOf(thisTitle?.props.children)).toBe('Synthetic session one 🟢')
 })
 
-test('this window is marked by its tree node alone, and a waiting window says so', () => {
+test('this window is marked by its highlighted block alone, with no marker words, and a waiting window says so', () => {
   const sessions = buildTree(
     sampleSessions().map(record => (record.sessionId === THIS_WINDOW ? { ...record, waiting: true } : record)),
     { now: NOW, cutoffMs: 24 * HOUR, thisCliSessionId: 'cli-this', issueFacts: SAMPLE_ISSUE_FACTS },
@@ -493,7 +493,7 @@ test('this window is marked by its tree node alone, and a waiting window says so
   const tree = drawDesktop({ snapshot: snapshotWith({ sessions }) })
   const block = nodesOf(tree).find(node => node.props.backgroundColor === DETAILS_FILL)
   expect(drawnTexts(block)).toContain('waiting for you')
-  expect(drawnTexts(tree).some(text => text.includes('← this window'))).toBe(true)
+  expect(drawnTexts(tree).some(text => text.includes('this window'))).toBe(false)
 })
 
 test('a session waiting for you draws its needs line under its title, in both languages, on both surfaces; no needs text, no line (D7, Q14)', () => {
@@ -608,7 +608,7 @@ test('an archived window is still drawn, with the state of its activity in its d
   })
   const tree = drawDesktop({ snapshot })
   const block = nodesOf(tree).find(node => node.props.backgroundColor === DETAILS_FILL)
-  expect(drawnTexts(tree)).toContain('Synthetic session one 🟢 ▶️ ← this window')
+  expect(drawnTexts(tree)).toContain('Synthetic session one 🟢')
   expect(drawnTexts(block)).toContain('working')
 })
 
@@ -731,7 +731,6 @@ test('the legend is a Labels table: a bold heading, then one row per icon in gro
       "this window's session asked you to approve a tool and is paused until you answer, or another session stopped and needs your answer (last activity less than 24 hours ago).",
     ],
     ['💤', 'idle', 'no activity recorded in the Desktop app for more than 5 minutes.'],
-    ['▶️', 'this window', 'the session of the window you are in.'],
     ['📋', 'open issues', 'GitHub issues still open; under "Issues without session", no session is on them yet (to do).'],
     ['🛠️', 'issue of a session', 'an issue a session is working on (in progress).'],
     ['✅', 'done', 'a closed issue, a merged PR, or a milestone with every issue closed.'],
@@ -756,7 +755,6 @@ test('the legend is a Labels table: a bold heading, then one row per icon in gro
       'a sessão desta janela pediu sua aprovação para uma ferramenta e está parada até você responder, ou outra sessão parou e precisa da sua resposta (última atividade há menos de 24 h).',
     ],
     ['💤', 'ociosa', 'sem atividade registrada no app Desktop há mais de 5 minutos.'],
-    ['▶️', 'esta janela', 'a sessão da janela em que você está.'],
     ['📋', 'issues abertas', 'issues do GitHub ainda abertas; em "Issues sem sessão", nenhuma sessão está nelas ainda (a fazer).'],
     ['🛠️', 'issue de uma sessão', 'uma issue em que uma sessão está trabalhando (em andamento).'],
     ['✅', 'feito', 'uma issue fechada, um PR mesclado ou um milestone com todas as issues fechadas.'],
@@ -1166,13 +1164,22 @@ test('a GitHub due date is a calendar date: it is drawn from its UTC date, never
 })
 
 // The icon vocabulary (action-icons.ts): the marker, the timeline, the due date and the priority tags are pinned by their emoji here.
-test('the active marker is this window ▶️ alone: a session working now carries its 🟢 and no 🔄, an idle row none', () => {
+test('no active marker: a session working now carries its 🟢 and no 🔄 or ▶️, an idle row 💤', () => {
   const texts = drawnTexts(drawTerminal())
-  expect(texts).toContain('Synthetic session one 🟢 ▶️ ← this window')
+  expect(texts).toContain('Synthetic session one 🟢')
   expect(texts).toContain('Synthetic fork 🟢')
   expect(texts).toContain('Synthetic docs 💤')
   expect(texts.some(text => text.includes('🔄'))).toBe(false)
-  expect(statusIconEmoji('activeWindow')).toBe('▶️')
+  expect(texts.some(text => text.includes('▶️'))).toBe(false)
+})
+
+test('the title line carries no window marker or open-session link, on either surface, in English or pt-BR (owner, 2026-11-02)', () => {
+  for (const lang of ['en', 'pt'] as const) {
+    for (const tree of [drawDesktop({ lang }), drawTerminal({ lang })]) {
+      const all = JSON.stringify(tree)
+      for (const gone of ['▶️', '← this window', '← esta janela', 'open session', 'abrir sessão']) expect(all).not.toContain(gone)
+    }
+  }
 })
 
 test('the idle legend names the working window in minutes: no activity for more than that long', () => {
@@ -1258,11 +1265,10 @@ const linkedSnapshot = (): Snapshot => {
   return { ...base, sessions: base.sessions.map(withPage) }
 }
 
-test('a session title links to its repo page on the desktop, with a separate open-session link; plain on the terminal', () => {
+test('a session title opens its session on the desktop even with a known repo page, with no open-session link; plain on the terminal', () => {
   const desktop = JSON.stringify(drawDesktop({ snapshot: linkedSnapshot() }))
-  expect(desktop).toContain('](https://github.com/acme/app)')
-  // The colon of the label is escaped (escapeMarkdown), so the check reads the label's words and the target.
-  expect(desktop).toContain('open session')
+  expect(desktop).not.toContain('Synthetic session one](https://github.com/acme/app)')
+  expect(desktop).not.toContain('open session')
   expect(desktop).toContain('Synthetic session one](#local_7f3a0001)')
   const terminal = JSON.stringify(drawTerminal({ snapshot: linkedSnapshot() }))
   expect(terminal).not.toContain('https://github.com/acme/app')
@@ -1363,7 +1369,7 @@ test('desktop: the commit event, the PR event and the PR detail line each link t
   expect(terminal).not.toContain(`/commit/${COMMIT_SHA}`)
 })
 
-test('each session title links to its own repo page: two sessions with two origins, each its own page', () => {
+test('with two sessions of two origins, each title still opens its own session and no title links to a repo page', () => {
   const pages: Record<string, string> = {
     'Synthetic session one': 'https://github.com/acme/app',
     'Synthetic docs': 'https://gitlab.example.test/acme/app',
@@ -1371,9 +1377,10 @@ test('each session title links to its own repo page: two sessions with two origi
   const withPage = (node: SessionNode): SessionNode => ({ ...node, repoPage: pages[node.title] ?? null, children: node.children.map(withPage) })
   const base = snapshotWith()
   const texts = markdownTextsOf(drawDesktop({ snapshot: { ...base, sessions: base.sessions.map(withPage) } })).join('\n')
-  expect(texts).toContain('[Synthetic session one](https://github.com/acme/app)')
-  expect(texts).toContain('[Synthetic docs](https://gitlab.example.test/acme/app)')
-  expect(texts).not.toContain('Synthetic docs](https://github.com/acme/app)')
+  expect(texts).toMatch(/\[Synthetic session one\]\(#local_[0-9a-z-]+\)/)
+  expect(texts).toMatch(/\[Synthetic docs\]\(#local_[0-9a-z-]+\)/)
+  expect(texts).not.toContain('](https://github.com/acme/app)')
+  expect(texts).not.toContain('](https://gitlab.example.test/acme/app)')
 })
 
 test('an exact milestone with no issue at all reads "no issues" with no done icon and no ready to close; one with closed issues still reads all closed', () => {
@@ -1663,7 +1670,7 @@ test('the open legend: its button reads ▾ with the same title, and the table f
     const tree = draw({ legendOpen: true })
     expect(keyed(tree, 'legend-toggle')?.props.label).toBe(`${DISCLOSURE_OPEN} Labels Descriptions`)
     expect(keyed(tree, 'legend')).toBeDefined()
-    expect(legendRowsOf(tree)).toHaveLength(19)
+    expect(legendRowsOf(tree)).toHaveLength(18)
   }
 })
 

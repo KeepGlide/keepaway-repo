@@ -123,10 +123,6 @@ const PERCENT_MAX = 100
 const withIcon = (icon: string, text: string): string => (icon === '' ? text : `${icon} ${text}`)
 // The non-empty parts of a line, apart by one space: a title and the icons after it.
 const joinWords = (parts: readonly string[]): string => parts.filter(part => part !== '').join(' ')
-// The session title as the "open session" link names it: cut to SESSION_LABEL_MAX characters, with an ellipsis when cut.
-const SESSION_LABEL_MAX = 40
-const shortLabel = (title: string): string =>
-  [...title].length > SESSION_LABEL_MAX ? `${[...title].slice(0, SESSION_LABEL_MAX - 1).join('')}…` : title
 const STATE_KEY: Readonly<Record<SessionNode['state'], MessageKey>> = {
   working: 'state.working',
   idle: 'state.idle',
@@ -562,29 +558,19 @@ function linkedOrText(view: View, key: string, label: string, url: string | null
   return bold ? <Text key={key} bold>{label}</Text> : <Text key={key}>{label}</Text>
 }
 
-// The title is a link where the Desktop draws Markdown and the id is a session id. With a repo page that passes PAGE_URL, the title links
-// to the repo's page and a small "open session" link after the icons opens the session; without one, the title opens the session, as
-// before. Elsewhere (the terminal, or an id that is not a session link) it is plain Text, without the arrow. The icons follow the title,
-// outside the link: the state icon, then the active marker, then this window's words.
+// The title opens its session where the Desktop draws Markdown and the id is a session id; elsewhere (the terminal, or an id that is not
+// a session link) it is plain Text. The state icon follows the title, outside the link; this window's row is bold, with no marker, since
+// its highlighted block already says which window it is (owner's review, 2026-11-02).
 function renderSessionTitle(view: View, node: SessionNode, isThis: boolean): RenderElement {
-  const { ui, lang } = view
-  const icons = joinWords([actionIconEmoji(STATE_ICON[node.state]), activeMarkerOf(node)])
-  const marker = isThis ? t(lang, 'session.thisWindow') : ''
+  const { ui } = view
+  const icon = actionIconEmoji(STATE_ICON[node.state])
   if (view.desktop && 'Markdown' in ui && isSessionLinkId(node.id)) {
     const { Markdown } = ui
-    const repo = linkTargetOf(view, node.repoPage)
-    const anchor = `[${escapeMarkdown(node.title)}](${repo ?? `#${node.id}`})`
-    const title = isThis ? `**${anchor}**` : anchor
-    const sessionLink = repo === null ? '' : `[${escapeMarkdown(t(lang, 'link.session', { title: shortLabel(node.title) }))}](#${node.id})`
-    return <Markdown key={`title-${node.id}`} text={joinWords([title, icons, escapeMarkdown(marker), sessionLink])} />
+    const anchor = `[${escapeMarkdown(node.title)}](#${node.id})`
+    return <Markdown key={`title-${node.id}`} text={joinWords([isThis ? `**${anchor}**` : anchor, icon])} />
   }
   const { Text } = ui
-  return <Text key={`title-${node.id}`} bold={isThis}>{joinWords([node.title, icons, marker])}</Text>
-}
-
-// The marker of an active row: this window's row (the activeWindow icon). Any other row carries none: its state icon already says working.
-function activeMarkerOf(node: SessionNode): string {
-  return node.isThisWindow ? statusIconEmoji('activeWindow') : ''
+  return <Text key={`title-${node.id}`} bold={isThis}>{joinWords([node.title, icon])}</Text>
 }
 
 // A breadcrumb part: its text, and the page it links to (null for none).
@@ -922,7 +908,6 @@ const LEGEND_ENTRIES: readonly LegendEntry[] = [
   { id: 'working', icon: actionIconEmoji('working'), name: 'legend.working.name', text: 'legend.working.text' },
   { id: 'waiting', icon: actionIconEmoji('waiting'), name: 'legend.waiting.name', text: 'legend.waiting.text' },
   { id: 'idle', icon: actionIconEmoji('idle'), name: 'legend.idle.name', text: 'legend.idle.text' },
-  { id: 'this-window', icon: statusIconEmoji('activeWindow'), name: 'legend.thisWindow.name', text: 'legend.thisWindow.text' },
   { id: 'issues', icon: statusIconEmoji('issues'), name: 'legend.issues.name', text: 'legend.issues.text' },
   { id: 'issue', icon: actionIconEmoji('inProgress'), name: 'legend.issue.name', text: 'legend.issue.text' },
   { id: 'done', icon: statusIconEmoji('done'), name: 'legend.done.name', text: 'legend.done.text' },
