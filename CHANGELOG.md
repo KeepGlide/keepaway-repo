@@ -9,6 +9,8 @@ Commit hashes name the change in `git log`.
 ## [Unreleased]
 
 ### Changed
+- Each session shows its current task first (`Now: <task>`, pt-BR `Agora: <task>`) and its plan steps as timeline events, newest first, read incrementally from its transcript (the Desktop's task list or `TodoWrite`); with no step in progress, the stop detail is the current task (`hooks/steps.ts`, `hooks/register.tsx`, `hooks/model.ts`, SPEC section 22).
+- A timeline keeps up to 30 events: the 5 newest are drawn, the rest sit behind a per-session `▸ Earlier (N)` button (`Anteriores (N)`), whose open state is stored under `timelineOpen` (`hooks/pane.tsx`, SPEC sections 10 and 22).
 - The summary line shows the first prompt whole up to 300 characters. A longer prompt (a handoff, for one) is condensed by Haiku into one sentence in the pane's language, stored under `briefs` (the line only, never the prompt), and drawn in place of the cut prompt; a failed call keeps the cut prompt and retries after 10 minutes. This reverses Q3 for long prompts (`hooks/summary.ts`, `hooks/register.tsx`, SPEC section 21).
 - A session title opens its session (`#local_<id>`) on the desktop, even when its repo page is known; the separate `open session: <title>` link, the `▶️` active-window marker and the `← this window` words are gone, and the Labels table no longer lists ▶️. The state icon (🟢 ⏳ 💤) stays after the title (`hooks/pane.tsx`, `hooks/action-icons.ts`, `hooks/i18n.ts`, SPEC sections 11 and 19).
 

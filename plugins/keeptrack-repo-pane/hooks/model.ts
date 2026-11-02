@@ -26,7 +26,7 @@ export const FIELD_MAX_LENGTH = 4096
 // The deepest a session sits under its root: the family hop cap of askaway (repo-work-pane-design-spec.md D2). Deeper sessions are roots.
 export const MAX_DEPTH = 8
 // The newest events a session's timeline keeps (repo-work-pane-design-spec.md D6).
-export const TIMELINE_LIMIT = 6
+export const TIMELINE_LIMIT = 30
 // A session counts as working for this long after its last activity (repo-work-pane-design-spec.md D7, a heuristic).
 export const WORKING_WINDOW_MS = 5 * 60 * 1000
 // A session other than this window waits for the person for this long after its last activity, while its Desktop summary says it stopped
@@ -568,6 +568,7 @@ function attach(record: SessionInput, depth: number, parentNode: SessionNode | n
     state: stateOf(lastActivityAt, context.now, record.waiting || stopped),
     needsAction: stopped ? (record.postTurn?.needsAction ?? null) : null,
     summary: record.summary ?? null,
+    currentTask: record.steps?.current ?? record.postTurn?.detail ?? null,
     timeline: timelineOf({
       createdAt,
       kind,
@@ -575,6 +576,7 @@ function attach(record: SessionInput, depth: number, parentNode: SessionNode | n
       pr: record.pr,
       commits: record.commits,
       remote: record.remote,
+      steps: record.steps?.events ?? [],
     }),
     children: [],
   }
@@ -744,6 +746,7 @@ export function timelineOf(
     pr: PullRequest | null
     commits: { at: number; subject: string; sha?: string | null }[]
     remote?: RepoRemote | null
+    steps?: readonly { at: number; text: string }[]
   },
   limit: number = TIMELINE_LIMIT,
 ): TimelineEvent[] {
@@ -753,6 +756,7 @@ export function timelineOf(
     text: commit.subject,
     url: commitPageOf(input.remote, commit.sha),
   }))
+  for (const step of input.steps ?? []) events.push({ at: step.at, kind: 'step', text: plain(step.text, TEXT_MAX), url: null })
   if (input.pr !== null) {
     const openedAt = Date.parse(input.pr.createdAt)
     if (Number.isFinite(openedAt)) {
@@ -814,7 +818,7 @@ function needsActionOf(value: unknown): string | null {
 // malformed gives no line but keeps the status.
 function postTurnOf(value: unknown): PostTurnSummary | null {
   if (!isObject(value) || typeof value.status_category !== 'string') return null
-  return { blocked: value.status_category === 'blocked', needsAction: needsActionOf(value.needs_action) }
+  return { blocked: value.status_category === 'blocked', needsAction: needsActionOf(value.needs_action), detail: needsActionOf(value.status_detail) }
 }
 
 // Projects one raw Desktop session record onto the fields the pane reads (repo-work-pane-design-spec.md section 2.7) and nothing else. Returns

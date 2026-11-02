@@ -1747,3 +1747,55 @@ test('a milestone heading is its title up to the first " · ", cut at 40 charact
   expect(texts.some(text => text.startsWith('Preflight before install: refuse a…'))).toBe(true)
   expect(texts.some(text => text.includes('full disk') || text.includes('read-only'))).toBe(false)
 })
+
+// The timeline's current task and its Earlier accordion (SPEC section 22; owner's review, 2026-11-02).
+const stepEvents = (count: number): TimelineEvent[] =>
+  Array.from({ length: count }, (_, index) => ({ at: NOW - (index + 1) * MINUTE, kind: 'step' as const, text: `Step ${index + 1}`, url: null }))
+const withCurrentTask = (snapshot: Snapshot, currentTask: string | null): Snapshot => {
+  const [first = snapshot.sessions[0], ...rest] = snapshot.sessions
+  return { ...snapshot, sessions: [{ ...first, currentTask } as SessionNode, ...rest] }
+}
+
+test('the current task is drawn as Now: <task> in English and Agora: <task> in Portuguese, and no line when there is none', () => {
+  const snapshot = withCurrentTask(withWindowTimeline(stepEvents(1)), 'Fix the pane')
+  expect(drawnTexts(drawTerminal({ snapshot }))).toContain('Now: Fix the pane')
+  expect(drawnTexts(drawDesktop({ snapshot, lang: 'pt' }))).toContain('Agora: Fix the pane')
+  const none = drawnTexts(drawTerminal({ snapshot: withCurrentTask(snapshot, null) }))
+  expect(none.some(text => text.startsWith('Now:'))).toBe(false)
+})
+
+test('a step event draws its time and text with no kind glyph', () => {
+  const row = keyed(drawTerminal({ snapshot: withWindowTimeline(stepEvents(1)) }), `event-${THIS_WINDOW}-0`)
+  expect(drawnTexts(row)).toContain('Step 1')
+  expect(nodesOf(row).some(node => node.props.key === 'glyph')).toBe(false)
+})
+
+test('the 5 newest events are drawn and the rest sit behind a closed Earlier (N) button', () => {
+  const tree = drawTerminal({ snapshot: withWindowTimeline(stepEvents(8)) })
+  const texts = drawnTexts(tree)
+  for (const step of ['Step 1', 'Step 5']) expect(texts).toContain(step)
+  for (const step of ['Step 6', 'Step 8']) expect(texts).not.toContain(step)
+  expect(keyed(tree, `earlier-${THIS_WINDOW}`)?.props.label).toBe(`${DISCLOSURE_CLOSED} Earlier (3)`)
+  const pt = drawTerminal({ snapshot: withWindowTimeline(stepEvents(8)), lang: 'pt' })
+  expect(keyed(pt, `earlier-${THIS_WINDOW}`)?.props.label).toBe(`${DISCLOSURE_CLOSED} Anteriores (3)`)
+})
+
+test('an open session draws every event after a ▾ Earlier button, and a press calls onTimelineToggle with its id', () => {
+  const pressed: string[] = []
+  const tree = drawDesktop({
+    snapshot: withWindowTimeline(stepEvents(8)),
+    timelineOpen: new Set([THIS_WINDOW]),
+    onTimelineToggle: id => pressed.push(id),
+  })
+  expect(drawnTexts(tree)).toContain('Step 8')
+  const button = keyed(tree, `earlier-${THIS_WINDOW}`)
+  expect(button?.props.label).toBe(`${DISCLOSURE_OPEN} Earlier (3)`)
+  const onPress = button?.props.onPress
+  if (typeof onPress !== 'function') throw new Error('the Earlier button has no press handler')
+  onPress()
+  expect(pressed).toEqual([THIS_WINDOW])
+})
+
+test('five events or fewer draw no Earlier button', () => {
+  expect(keyed(drawTerminal({ snapshot: withWindowTimeline(stepEvents(5)) }), `earlier-${THIS_WINDOW}`)).toBeUndefined()
+})

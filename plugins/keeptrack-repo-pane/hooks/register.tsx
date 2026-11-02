@@ -6,6 +6,7 @@ import type { EngineInterface, FsEntry, Register, RenderSurface } from 'claude-c
 
 import { detectLang, resolveLang, t, type Lang, type LangEnv } from './i18n'
 import { renderPane } from './pane'
+import { EMPTY_CURSOR, currentStepOf, stepsAfter, type StepCursor } from './steps'
 import { renderBand, type BandIssue, type BandRepo } from './band'
 import { heldButtons, type HeldButtons } from './held'
 import { IDLE_TURN, bandRedrawDue, turnEnded, turnExpired, turnStarted, turnTimedOut, turnToolNamed } from './turn'
@@ -83,6 +84,7 @@ import type {
   PullRequest,
   SessionInput,
   SessionNode,
+  SessionSteps,
   SessionSummary,
   Snapshot,
 } from '../types'
@@ -801,6 +803,8 @@ type TreeInputs = {
   desktopGroups: DesktopGroups
   // The summary of each candidate session this poll has (SPEC section 21); a session with none is absent.
   summaries: ReadonlyMap<string, SessionSummary>
+  // The plan steps of each candidate session read so far (SPEC section 22); a session with none is absent.
+  steps: ReadonlyMap<string, SessionSteps>
 }
 
 function inputOf(entry: Candidate, inputs: TreeInputs, commits: ReadonlyMap<string, Commit[]>): SessionInput {
@@ -814,6 +818,7 @@ function inputOf(entry: Candidate, inputs: TreeInputs, commits: ReadonlyMap<stri
     waiting: inputs.ownWaiting && record.cliSessionId === inputs.thisId,
     commits: commits.get(record.sessionId) ?? [],
     summary: inputs.summaries.get(record.sessionId) ?? null,
+    steps: inputs.steps.get(record.sessionId) ?? null,
   }
 }
 
@@ -893,6 +898,10 @@ async function sessionsOf(
     summaries: await summariesOf($, candidates.map(entry => entry.record)).catch((error: unknown) => {
       logSummaryFailureOnce($, error)
       return new Map<string, SessionSummary>()
+    }),
+    steps: await stepsOfSessions($, candidates.map(entry => entry.record)).catch((error: unknown) => {
+      logStepsFailureOnce($, error)
+      return new Map<string, SessionSteps>()
     }),
   }
   const keptIds = new Set(flattenNodes(treeOf(candidates, inputs, new Map())).map(node => node.id))
@@ -1102,6 +1111,87 @@ async function summariesOf($: EngineInterface, records: readonly ProjectedRecord
   return summaries
 }
 
+// ---- plan steps (SPEC section 22): each session's update_plan or TodoWrite calls, read from the new bytes of its transcript ----
+
+// The sessions whose steps one poll reads, the sessions whose cursor this window keeps (the least recently read out), and the time limit
+// of one read. A read takes the bytes after the session's offset; the engine cuts stdout at 4 MiB, so a longer file is read over polls.
+const STEP_READS_PER_POLL = 5
+const STEP_SESSIONS_MAX = 64
+// One session's place in its transcript: the bytes read so far, its plan cursor, and the session's last activity when it was read.
+type StepMemory = { offset: number; cursor: StepCursor; activityAt: number }
+const stepMemory = new Map<string, StepMemory>()
+let stepsFailureLogged = false
+
+// Forgets this window's step cursors and its failure log. The tests call it before each host starts.
+export function resetStepMemory(): void {
+  stepMemory.clear()
+  stepsFailureLogged = false
+}
+
+// A steps failure, logged once by the error's name: a path never reaches the log.
+function logStepsFailureOnce($: EngineInterface, error: unknown): void {
+  if (stepsFailureLogged) return
+  stepsFailureLogged = true
+  logLine($, `session steps failed (${failureNameOf(error)})`)
+}
+
+// The complete lines of a read and their size in bytes: a last segment with no newline after it may be half-written (or cut at the
+// engine's limit), so it is left for the next read.
+function completeLinesOf(text: string): { lines: string[]; bytes: number } {
+  const end = text.lastIndexOf('\n')
+  if (end === -1) return { lines: [], bytes: 0 }
+  const whole = text.slice(0, end + 1)
+  return { lines: whole.split('\n').slice(0, -1), bytes: new TextEncoder().encode(whole).length }
+}
+
+// The bytes of a session's transcript after an offset, read with tail; null when the session has no transcript path, or the read fails.
+async function transcriptTailOf($: EngineInterface, record: ProjectedRecord, offset: number): Promise<string | null> {
+  const home = await $.env.get('HOME')
+  if (!home || record.cwd === null || !TRANSCRIPT_ID.test(record.cliSessionId)) return null
+  const path = `${home}/.claude/projects/${transcriptFolderOf(record.cwd)}/${record.cliSessionId}.jsonl`
+  const run = await $.process.run(['tail', '-c', `+${offset + 1}`, path], { timeoutMs: TRANSCRIPT_TIMEOUT_MS })
+  return run.exitCode === 0 ? run.stdout : null
+}
+
+// Keeps one session's step memory; past STEP_SESSIONS_MAX the least recently read session goes.
+function rememberSteps(sessionId: string, memory: StepMemory): void {
+  stepMemory.delete(sessionId)
+  stepMemory.set(sessionId, memory)
+  const oldest = stepMemory.keys().next()
+  if (stepMemory.size > STEP_SESSIONS_MAX && !oldest.done) stepMemory.delete(oldest.value)
+}
+
+// The plan steps of each candidate session. A session is read again only when it has had activity since its last read, at most
+// STEP_READS_PER_POLL per poll, and only its new bytes: each session keeps its byte offset, so a long transcript costs one full read.
+async function stepsOfSessions($: EngineInterface, records: readonly ProjectedRecord[]): Promise<Map<string, SessionSteps>> {
+  const steps = new Map<string, SessionSteps>()
+  let reads = 0
+  for (const record of records) {
+    const known = stepMemory.get(record.sessionId)
+    let memory = known
+    if (reads < STEP_READS_PER_POLL && (known === undefined || record.lastActivityAt > known.activityAt)) {
+      reads += 1
+      const offset = known?.offset ?? 0
+      const text = await transcriptTailOf($, record, offset).catch((error: unknown) => {
+        logStepsFailureOnce($, error)
+        return null
+      })
+      if (text !== null) {
+        const read = completeLinesOf(text)
+        memory = {
+          offset: offset + read.bytes,
+          cursor: stepsAfter(known?.cursor ?? EMPTY_CURSOR, read.lines),
+          // A read that left a partial line (half-written, or past the engine's cut) is read again on the next poll.
+          activityAt: read.bytes === new TextEncoder().encode(text).length ? record.lastActivityAt : Number.NEGATIVE_INFINITY,
+        }
+        rememberSteps(record.sessionId, memory)
+      }
+    }
+    if (memory !== undefined) steps.set(record.sessionId, { events: memory.cursor.events, current: currentStepOf(memory.cursor) })
+  }
+  return steps
+}
+
 // The first PR of each branch, in the order gh lists them (most recently updated first).
 function pullRequestsByBranch(prs: readonly PullRequest[]): Map<string, PullRequest> {
   const byBranch = new Map<string, PullRequest>()
@@ -1145,6 +1235,38 @@ async function toggleLegend($: EngineInterface): Promise<void> {
     else await $.store.set(LEGEND_OPEN_KEY, true)
   } catch (error) {
     logLegendStoreFailureOnce($, open ? 'delete' : 'write', error)
+  }
+  $.ui.invalidate('ui.render')
+}
+
+// ---- each session's Earlier events (SPEC section 22): the sessions whose earlier events are open, in the store under `timelineOpen` ----
+
+const TIMELINE_OPEN_KEY = 'timelineOpen'
+// The open sessions the store keeps; past it the first opened goes.
+const TIMELINE_OPEN_MAX = 64
+
+// The sessions whose earlier events are open. A refused or malformed read draws them all closed (a refused read is logged once).
+async function timelineOpenOf($: EngineInterface): Promise<Set<string>> {
+  try {
+    const raw = await $.store.get(TIMELINE_OPEN_KEY)
+    return new Set(Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string') : [])
+  } catch (error) {
+    logLegendStoreFailureOnce($, 'timeline read', error)
+    return new Set()
+  }
+}
+
+// Opens or closes one session's earlier events in the store; the last one closed deletes the key. A refused write is logged once.
+async function toggleTimeline($: EngineInterface, sessionId: string): Promise<void> {
+  const open = await timelineOpenOf($)
+  if (open.has(sessionId)) open.delete(sessionId)
+  else open.add(sessionId)
+  const kept = [...open].slice(-TIMELINE_OPEN_MAX)
+  try {
+    if (kept.length === 0) await $.store.delete(TIMELINE_OPEN_KEY)
+    else await $.store.set(TIMELINE_OPEN_KEY, kept)
+  } catch (error) {
+    logLegendStoreFailureOnce($, 'timeline write', error)
   }
   $.ui.invalidate('ui.render')
 }
@@ -2412,6 +2534,9 @@ export const register: Register = on => {
       legendOpen: await legendOpenOf($),
       onLegendToggle: () => void toggleLegend($).catch((error: unknown) => logLine($, `legend toggle failed (${failureNameOf(error)})`)),
       held: heldFor(e.surface, e.requestId),
+      timelineOpen: await timelineOpenOf($),
+      onTimelineToggle: sessionId =>
+        void toggleTimeline($, sessionId).catch((error: unknown) => logLine($, `timeline toggle failed (${failureNameOf(error)})`)),
     })
   })
 

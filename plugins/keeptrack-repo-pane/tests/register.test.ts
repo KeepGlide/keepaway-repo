@@ -9,7 +9,7 @@ import { actionIconEmoji } from '../hooks/action-icons'
 import { RECORD_MAX_BYTES, WAITING_WINDOW_MS } from '../hooks/model'
 import { TURN_MAX_AGE_MS } from '../hooks/turn'
 import { SUMMARY_RETRY_MS } from '../hooks/summary'
-import { TOOL_NAME_MAX, resetDesktopConfigCache, resetLegendMemory, resetLogoMemory, resetSummaryMemory } from '../hooks/register'
+import { TOOL_NAME_MAX, resetDesktopConfigCache, resetLegendMemory, resetLogoMemory, resetStepMemory, resetSummaryMemory } from '../hooks/register'
 import {
   AVATAR_FETCH_SCRIPT,
   LOGO_FOLDERS,
@@ -209,6 +209,7 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   resetDesktopConfigCache()
   resetLogoMemory()
   resetSummaryMemory()
+  resetStepMemory()
   resetLegendMemory()
   const records = options.records ?? [OWN_RECORD]
   const host: Host = {
@@ -355,6 +356,12 @@ function stubHost(on: On, options: StubOptions = {}): Host {
       return text === undefined
         ? valueOr(argv, processOutput('', 1, 'head: cannot open the file'))
         : valueOr(argv, processOutput(text.slice(0, Number(argv[2]))))
+    }
+    if (argv[0] === 'tail') {
+      const text = options.transcripts?.[argv[3] ?? '']
+      return text === undefined
+        ? valueOr(argv, processOutput('', 1, 'tail: cannot open the file'))
+        : valueOr(argv, processOutput(text.slice(Number((argv[2] ?? '+1').slice(1)) - 1)))
     }
     if (argv[0] === 'date') {
       if (options.dateMissing === true) return refuse('Executable not found in $PATH: "date"')
@@ -3316,6 +3323,79 @@ test('summaries are never stored: the summary:<id> keys an earlier build left ar
   expect(host.store.get('summary')).toBe(true)
   expect(await drawnPane($)).toContain('Fix the disk full error')
   await expectClean(host, $)
+})
+
+// ---- plan steps (SPEC section 22) ----
+
+const planLine = (time: string, items: unknown): string =>
+  `${JSON.stringify({ type: 'assistant', timestamp: time, message: { content: [{ type: 'tool_use', name: 'mcp__ccd_turn__update_plan', input: { items } }] } })}\n`
+const tailCalls = (host: Host): string[][] => host.argvs.filter(argv => argv[0] === 'tail')
+
+test('a session row draws its plan steps, read from its transcript with tail from the first byte', async ($: Engine, on) => {
+  const transcript =
+    userLine('Fix the disk full error') +
+    planLine('2026-11-02T10:19:00Z', [
+      { content: 'Check the repository', status: 'completed' },
+      { content: 'Patch the cleaner', status: 'in_progress' },
+    ])
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: transcript } })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  const pane = await drawnPane($)
+  expect(pane).toContain('Patch the cleaner')
+  expect(pane).toContain('Check the repository')
+  expect(tailCalls(host)[0]).toEqual(['tail', '-c', '+1', TRANSCRIPT_OWN])
+  expect(host.readPaths).not.toContain(TRANSCRIPT_OWN)
+})
+
+test('a session with no activity since its last read is not read again', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine('Fix it') } })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  const first = tailCalls(host).length
+  expect(first).toBe(1)
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(tailCalls(host)).toHaveLength(first)
+})
+
+test('a transcript whose last line has no newline yet keeps that line for the next read', async ($: Engine, on) => {
+  const whole = userLine('Fix it')
+  const half = planLine('2026-11-02T10:19:00Z', [{ content: 'Half written', status: 'in_progress' }]).slice(0, -1)
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: whole + half } })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  expect(await drawnPane($)).not.toContain('Half written')
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(tailCalls(host)[1]).toEqual(['tail', '-c', `+${new TextEncoder().encode(whole).length + 1}`, TRANSCRIPT_OWN])
+})
+
+test('a session\'s Earlier button opens its older events, stores the session under timelineOpen, and a second press removes the key', async ($: Engine, on) => {
+  const steps = Array.from({ length: 7 }, (_, index) => ({ content: `Step ${index + 1}`, status: 'completed' }))
+  const transcript = userLine('Fix it') + steps.map((step, index) => planLine(`2026-11-02T10:0${index}:00Z`, steps.slice(0, index + 1))).join('')
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: transcript } })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  const key = `earlier-${SESSION_ID}`
+  const closed = await mountPane($)
+  const button = await closed.find({ type: 'Button', key })
+  expect(button?.props.label).toMatch(/^▸ Earlier \(\d+\)$/)
+  await closed.press({ key })
+  await host.clock.settle()
+  await closed.unmount()
+  expect(host.store.get('timelineOpen')).toEqual([SESSION_ID])
+
+  const opened = await mountPane($)
+  expect((await opened.find({ type: 'Button', key }))?.props.label).toMatch(/^▾ Earlier/)
+  await opened.press({ key })
+  await host.clock.settle()
+  await opened.unmount()
+  expect(host.store.get('timelineOpen')).toBeUndefined()
 })
 
 // ---- condensed lines of long prompts (SPEC section 21, owner's review 2026-11-02) ----

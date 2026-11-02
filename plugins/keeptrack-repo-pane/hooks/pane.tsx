@@ -45,6 +45,9 @@ export type PaneContext = {
   legendOpen: boolean
   onLegendToggle: () => void
   held: HeldButtons
+  // The sessions whose earlier timeline events are shown (SPEC section 22); a press on a session's Earlier button calls onTimelineToggle.
+  timelineOpen?: ReadonlySet<string>
+  onTimelineToggle?: (sessionId: string) => void
 }
 
 // What every drawing function reads: the element table, the language, the clock of this draw, the host's UTC offset, the surface,
@@ -63,6 +66,8 @@ type View = {
   legendOpen: boolean
   onLegendToggle: () => void
   held: HeldButtons
+  timelineOpen: ReadonlySet<string>
+  onTimelineToggle: (sessionId: string) => void
 }
 
 // Where a session row sits: its branch glyph ("├" or "└"), the parent's issue (breadcrumb), and the level it is drawn at
@@ -113,7 +118,10 @@ const NO_VALUE = '—'
 // Markdown punctuation that a title could carry; escaped before it goes into a link label.
 const MARKDOWN_PUNCTUATION = /[\\`*_[\]()<>!|~&:.@]/g
 // The icon of each timeline kind (the history), of each session state, and of each PR state on a PR line.
-const TIMELINE_ICON: Readonly<Record<TimelineEvent['kind'], StatusIconKey>> = { commit: 'commit', pr: 'pr', session: 'session' }
+// The timeline events drawn before a session's Earlier button.
+const TIMELINE_SHOWN = 5
+// A plan step (SPEC section 22) has no icon: its text says what the session did.
+const TIMELINE_ICON: Readonly<Record<Exclude<TimelineEvent['kind'], 'step'>, StatusIconKey>> = { commit: 'commit', pr: 'pr', session: 'session' }
 const STATE_ICON: Readonly<Record<SessionNode['state'], ActionIconKey>> = { working: 'working', idle: 'idle', waiting: 'waiting' }
 const PR_STATE_ICON: Readonly<Record<PullRequest['state'], StatusIconKey>> = { OPEN: 'pr', MERGED: 'done', CLOSED: 'closed' }
 // The cells of a milestone's progress bar, and the scale of its percentage.
@@ -174,12 +182,19 @@ export function renderPane(elements: Ui, context: PaneContext): RenderElement {
     legendOpen: context.legendOpen,
     onLegendToggle: context.onLegendToggle,
     held: context.held,
+    timelineOpen: context.timelineOpen ?? new Set(),
+    onTimelineToggle: context.onTimelineToggle ?? (() => undefined),
   }
   const { Box, Text } = elements
+  // Every Button of this draw is held between begin and end (held.ts): the legend's and each session's Earlier button.
+  view.held.begin()
+  const header = renderHeader(view, snapshot)
+  const body = snapshot === null ? renderUnsettled(view, context.loadFailed === true) : renderSnapshot(view, snapshot)
+  view.held.end()
   return (
     <Box key="keeptrack-repo-pane" flexDirection="column" gap={1}>
-      {renderHeader(view, snapshot)}
-      {snapshot === null ? renderUnsettled(view, context.loadFailed === true) : renderSnapshot(view, snapshot)}
+      {header}
+      {body}
     </Box>
   )
 }
@@ -733,29 +748,52 @@ function renderGithubLink(view: View, number: number, url: string | null, indent
   )
 }
 
-// The timeline, newest first: time, kind glyph, text. Always drawn, at most TIMELINE_LIMIT events, never folded, and with no heading.
+// The timeline (SPEC section 22): the current task first (`Now: <task>`), then the events newest first: time, kind glyph (none for a
+// plan step), text. The TIMELINE_SHOWN newest are always drawn; the rest, up to TIMELINE_LIMIT, sit behind the session's Earlier (N)
+// button, closed by default, since the pane has no inner scroll.
 function renderTimeline(view: View, node: SessionNode, indent: number): RenderElement {
   const { Box, Text } = view.ui
   const events = [...node.timeline].sort((a, b) => b.at - a.at).slice(0, TIMELINE_LIMIT)
+  const earlier = events.slice(TIMELINE_SHOWN)
+  const open = view.timelineOpen.has(node.id)
+  const drawn = open ? events : events.slice(0, TIMELINE_SHOWN)
   return (
     <Box key={`timeline-${node.id}`} flexDirection="column" gap={1} paddingLeft={indent}>
-      {events.map((event, index) => (
-        <Box key={`event-${node.id}-${index}`} flexDirection="row" gap={1}>
-          <Text key="time">{clockOf(event.at, view.utcOffsetMinutes)}</Text>
-          <Text key="glyph">{statusIconEmoji(TIMELINE_ICON[event.kind])}</Text>
-          <Box key="text" flexGrow={1}>
-            {renderTimelineText(view, node, event)}
-          </Box>
-        </Box>
-      ))}
+      {node.currentTask !== null && <Text key={`now-${node.id}`}>{t(view.lang, 'timeline.now', { task: node.currentTask })}</Text>}
+      {drawn.slice(0, TIMELINE_SHOWN).map((event, index) => renderTimelineEvent(view, node, event, index))}
+      {earlier.length > 0 && renderEarlierToggle(view, node, earlier.length, open)}
+      {drawn.slice(TIMELINE_SHOWN).map((event, index) => renderTimelineEvent(view, node, event, index + TIMELINE_SHOWN))}
     </Box>
   )
+}
+
+// One timeline row: its clock time, its kind glyph (a plan step has none), and its text.
+function renderTimelineEvent(view: View, node: SessionNode, event: TimelineEvent, index: number): RenderElement {
+  const { Box, Text } = view.ui
+  return (
+    <Box key={`event-${node.id}-${index}`} flexDirection="row" gap={1}>
+      <Text key="time">{clockOf(event.at, view.utcOffsetMinutes)}</Text>
+      {event.kind !== 'step' && <Text key="glyph">{statusIconEmoji(TIMELINE_ICON[event.kind])}</Text>}
+      <Box key="text" flexGrow={1}>
+        {renderTimelineText(view, node, event)}
+      </Box>
+    </Box>
+  )
+}
+
+// A session's Earlier (N) button: ▸ closed, ▾ open, like the legend's. Its press handle is kept across redraws (held.ts).
+function renderEarlierToggle(view: View, node: SessionNode, count: number, open: boolean): RenderElement {
+  const { Button } = view.ui
+  const key = `earlier-${node.id}`
+  const label = `${open ? DISCLOSURE_OPEN : DISCLOSURE_CLOSED} ${t(view.lang, 'timeline.earlier', { count })}`
+  return view.held.hold(key, label, () => view.onTimelineToggle(node.id), press => <Button key={key} label={label} onPress={press} />)
 }
 
 // The variable part of an event's text (repo-work-pane-design-spec.md section 3.2) drawn with its key. A commit subject and a PR's
 // "<number> <title>" are plain values; a session event names its parent (fork, spawn) or nothing (root).
 function timelineText(lang: Lang, node: SessionNode, event: TimelineEvent): string {
   if (event.kind === 'commit') return t(lang, 'timeline.commit', { subject: event.text })
+  if (event.kind === 'step') return event.text
   if (event.kind === 'pr') {
     const [number = '', ...words] = event.text.split(' ')
     return t(lang, 'timeline.pr', { number, title: words.join(' ') })
@@ -937,12 +975,7 @@ function renderLegendToggle(view: View): RenderElement {
   const { Button } = view.ui
   const glyph = view.legendOpen ? DISCLOSURE_OPEN : DISCLOSURE_CLOSED
   const label = `${glyph} ${t(view.lang, 'legend.title')}`
-  view.held.begin()
-  const toggle = view.held.hold('legend-toggle', label, view.onLegendToggle, press => (
-    <Button key="legend-toggle" label={label} onPress={press} />
-  ))
-  view.held.end()
-  return toggle
+  return view.held.hold('legend-toggle', label, view.onLegendToggle, press => <Button key="legend-toggle" label={label} onPress={press} />)
 }
 
 // The table: a bold heading, then a row per entry: the icon in a fixed-width cell, then the entry's name and a sentence on when it

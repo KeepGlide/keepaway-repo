@@ -25,7 +25,8 @@ export type PullRequest = {
 
 // The Desktop's post-turn summary of a record (Desktop-internal, undocumented; SPEC section 7): blocked when the session stopped for the
 // person, and the needs text the pane draws under its row (cut to NEEDS_ACTION_MAX), null when there is none.
-export type PostTurnSummary = { blocked: boolean; needsAction: string | null }
+// detail: the summary's status_detail as plain text, the session's current task when its transcript names no plan step (SPEC section 22).
+export type PostTurnSummary = { blocked: boolean; needsAction: string | null; detail?: string | null }
 
 // The session's summary line (SPEC section 21): the first prompt of its transcript, cut to SUMMARY_MAX; text null when the transcript
 // has no prompt. A session with no SessionSummary draws no line (unknown yet, or the setting is off).
@@ -46,7 +47,11 @@ export type ProjectedRecord = {
 export type IssueRef = { number: number; source: 'override' | 'pr' | 'branch' | 'title' | 'parent' }
 
 // url: the commit's or the PR's web page, null when the event has none (a session event, or no repo page).
-export type TimelineEvent = { at: number; kind: 'commit' | 'pr' | 'session'; text: string; url: string | null }
+// A 'step' event is a plan step the session started (SPEC section 22); it has no icon and no page.
+export type TimelineEvent = { at: number; kind: 'commit' | 'pr' | 'session' | 'step'; text: string; url: string | null }
+
+// A session's plan steps read from its transcript (SPEC section 22): the step events, newest first, and the step in progress.
+export type SessionSteps = { events: { at: number; text: string }[]; current: string | null }
 
 // A repo's remote as the mod reads it: the host (lower case), owner and name. Never drawn; a link is built from it.
 export type RepoRemote = { host: string; owner: string; name: string }
@@ -76,6 +81,8 @@ export type SessionNode = {
   needsAction: string | null
   // summary: the summary line under the title (SessionSummary); null when the line is not drawn.
   summary: SessionSummary | null
+  // currentTask: the plan step in progress, else the Desktop summary's status detail; null when neither is known.
+  currentTask: string | null
   timeline: TimelineEvent[]; children: SessionNode[]
   group: SessionGroup | null   // set on every top of snapshot.sessions, null on derived nodes
 }
@@ -132,6 +139,8 @@ export type SessionInput = ProjectedRecord & {
   remote?: RepoRemote | null
   // The session's summary this poll has (SessionSummary); absent or null draws no line.
   summary?: SessionSummary | null
+  // The session's plan steps this poll has (SessionSteps); absent or null adds no step event and no current task.
+  steps?: SessionSteps | null
 }
 
 // The drawn state the hooks module reads and writes (see hooks/register.tsx).

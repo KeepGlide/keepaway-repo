@@ -34,6 +34,7 @@ import {
   projectRecord,
   stateOf,
   timelineOf,
+  TIMELINE_LIMIT,
 } from '../hooks/model'
 import {
   HOUR,
@@ -928,12 +929,19 @@ test('timelineOf: a PR event carries its number, a space and its title', () => {
   expect(events[0]).toEqual({ at: 50, kind: 'pr', text: '106 Synthetic fix', url: null })
 })
 
-test('timelineOf: the default cap keeps the 6 newest events and drops the oldest', () => {
-  const commits = [14, 13, 12, 11, 10].map(at => ({ at, subject: 'c' + String(at) }))
+test('timelineOf: the default cap keeps the TIMELINE_LIMIT newest events and drops the oldest', () => {
+  const commits = Array.from({ length: TIMELINE_LIMIT }, (_, index) => ({ at: TIMELINE_LIMIT + 10 - index, subject: 'c' + String(index) }))
   const pr = makePr({ createdAt: new Date(9).toISOString() })
   const events = timelineOf({ createdAt: 1, kind: 'root', parentTitle: null, pr, commits })
-  expect(events.map(event => event.at)).toEqual([14, 13, 12, 11, 10, 9])
-  expect(events.some(event => event.kind === 'session')).toBe(false)
+  expect(events).toHaveLength(TIMELINE_LIMIT)
+  expect(events[0]?.at).toBe(TIMELINE_LIMIT + 10)
+  expect(events.some(event => event.kind === 'session' || event.kind === 'pr')).toBe(false)
+})
+
+test('timelineOf: plan steps become step events with plain text and no link', () => {
+  const steps = [{ at: 5, text: 'Run\tthe tests' }]
+  const events = timelineOf({ createdAt: 1, kind: 'root', parentTitle: null, pr: null, commits: [], steps })
+  expect(events).toContainEqual({ at: 5, kind: 'step', text: 'Run the tests', url: null })
 })
 
 test('timelineOf: an explicit limit is honoured', () => {
@@ -993,9 +1001,9 @@ test('projectRecord reads postTurnSummary: blocked from status_category, the nee
   const blocked = projectRecord(
     makeRawRecord({ postTurnSummary: { status_category: 'blocked', status_detail: 'Waiting', needs_action: '  Approve\n the   push ', summarizes_uuid: 'turn-1' } }),
   )
-  expect(blocked?.postTurn).toEqual({ blocked: true, needsAction: 'Approve the push' })
+  expect(blocked?.postTurn).toMatchObject({ blocked: true, needsAction: 'Approve the push' })
   const completed = projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'completed', needs_action: 'Nothing' } }))
-  expect(completed?.postTurn).toEqual({ blocked: false, needsAction: 'Nothing' })
+  expect(completed?.postTurn).toMatchObject({ blocked: false, needsAction: 'Nothing' })
 })
 
 test('projectRecord: a missing or malformed postTurnSummary is no data, and the record is still projected', () => {
@@ -1007,16 +1015,16 @@ test('projectRecord: a missing or malformed postTurnSummary is no data, and the 
 })
 
 test('projectRecord: a needs text that is not a string, is blank, or is over the field limit gives no line; the status still counts', () => {
-  expect(projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'blocked', needs_action: 42 } }))?.postTurn).toEqual({
+  expect(projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'blocked', needs_action: 42 } }))?.postTurn).toMatchObject({
     blocked: true,
     needsAction: null,
   })
-  expect(projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'blocked', needs_action: ' \n ' } }))?.postTurn).toEqual({
+  expect(projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'blocked', needs_action: ' \n ' } }))?.postTurn).toMatchObject({
     blocked: true,
     needsAction: null,
   })
   const oversized = 'a '.repeat(FIELD_MAX_LENGTH)
-  expect(projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'blocked', needs_action: oversized } }))?.postTurn).toEqual({
+  expect(projectRecord(makeRawRecord({ postTurnSummary: { status_category: 'blocked', needs_action: oversized } }))?.postTurn).toMatchObject({
     blocked: true,
     needsAction: null,
   })
@@ -1034,6 +1042,18 @@ test('projectRecord cuts the needs line at NEEDS_ACTION_MAX (90 characters, the 
 
 // A Desktop summary of a session that stopped for the person, as projectRecord reads it.
 const STOPPED = { blocked: true, needsAction: 'Approve the push' }
+
+test('buildTree: the current task is the plan step in progress, else the stop detail, else none (SPEC section 22)', () => {
+  const at = NOW - HOUR
+  const detail = { ...STOPPED, detail: 'Waiting for the review' }
+  const steps = { events: [], current: 'Run the tests' }
+  const [withStep] = buildTree([makeRecord({ sessionId: 'local_aaaa0311', lastActivityAt: at, postTurn: detail, steps })], OPTS)
+  expect(withStep?.currentTask).toBe('Run the tests')
+  const [withDetail] = buildTree([makeRecord({ sessionId: 'local_aaaa0312', lastActivityAt: at, postTurn: detail })], OPTS)
+  expect(withDetail?.currentTask).toBe('Waiting for the review')
+  const [bare] = buildTree([makeRecord({ sessionId: 'local_aaaa0313', lastActivityAt: at })], OPTS)
+  expect(bare?.currentTask).toBeNull()
+})
 
 test('buildTree: a session that stopped blocked within 24 h is waiting for you, and its row carries the needs line (D7)', () => {
   const [node] = buildTree([makeRecord({ sessionId: 'local_aaaa0301', lastActivityAt: NOW - 3 * HOUR, postTurn: STOPPED })], OPTS)
