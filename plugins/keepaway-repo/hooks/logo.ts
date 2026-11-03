@@ -1,8 +1,8 @@
-// The KeepTrack product mark: concept C, the checkpoint (a Sky milestone ring crossed by the Teal kite, one Coral dot for the
+// The KeepAway Repo product mark: concept C, the checkpoint (a Sky milestone ring crossed by the Teal kite, one Coral dot for the
 // progress mark). Copied from keepglide-company's brand drafts of 2026-10-21: repo-work-c-checkpoint-mark-only.svg (still). The spinning
 // variant of that draft is not copied: the band mark is static everywhere (ux4-13, WCAG 2.2.2). The concept is provisional: Sophia has not
 // picked between A, B and C, so a swap is a change to this file only. The mark keeps its brand colours in both themes, so this
-// file is exempt from the look gate's colour check (scripts/keeptrack-look-check.sh), like keepglide.ts.
+// file is exempt from the look gate's colour check (scripts/keepaway-look-check.sh), like keepglide.ts.
 
 // The milestone ring and its Coral dot: the drawing the still and the loading mark share.
 const RING =
@@ -31,6 +31,6 @@ function svgDocument(size: number, body: string): string {
 }
 
 // The still mark as an SVG document for the `Svg` element, `size` CSS pixels square.
-export function keepTrackSvg({ size = 16 }: { size?: number } = {}): string {
+export function keepAwaySvg({ size = 16 }: { size?: number } = {}): string {
   return svgDocument(size, `<g>${RING}</g>${KITE}`)
 }

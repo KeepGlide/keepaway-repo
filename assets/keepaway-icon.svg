@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
-  <title id="title">KeepTrack mark, the checkpoint: a Sky milestone ring crossed by the kite, one Coral dot for the progress mark, on a navy squircle</title>
+  <title id="title">KeepAway Repo mark, the checkpoint: a Sky milestone ring crossed by the kite, one Coral dot for the progress mark, on a navy squircle</title>
   <defs>
     <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
       <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="halo"/>

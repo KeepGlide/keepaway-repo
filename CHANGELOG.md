@@ -1,12 +1,25 @@
 # Changelog
 
-All notable changes to KeepTrack are recorded here, newest first. The format follows
+All notable changes to KeepAway Repo are recorded here, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The project follows
 [SemVer](https://semver.org/); while the version is `0.y.z`, any release may change behavior.
-The version in `plugins/keeptrack-repo-pane/.claude-plugin/plugin.json` is 0.2.0-beta.8.
-Commit hashes name the change in `git log`.
+The version in `plugins/keepaway-repo/.claude-plugin/plugin.json` is 0.2.0-beta.8.
+Commit hashes name the change in `git log`. Entries below the rename keep the names they were written with (KeepTrack, `keeptrack-repo-pane`, `/keeptrack`).
 
 ## [Unreleased]
+
+### Changed
+- The mod is renamed **KeepAway Repo** (was KeepTrack). The pane title, heading, command description, README and spec use the new name; the pt-BR text keeps the name as it is.
+- Migration, old ids → new ids:
+  - plugin id `keeptrack-repo-pane` → `keepaway-repo` (install `claude plugin install keepaway-repo@sophia-mods`; to remove the old id, run `claude plugin uninstall keeptrack-repo-pane@sophia-mods` first);
+  - directory `plugins/keeptrack-repo-pane/` → `plugins/keepaway-repo/`;
+  - command `/keeptrack` → `/keepaway` (same subcommands: `open`, `issue <n>`, `issue none`, `lang`, `summary`);
+  - environment variables `KEEPTRACK_POLL_MS` → `KEEPAWAY_POLL_MS`, `KEEPTRACK_BAND_POLL_MS` → `KEEPAWAY_BAND_POLL_MS`, `KEEPTRACK_DESKTOP_SESSIONS` → `KEEPAWAY_DESKTOP_SESSIONS`;
+  - look gate scripts `scripts/keeptrack-look-check.sh` → `scripts/keepaway-look-check.sh` and `scripts/keeptrack-look-selftest.sh` → `scripts/keepaway-look-selftest.sh`;
+  - code names `keepTrackSvg` → `keepAwaySvg`, `renderKeepTrackLogo` → `renderKeepAwayLogo`, `renderKeepTrackMark` → `renderKeepAwayMark`;
+  - assets `assets/keeptrack-icon.svg` → `assets/keepaway-icon.svg`, `assets/keeptrack-cover-1600x400.png` → `assets/keepaway-cover-1600x400.png`, `docs/screenshots/keeptrack-session-first-{light,dark}.jpg` → `docs/screenshots/keepaway-session-first-{light,dark}.jpg`.
+- The mod's saved state is keyed by the plugin id. The language (`lang`), the summary setting (`summary`), the window issues (`override:<session id>`) and the other stored values under `keeptrack-repo-pane` are not read by `keepaway-repo`, so the new id starts from its defaults. Set them again with `/keepaway lang`, `/keepaway summary` and `/keepaway issue <n>`. The old entries are not deleted by this change.
+- Unchanged on purpose: the GitHub repository `KeepGlide/keeptrack` (its URLs and its `git clone` folder name), the website pages `keepglide.com/keeptrack` and `keepglide.com/pt-br/keeptrack`, and the host path `/home/sophia/projects/keeptrack` used by a test fixture.
 
 ## [0.2.0-beta.24] - 2026-11-02
 

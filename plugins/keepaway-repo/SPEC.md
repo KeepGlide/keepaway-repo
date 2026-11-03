@@ -1,6 +1,6 @@
-# KeepTrack: spec (as built, v0.2.0-beta.24)
+# KeepAway Repo: spec (as built, v0.2.0-beta.24)
 
-Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepTrack, the command is `/keeptrack`.
+Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepAway Repo, the command is `/keepaway`.
 
 The mod draws, in a Claude Code pane, the work of the repository this session belongs to: the open milestones and their
 open issues, the Desktop sessions working on each issue, and, for this window, its issue's details and timeline. Its design
@@ -15,7 +15,7 @@ where it differs from that record (section 9).
 - Show the open issues that no session works on, grouped by open milestone; the issues of a closed milestone are grouped under
   that milestone's title and marked as closed.
 - Read only. The pane writes these kinds of state: the open flag and the language (`$.store` `lang`), the issue
-  override a `/keeptrack issue` command sets (`$.store` `override:<sessionId>`), and the summary setting (`$.store` `summary`,
+  override a `/keepaway issue` command sets (`$.store` `override:<sessionId>`), and the summary setting (`$.store` `summary`,
   section 21). The summaries themselves are kept in this window's memory only (section 21).
 
 ## 2. Files
@@ -23,38 +23,38 @@ where it differs from that record (section 9).
 | File | Role |
 |---|---|
 | `.claude-plugin/plugin.json`, `hooks/hooks.json` | Manifest; the hooks module is `hooks/register.tsx`. |
-| `hooks/register.tsx` | The only module that calls `$`: the poll timer, the atoms, the `/keeptrack` command, the close; the context ancestors (`ancestorsOf`) and the Desktop config read (`readDesktopGroups`). |
+| `hooks/register.tsx` | The only module that calls `$`: the poll timer, the atoms, the `/keepaway` command, the close; the context ancestors (`ancestorsOf`) and the Desktop config read (`readDesktopGroups`). |
 | `hooks/model.ts` | Pure rules: remote parsing, session-to-issue mapping, session tree with its groups (`parseDesktopGroups`, `familyOf`, `groupOf`, `cutAcrossGroups`, `sortTops`, `nearestKeptAncestorOf`), issue groups, timelines, state, record projection. |
 | `hooks/steps.ts` | The plan steps' pure rules (section 22): update_plan and TodoWrite inputs from new transcript lines become step events and the current step. `hooks/register.tsx` reads the bytes. |
 | `hooks/summary.ts` | The session summary's pure rules (section 21): the first prompt of a transcript head, cleaned and cut to 93 characters, and the transcript folder of a session. `hooks/register.tsx` reads the transcript. |
 | `hooks/pane.tsx` | Draws one `Snapshot`; reads no state. The session groups: `groupsOf`, `renderGroup`, `renderGroupLabel`. |
 | `hooks/band.tsx` | Draws the band row above the prompt: the status line, the repo context and the Open button (section 18); reads no state. |
-| `hooks/logo-element.tsx` | The logo elements: the pane header's mark (`renderKeepTrackLogo`), the band's leading mark (`renderKeepTrackMark`) and the KeepGlide mark (`renderKeepGlide`), drawn from `logo.ts` and `keepglide.ts` (section 18). |
+| `hooks/logo-element.tsx` | The logo elements: the pane header's mark (`renderKeepAwayLogo`), the band's leading mark (`renderKeepAwayMark`) and the KeepGlide mark (`renderKeepGlide`), drawn from `logo.ts` and `keepglide.ts` (section 18). |
 | `hooks/repo-logo.ts` | The repo logo's pure rules (section 11): the logo file names in priority order, the choice of a file, the size cap, the PNG and JPEG checks (magic bytes and trailer), the PNG frame, the stored entry and its age. No I/O. |
-| `hooks/action-icons.ts` | Every emoji of KeepTrack: the band's action icons (emoji and SVG per key, section 18), the pane's status icons and the priority icons (section 19). |
+| `hooks/action-icons.ts` | Every emoji of KeepAway Repo: the band's action icons (emoji and SVG per key, section 18), the pane's status icons and the priority icons (section 19). |
 | `hooks/turn.ts` | The pure transitions of the main loop's turn (turn.start, tool.call, turn.complete, turn.abort), written into the turn atom. |
 | `hooks/keepglide.ts` | A local copy of askaway's KeepGlide mark, drawn 24 px at the pane header's right (section 17). |
 | `hooks/held.ts` | Keeps the band's press handle across redraws: a local copy of askaway's `held.ts` (mods do not import each other). |
 | `hooks/i18n.ts` | English and pt-BR dictionaries and `t()`; `group.recents` is `Recents` in both languages, the Desktop sidebar's own label (the app bundle has `Recents` 24 times and `Recentes` 0 times, counted on this machine on 2026-10-22, `/usr/lib/claude-desktop/version`: `44.9.0`). |
 | `hooks/look.ts`, `hooks/logo.ts` | Theme keys and glyphs (`look.ts`); the one violet of the logo (`logo.ts`, exempt from the look gate). |
 | `types/index.d.ts` | The contracts: records, issues, PRs, `SessionNode`, `IssueDetails`, `Snapshot`, the drawn state. |
-| `scripts/keeptrack-look-check.sh` | Look gate: no hex colour, colour function or emoji in the drawn code (emoji only in `action-icons.ts`). |
-| `scripts/keeptrack-look-selftest.sh` | Self-check of the gate on a copy: the real tree passes; an emoji outside `action-icons.ts` fails; one inside passes; a hex colour there fails. |
+| `scripts/keepaway-look-check.sh` | Look gate: no hex colour, colour function or emoji in the drawn code (emoji only in `action-icons.ts`). |
+| `scripts/keepaway-look-selftest.sh` | Self-check of the gate on a copy: the real tree passes; an emoji outside `action-icons.ts` fails; one inside passes; a hex colour there fails. |
 | `tests/*.test.ts`, `tests/fixtures/sample.ts` | Unit tests of the rules, the pane, the band, the i18n and the hooks module. |
 
 ## 3. Data flow
 
-1. `session.start` sets the language, registers `/keeptrack`, drops the old timer and starts the band's tick (section 18). It resets
+1. `session.start` sets the language, registers `/keepaway`, drops the old timer and starts the band's tick (section 18). It resets
    the band's turn to idle, drops the waiting flag, the agent run, the window issue (`thisIssue`, `thisIssueNumber`) and the
    repo context (a failed repo read in the new session draws no old repo, st-6), and marks the snapshot stale. Then it starts the window's timer at its cadence and polls at once: the
-   poll is not held back by the cadence or by the time of the last poll, since that poll belongs to the previous session. A poll still in flight at that session.start is not skipped: the new session's poll starts when that one settles (state2-3). A `/keeptrack issue` override set during a poll in flight is polled
+   poll is not held back by the cadence or by the time of the last poll, since that poll belongs to the previous session. A poll still in flight at that session.start is not skipped: the new session's poll starts when that one settles (state2-3). A `/keepaway issue` override set during a poll in flight is polled
    again the same way (st-5), and a poll asked for while abandoned polls fill every slot is queued until one settles (st-8). A reload (`/reload-plugins`) gives the module a new instance with no timers of its own: the engine drops the
    old timers, and `session.start` runs again for the changed hooks. If an instance finds its timers missing at a band draw (no
    `session.start` ran in it), the draw schedules `ensureTimers` through the clock, which starts the tick and, when no poller runs,
    the poll at the cadence. Starting is idempotent: a running timer is never started twice.
-2. `/keeptrack open` (or `/keeptrack` with no verb) calls `$.ui.open` for the pane. A placed pane starts the timer and polls
+2. `/keepaway open` (or `/keepaway` with no verb) calls `$.ui.open` for the pane. A placed pane starts the timer and polls
    at once when the snapshot is older than one interval.
-3. `$.clock.every` runs `startPoll` at the cadence of the open flag: 60 s while the pane is open, 5 min (`KEEPTRACK_BAND_POLL_MS`)
+3. `$.clock.every` runs `startPoll` at the cadence of the open flag: 60 s while the pane is open, 5 min (`KEEPAWAY_BAND_POLL_MS`)
    while it is closed. A poll that is still running starts nothing (`polling` flag). A poll not settled after 30 s (`POLL_DEADLINE_MS` in `hooks/register.tsx`) is abandoned: it is failed and the flag is released, so a newer poll may start beside it. Its late result still writes unless a newer poll has already written (`writtenSeq`); a result that is dropped reaches neither the snapshot, the GitHub memory, the override prune nor the last repo context. At most 2 abandoned polls run at once (`MAX_ABANDONED_POLLS`); a poll tick past that logs `poll skipped` and starts nothing.
 4. A poll (`buildSnapshot`, one atom write, then `ui.invalidate`):
    1. Repo: `$.session.repo()` gives the root and the origin remote; when it names none (the engine reads origin only), the repo's
@@ -141,8 +141,8 @@ without an engine origin asks the same way on each poll. `symbolic-ref --quiet -
 kept session with a branch; the log is parsed from git's output as it comes, not trimmed, so a commit with an empty subject still counts.
 
 Budget: four gh calls per minute while the pane is open, plus the fifth call (`gh issue view`) while this window maps to an issue. While the pane
-is closed: four gh calls every 5 minutes (`KEEPTRACK_BAND_POLL_MS`), plus the fifth call when mapped, so at most 5 gh calls per 5
-minutes per window, and one poll at session start (and one more when a session.start or a `/keeptrack issue` landed during a poll in flight, or while abandoned polls filled every slot). Git is local.
+is closed: four gh calls every 5 minutes (`KEEPAWAY_BAND_POLL_MS`), plus the fifth call when mapped, so at most 5 gh calls per 5
+minutes per window, and one poll at session start (and one more when a session.start or a `/keepaway issue` landed during a poll in flight, or while abandoned polls filled every slot). Git is local.
 
 Logo lookups (section 11) are not poll calls: a repo's logo is looked up once per repo per TTL (24 h for a logo or none, 1 h after a failed lookup), never on each poll, and a lookup on github.com makes at most three `gh api repos/OWNER/NAME/contents/<path>` calls (`GITHUB_LOGO_CALLS`: the root's `logo.png`, `logo.jpg`, `logo.jpeg`), stopping at the first logo; with no logo found, a GitHub repo's lookup asks `gh api users/<owner>` for the type (and, for an organization, for its avatar URL once more), and its avatar fetch is one curl call (section 11), not a gh call. The checkout's logo folders are listed locally, at no gh cost.
 
@@ -150,7 +150,7 @@ Host clock (`date +%z`, `readUtcOffset` in `hooks/register.tsx`): the host's UTC
 
 ## 5. Session to issue (first match wins, no merging)
 
-1. Override: the store key `override:<sessionId>`, set by `/keeptrack issue <n>` in this window only.
+1. Override: the store key `override:<sessionId>`, set by `/keepaway issue <n>` in this window only.
 2. PR: the open PR whose `headRefName` is the session's branch and whose `closingIssuesReferences` names issues. Several:
    the lowest number. A PR's closing references are read 50 at a time; when GitHub reports more than 50, the PR names no issue
    and the session maps by its branch, title or parent.
@@ -247,7 +247,7 @@ A poll never throws into the engine: a failed job is logged by its error name on
 | Design (external private record `repo-work-pane-design-spec.md`, kept outside this repository) | As built | Reason |
 |---|---|---|
 | D1: open or merged PR closes the issue | Only open PRs map: the GraphQL query asks for `OPEN` | Merged PRs are not in the query; adding them is a new query field, deferred |
-| D2: open PR keeps an archived session | An ended session (archived, or deleted) drops out even with an open PR (this window excepted) | Sophia's rule, restated on 2026-10-22: KeepTrack does not list sessions that already ended (row "Ended sessions never listed" below); `buildTree` tests pin it |
+| D2: open PR keeps an archived session | An ended session (archived, or deleted) drops out even with an open PR (this window excepted) | Sophia's rule, restated on 2026-10-22: KeepAway Repo does not list sessions that already ended (row "Ended sessions never listed" below); `buildTree` tests pin it |
 | D4: milestones, one page of 100 | Every page (`gh api --paginate`, 100 per page), bounded by the 4 MiB answer cap and the 15 s timeout | RB1-4: one page drops every open milestone past the 100th |
 | D4: `closingIssuesReferences(first: 10)` | First 50 with `totalCount`; more than 50: the PR names no issue | DL9: the lowest of a partial page may not be the lowest |
 | D5: "Próximo passo" dropped | Drawn as `no next step` (pt-BR `nenhum registrado`) when no value exists; no snapshot field feeds it yet | Sophia's decision for this pane; a bare dash read as an empty value (ux4-21) |
@@ -259,7 +259,7 @@ A poll never throws into the engine: a failed job is logged by its error name on
 | D7: waiting is this window's flag only | Another session also waits while its `postTurnSummary` says `blocked` and its last activity is within 24 h, with its needs line; the top of its group, after this window's top (Q5, Q6); a top whose session under it waits ranks the same (section 3) | Owner-approved 2026-10-30 (Q5 with the 24 h cutoff, Q6 ordering); the needs line is the Q14 limit of 90 characters |
 | DESIGN 3.1: errors above groups | Same | none |
 | Window without issue | No details block and no GitHub line; the breadcrumb reads `no issue` | Mock and Sophia's brief |
-| Ended sessions never listed (D2, W6; 2026-10-22) | Ended = archived (`isArchived`) or deleted (the record is gone; its `deleted_<id>` tombstone is skipped). An ended record other than this window's is not matched, admitted, asked of git, listed or counted. As an ancestor it is context only: it links the tree, lends its Desktop Group and is named in the timeline of its derived sessions. This window's own archived record is still listed, with the state of its activity | Sophia's decision of 2026-10-22: "KeepTrack must not list sessions that already ended". It replaces the W6 rule (archived ancestors drawn idle). Her earlier request of the same day, finished rows with a ✓ glyph, was withdrawn by her |
+| Ended sessions never listed (D2, W6; 2026-10-22) | Ended = archived (`isArchived`) or deleted (the record is gone; its `deleted_<id>` tombstone is skipped). An ended record other than this window's is not matched, admitted, asked of git, listed or counted. As an ancestor it is context only: it links the tree, lends its Desktop Group and is named in the timeline of its derived sessions. This window's own archived record is still listed, with the state of its activity | Sophia's decision of 2026-10-22: "KeepAway Repo must not list sessions that already ended". It replaces the W6 rule (archived ancestors drawn idle). Her earlier request of the same day, finished rows with a ✓ glyph, was withdrawn by her |
 | W6: an ended parent in the tree | An ended parent has no row and no label; its live fork or spawn is a top of its group (Recents when unfiled), whose timeline names it | The row above, drawn in Askaway's tree (row below) |
 | Tree shape is Askaway's (group → session → derived) | One bold label per group (a Desktop sidebar Group, else `Recents`); each top a titled row, its derived rows nested; this window's group first, `Recents` last (section 3 step 8) | Sophia's decision of 2026-10-22 (Askaway q-mvjtulza-91d6af, option A): the sessions with no Group take the Desktop sidebar's own name, `Recents`. It withdraws the beta.7 family groups and their rule of derived sessions oldest first under the root's title as label |
 | Released marker not read | The `*.desktop-released.json` markers are not read: ended means archived or deleted only | Checked on this machine on 2026-10-22: 287 markers, all `reason: "delete"`, none naming a live record's `cliSessionId`; 45 of 57 records archived, none with a marker, so archiving writes no marker; the 710 `deleted_<id>` tombstones are already skipped |
@@ -272,7 +272,7 @@ A poll never throws into the engine: a failed job is logged by its error name on
 | Derived indent | 1/3/5 in every group, Recents included (drawn level): a top sits 1 cell under the label, its children at 3, the next level at 5, and deeper levels stay at 5 (beta.7 drew a family root's children at 1, in the column of its untitled rows; 1/3/3 by tree depth under a listed root and 2/4/4 before that; the boxes add up) | W1, in Askaway's tree |
 | Text of records | Titles, subjects, labels, names and comment bodies: control characters become spaces, capped (200 for text, 100 for labels and names) | S2: no escape sequence reaches a terminal |
 | Timeline of a fork with no parent title | The text without a name: `forked`, `spawned` | W6 |
-| `/keeptrack issue <n>` writes the override | `setIssue` checks the session id (`isSessionLinkId`) before it writes | SE4: defensive; the command cannot reach an invalid id (`projectRecord` drops a record whose `sessionId` lacks the `local_<id>` shape), so no test |
+| `/keepaway issue <n>` writes the override | `setIssue` checks the session id (`isSessionLinkId`) before it writes | SE4: defensive; the command cannot reach an invalid id (`projectRecord` drops a record whose `sessionId` lacks the `local_<id>` shape), so no test |
 | A failed poll marks the snapshot stale | Only when it is the newest poll at write time (`isNewest` checked again inside the atom update, `failedPoll`), and only when the poll began under the current session (`failedPoll` epoch check, state2-6) | ST3: the test (`ST3 guard`, `tests/register.test.ts`) is a guard only: the test kit cannot hold the snapshot atom between the read and the write |
 | Agents after turn.abort | turn.abort does not re-read the agents; the band tick re-reads them (section 18); the hook comment says so | SM2 |
 | Element keys: none named | Each repeated element takes a key of its own, the same on the Markdown and the Text branch: `group-label-<group key>` (a plain Text label since beta.8), `crumb-<session id>`, `line-<issue number>` (titles were already `title-<session id>`); this window's GitHub `link` is drawn once and keeps its key | F (2026-10-22): the engine refuses the whole Pane draw when two Markdown elements share a key, so two families, two listed issues or two linked breadcrumbs drew nothing on the desktop; pinned by the `F:` test in `tests/register.test.ts` |
@@ -328,32 +328,32 @@ scale as the rows: `just now` (pt-BR `agora`) under one minute, then `N min ago`
 
 - Dictionaries: `hooks/i18n.ts`, `EN` and `PT`; `PT` is typed against the `EN` keys, so a missing key fails the compile.
   Tests check key parity, placeholder parity and that no message is empty.
-- Choice: `/keeptrack lang en|pt-BR|auto` stores `lang` (auto removes it). Otherwise the first set variable of `LC_ALL`,
+- Choice: `/keepaway lang en|pt-BR|auto` stores `lang` (auto removes it). Otherwise the first set variable of `LC_ALL`,
   `LC_MESSAGES`, `LANG`, `LANGUAGE` decides: `pt*` is pt, anything else is en.
 - Model-facing text: none. Commit subjects, comment bodies, PR and session titles, labels and branch names are data, never
   translated.
 
 ## 13. Commands and state
 
-- `/keeptrack open`: open the pane (no verb means open). The band's button (section 18) does the same. `/keeptrack issue <n>`: this window's override. `/keeptrack issue none`:
-  clear it. `/keeptrack lang <choice>`. `/keeptrack summary on|off` (section 21). Any other argument: a toast with the usage line and no change. `/keeptrack open` and
-  `/keeptrack issue <n>` followed by extra words also show the usage toast and change nothing.
+- `/keepaway open`: open the pane (no verb means open). The band's button (section 18) does the same. `/keepaway issue <n>`: this window's override. `/keepaway issue none`:
+  clear it. `/keepaway lang <choice>`. `/keepaway summary on|off` (section 21). Any other argument: a toast with the usage line and no change. `/keepaway open` and
+  `/keepaway issue <n>` followed by extra words also show the usage toast and change nothing.
 - A window that is not a Desktop session (no record with its `cliSessionId`) cannot set an issue: a toast says so.
 - Store keys: `override:<sessionId>` = `{ issue, ts }`, `lang`, `summary` (boolean, absent is on; section 21), `legendOpen` (`true` while the legend is open, absent when closed; section 19). Nothing else is persisted. The `summary:<sessionId>` keys an earlier build wrote are deleted once per window. An override is dropped on a poll when no record in the records folder names its session (any repo's: the store is shared by every window) or its `ts` is over 30 days old (not on a poll with an unreadable folder). The 30-day lifetime (`OVERRIDE_TTL_MS`) also applies on read: an expired override is ignored
   even when the record scan was partial and the prune did not run. Module memory holds the file read
   cache, git lookups and the last good gh data.
-- The state lives in the mod's `$.store`, keyed by the plugin name (`keeptrack-repo-pane`), so the store of the old name
+- The state lives in the mod's `$.store`, keyed by the plugin name (`keepaway-repo`), so the store of the old name
   `github-repo-work-pane` is not read. Checked on 2026-10-22: no store file existed under either name, so the rename lost nothing.
 - The pane id stays `repo-work` (`PANE` in `hooks/register.tsx`) on purpose: the Desktop may remember a pane by its id, and renaming
-  it could lose that (decided 2026-10-22). Functions use KeepTrack names, and some comments still cite the design record's file name; the pane id `repo-work` stays as it is on purpose, and the design
+  it could lose that (decided 2026-10-22). Functions use KeepAway Repo names, and some comments still cite the design record's file name; the pane id `repo-work` stays as it is on purpose, and the design
   record is the external private file `repo-work-pane-design-spec.md`, kept outside this repository.
 
 ## 14. Environment overrides (tests)
 
 - `HOME`: the records root (`$HOME/.config/Claude/claude-code-sessions`).
-- `KEEPTRACK_DESKTOP_SESSIONS`: the records root (tests).
-- `KEEPTRACK_POLL_MS`: the poll interval while the pane is open, at least 1000 ms (tests); an invalid value falls back to the default 60000 (sp-5, tested).
-- `KEEPTRACK_BAND_POLL_MS`: the poll interval while the pane is closed, at least 1000 ms (tests). The default is 300000.
+- `KEEPAWAY_DESKTOP_SESSIONS`: the records root (tests).
+- `KEEPAWAY_POLL_MS`: the poll interval while the pane is open, at least 1000 ms (tests); an invalid value falls back to the default 60000 (sp-5, tested).
+- `KEEPAWAY_BAND_POLL_MS`: the poll interval while the pane is closed, at least 1000 ms (tests). The default is 300000.
 
 ## 15. Test protocol
 
@@ -363,9 +363,9 @@ Run from the mod folder:
    summary, and the gating-hook notes without `.catch` for `command.run`, `turn.abort`, `tool.call`, `agent.spawn` and `ui.close`.
 2. `claude plugin test .`: the unit, pane, band, turn, i18n and hooks-module tests (fixtures are synthetic; no real record, remote or
    GitHub call). The register tests stub `$` in memory: gh and git never run.
-3. `scripts/keeptrack-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
-   `keepglide.ts`, the two marks (the KeepTrack product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only (it holds every emoji of KeepTrack). `scripts/keeptrack-look-selftest.sh` runs the gate on a copy and checks those cases.
-4. `agentic-mod-release-tool.sh keeptrack-repo-pane --check` must pass before the mod is installed (CLAUDE.md rule 6a).
+3. `scripts/keepaway-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
+   `keepglide.ts`, the two marks (the KeepAway Repo product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only (it holds every emoji of KeepAway Repo). `scripts/keepaway-look-selftest.sh` runs the gate on a copy and checks those cases.
+4. `agentic-mod-release-tool.sh keepaway-repo --check` must pass before the mod is installed (CLAUDE.md rule 6a).
    The mod is published as 0.2.0-beta.24 and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
@@ -409,7 +409,7 @@ or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`
 | Repo logo lifetime | 24 h for a logo or none (`LOGO_TTL_MS`); 1 h after a failed lookup (`LOGO_RETRY_MS`) |
 | ssh alias lookup | one `ssh -G <alias>` per alias per window, 5 s (`SSH_TIMEOUT_MS`); a failure keeps the alias (section 16) |
 | Repo logo markup | 131072 characters (the Svg element's limit); the raster rules are in section 11 |
-| Band poll while the pane is closed | 5 min (`KEEPTRACK_BAND_POLL_MS`) |
+| Band poll while the pane is closed | 5 min (`KEEPAWAY_BAND_POLL_MS`) |
 | Band redraws for tool calls | 1 per second (a trailing redraw carries the last tool of a burst) |
 | gh timeout / git timeout | 15 s / 5 s |
 | Poll deadline | 30 s (F07, `POLL_DEADLINE_MS`): a poll past it is abandoned; its late result writes unless a newer poll has written (R2-04) |
@@ -433,7 +433,7 @@ Done in the Claude Desktop with the mod installed, not by the build:
 2. A 360 px wide pane and a wide one: no horizontal scroll; long titles and commit subjects wrap.
 3. The session title opens its session; the `#n` in the breadcrumb and the GitHub line open the issue page in the browser.
 4. The first click on the highlighted block works (a block that grows must not swallow the first click on a button below it).
-5. `/keeptrack issue 106` in this window: the window's breadcrumb and details change after the next poll.
+5. `/keepaway issue 106` in this window: the window's breadcrumb and details change after the next poll.
 6. Pane closed: no `gh` process runs (watch the process list for 2 minutes).
 7. The band above the prompt: drawn on the desktop and the terminal with the pane closed; its button reads Open and presses to
    the pane; with the pane open it reads Show; hotkey 2 from an empty composer opens the pane.
@@ -452,8 +452,8 @@ Done in the Claude Desktop with the mod installed, not by the build:
 - Drawn by `on('ui.render', { component: 'AbovePrompt' })` on the desktop and the terminal, always: with the pane open or closed,
   with or without an issue. One row; it wraps to two rows on a narrow surface. Left: the leading mark, the status line, the repo
   context. Right: the KeepGlide mark (desktop only) and the button.
-- Leading mark (`renderKeepTrackMark`, `hooks/logo-element.tsx`): on the desktop the still product mark, concept C (the checkpoint)
-  from `hooks/logo.ts` (`keepTrackSvg`), in every state. It never turns: a turning loop has no pause control (WCAG 2.2.2), so the
+- Leading mark (`renderKeepAwayMark`, `hooks/logo-element.tsx`): on the desktop the still product mark, concept C (the checkpoint)
+  from `hooks/logo.ts` (`keepAwaySvg`), in every state. It never turns: a turning loop has no pause control (WCAG 2.2.2), so the
   turning variant is not in `logo.ts`. On the terminal no mark: the state icon after it (`🟢`, `💤`) already says running or idle. Concept C is provisional
   (A, B and C are not chosen): the markup lives in `logo.ts` alone, so a swap changes that one file. The brand colours stay literal.
 - Action icons (`hooks/action-icons.ts`, one table: emoji and SVG per key): on the terminal the emoji as text; on the desktop a 14 px
@@ -496,7 +496,7 @@ Done in the Claude Desktop with the mod installed, not by the build:
   when the window maps to no issue; `no GitHub remote` when the window has no remote; nothing before the first poll. `#<n>` alone when
   the issue's details are missing (its milestone is then unknown); `no milestone · #<n>` when the details are known and the issue has no milestone (ux-1).
 - Button: `Open` (`Abrir`) while the pane is closed, `Show` (`Mostrar`) while it is open; hotkey `2` (digit `1` is left to another mod's band). Its press
-  runs the same code as `/keeptrack open`: it opens and focuses the pane, and resumes the timer at the pane's cadence. On the desktop
+  runs the same code as `/keepaway open`: it opens and focuses the pane, and resumes the timer at the pane's cadence. On the desktop
   the KeepGlide mark (`renderKeepGlide`, 18 px) sits immediately before the button; the terminal draws no picture.
 - The press handle survives a redraw (`hooks/held.ts`), so the first click after a focus move still lands.
 - Redraws: each turn, tool and agent change invalidates `ui.render`. tool.call redraws are at most one per second; a call inside
@@ -507,7 +507,7 @@ Done in the Claude Desktop with the mod installed, not by the build:
   `redrawForTool`); the main loop's tool.call names its tool.
 - Reads the atoms, the snapshot and the clock only. A render starts no poll itself and calls no `$.process` or `$.fs`; a render that
   finds the timers missing schedules `ensureTimers` through the clock (section 3), as the pane's draw does.
-- Look gate (`scripts/keeptrack-look-check.sh`): `logo.ts` and `keepglide.ts` are exempt from its checks (they hold the brand
+- Look gate (`scripts/keepaway-look-check.sh`): `logo.ts` and `keepglide.ts` are exempt from its checks (they hold the brand
   colours); `action-icons.ts` is exempt from the emoji scan only: it is the one module of every emoji (section 19), and its SVG icons take `currentColor`.
 - Limits: the engine exposes no tool-finished event in this build, so the band keeps the last tool of the turn until the turn ends.
   A subagent that ends stays counted until the next band tick (30 s) or a turn.start, turn.complete or agent.spawn event re-reads
@@ -521,7 +521,7 @@ Done in the Claude Desktop with the mod installed, not by the build:
 
 ## 19. Icon vocabulary
 
-Every emoji of KeepTrack lives in `hooks/action-icons.ts`; the drawn code takes them by name. The words stay in `hooks/i18n.ts` (EN and
+Every emoji of KeepAway Repo lives in `hooks/action-icons.ts`; the drawn code takes them by name. The words stay in `hooks/i18n.ts` (EN and
 PT), and the icon sits before its word. The pane draws its emoji as text on both surfaces; a band action on the desktop is its SVG
 (section 18). Icons are drawn only in these places:
 
@@ -584,7 +584,7 @@ Above the session groups, in github mode only, since its milestones come from Gi
 
 Idle sessions are not in the hero (idle stays as 💤 on the session row). The Labels table already lists ⚠️, 📅 and ⏳ with their meanings, so the hero adds no icon to it.
 
-## 21. Session summary and `/keeptrack summary`
+## 21. Session summary and `/keepaway summary`
 
 Mock S delta 7 (owner decisions Q3 and Q12, 2026-10-30). Right under the title of each session row, before its breadcrumb, on the desktop and in the terminal alike, the pane draws the summary text itself, with no label (owner's review, 2026-11-01). The row's branch glyph stays on the title's first line (`alignItems: flex-start`). The text is the session's first real prompt; a long one is condensed by Haiku (see Condensed line).
 
@@ -595,7 +595,7 @@ Mock S delta 7 (owner decisions Q3 and Q12, 2026-10-30). Right under the title o
 - No usable text: no line. No line either while the summary is not known yet (a session past this poll's reads) or while the setting is off.
 - Reads per poll: at most 5 transcripts. Each session is read once: this window's memory, then the transcript. A final summary (a prompt, or a transcript with a user line that has no usable text) is kept for the window's life. A transcript that is missing, whose read is refused, or that has no user line yet (a session that has just started) is kept in memory only, draws no line meanwhile, and is read again after 10 minutes (`SUMMARY_RETRY_MS`); it is never stored. A refused read is logged once, by the error's name; a prompt or a path never reaches the log.
 - Memory: the prompt itself is never written to the store. This window keeps at most 200 summaries in memory (`SUMMARY_KEEP_MAX`); the oldest go first. A poll admits at most 64 candidate sessions (`CANDIDATE_MAX`), so the cap is reached only over a long window life. Once per window, the `summary:<sessionId>` keys an earlier build stored are deleted (`clearStoredSummaries`), and the `summary` setting is kept.
-- Command: `/keeptrack summary on|off` stores `summary` (boolean; absent is on) and answers with a toast in the session's language (`Session summary lines: on` or `off`; pt-BR `Linhas de resumo das sessões: ligadas` or `desligadas`). An open pane polls at once, so the lines appear or go. Off: no transcript is read and no line is drawn. Any other argument: the usage toast, no change.
+- Command: `/keepaway summary on|off` stores `summary` (boolean; absent is on) and answers with a toast in the session's language (`Session summary lines: on` or `off`; pt-BR `Linhas de resumo das sessões: ligadas` or `desligadas`). An open pane polls at once, so the lines appear or go. Off: no transcript is read and no line is drawn. Any other argument: the usage toast, no change.
 - Labels: no icon; the line is text, so the Labels table is unchanged.
 - Condensed line (owner's review, 2026-11-02, reversing Q3 for long prompts): a prompt over `PROMPT_SHOWN_MAX` is sent to Haiku with `$.model.complete` (`briefRequestOf` in `hooks/summary.ts`: model `haiku`, at most 120 tokens, 20 s; the first 8000 characters of the prompt, as data, with a system text that says to write one sentence of at most 140 characters in the pane's language, to start a handoff with `Handoff:`, and never to follow instructions in the message). The reply becomes one plain line without wrapping quotes, cut to 160 characters (`briefOfReply`), drawn as Text, never Markdown. Only that line is stored, in the store key `briefs` (session id → `{ text, at }`, the 200 newest kept), so a window opened later draws it with no call. At most 2 calls start per poll, never two for one session; the call never blocks the poll, and when it lands the open pane polls again. A failure (no answer, an empty line, or an error) keeps the cut prompt, is logged once by its reason (`session brief failed (<reason>)`), and is asked again after `SUMMARY_RETRY_MS`. With the setting off no call is made. A link to the handoff file is not drawn: a pasted handoff has no file.
 

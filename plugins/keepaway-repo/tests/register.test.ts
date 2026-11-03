@@ -1,5 +1,5 @@
 // Tests of the hooks module (hooks/register.tsx): the poll runs only while the pane is open and a close stops it, the gh
-// failures draw their lines and keep the sessions, a failed git call is asked again, the /keeptrack command writes and
+// failures draw their lines and keep the sessions, a failed git call is asked again, the /keepaway command writes and
 // clears the override, and no record content reaches the log.
 // The host is stubbed beneath the plugin, as askaway's race tests do: Desktop records, git and gh answer from memory, and
 // gh and git are never run. The drawn pane is read through a mounted drawing.
@@ -254,7 +254,7 @@ function stubHost(on: On, options: StubOptions = {}): Host {
     const folder = path.slice(0, path.lastIndexOf('/'))
     folders.set(folder, [...(folders.get(folder) ?? []), { name: path.slice(path.lastIndexOf('/') + 1), kind: 'file' }])
   }
-  mock.env(on, { HOME, KEEPTRACK_DESKTOP_SESSIONS: RECORDS, ...options.env })
+  mock.env(on, { HOME, KEEPAWAY_DESKTOP_SESSIONS: RECORDS, ...options.env })
   on('command.register', (_$, event) => ({ value: { command: event.name } }))
   on('session.start', (_$, event) => ({ cwd: event.cwd }))
   // Without lookLogos the repo's logo reads as stored none that never ages out, kept out of host.store so the store keeps what the test wrote.
@@ -532,7 +532,7 @@ const remoteAsks = (host: Host, commonDir: string): number =>
 // unmounted after the read, so a test may take the pane again later.
 async function drawnPane($: Engine, surface: 'desktop' | 'terminal' = 'terminal'): Promise<string> {
   const mounted = await $.ui.mount({
-    plugin: 'keeptrack-repo-pane',
+    plugin: 'keepaway-repo',
     surface,
     component: 'Pane',
     requestId: PANE_ID,
@@ -599,7 +599,7 @@ async function expectClean(host: Host, $: Engine): Promise<void> {
 test('the poll runs at open and on each minute while the pane is open', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const atOpen = ghCalls(host)
   expect(atOpen).toBe(4)
@@ -611,7 +611,7 @@ test('the poll runs at open and on each minute while the pane is open', async ($
 test('gh missing keeps the sessions and draws its line', async ($: Engine, on) => {
   const host = stubHost(on, { gh: 'missing' })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
   const drawn = await drawnPane($)
@@ -629,51 +629,51 @@ for (const [name, gh, line] of GH_FAILURES) {
   test(`${name}: its failure draws its line and the sessions stay`, async ($: Engine, on) => {
     stubHost(on, { gh })
     await $.session.start(SESSION)
-    await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+    await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
     const drawn = await drawnPane($)
     expect(drawn).toContain(line)
     expect(drawn).toContain('Fix disk full')
   })
 }
 
-test('/keeptrack issue <n> sets this window override, issue none clears it', async ($: Engine, on) => {
+test('/keepaway issue <n> sets this window override, issue none clears it', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'issue 106', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'issue 106', ...COMMAND_CONTEXT })
   const stored = host.store.get(`override:${SESSION_ID}`) as { issue: number } | undefined
   expect(stored?.issue).toBe(106)
-  await $.command.run({ command: 'keeptrack', args: 'issue none', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'issue none', ...COMMAND_CONTEXT })
   expect(host.store.has(`override:${SESSION_ID}`)).toBe(false)
   expect(host.toasts).toEqual([])
 })
 
 // The usage toast, in English (hooks/i18n.ts toast.usage).
-const USAGE_TOAST = 'Usage: /keeptrack open | issue <n> | issue none | lang en|pt-BR|auto | summary on|off'
+const USAGE_TOAST = 'Usage: /keepaway open | issue <n> | issue none | lang en|pt-BR|auto | summary on|off'
 
-test('a bad /keeptrack argument toasts and changes nothing', async ($: Engine, on) => {
+test('a bad /keepaway argument toasts and changes nothing', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'issue abc', ...COMMAND_CONTEXT })
-  await $.command.run({ command: 'keeptrack', args: 'frobnicate', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'issue abc', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'frobnicate', ...COMMAND_CONTEXT })
   expect(host.toasts).toEqual([USAGE_TOAST, USAGE_TOAST])
   expect([...host.store.keys()]).toEqual([])
 })
 
-test('/keeptrack issue in a window that is not a Desktop session toasts and sets nothing', async ($: Engine, on) => {
+test('/keepaway issue in a window that is not a Desktop session toasts and sets nothing', async ($: Engine, on) => {
   const host = stubHost(on, { cliId: 'sess-unknown' })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'issue 106', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'issue 106', ...COMMAND_CONTEXT })
   expect(host.toasts).toEqual(['This window is not a Desktop session: nothing to set'])
   expect([...host.store.keys()]).toEqual([])
 })
 
-test('/keeptrack lang stores the choice and draws the pane in it; auto removes the choice', async ($: Engine, on) => {
+test('/keepaway lang stores the choice and draws the pane in it; auto removes the choice', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'lang pt-BR', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'lang pt-BR', ...COMMAND_CONTEXT })
   expect(host.store.get('lang')).toBe('pt')
-  expect(await drawnPane($)).toContain('KeepTrack')
-  await $.command.run({ command: 'keeptrack', args: 'lang auto', ...COMMAND_CONTEXT })
+  expect(await drawnPane($)).toContain('KeepAway Repo')
+  await $.command.run({ command: 'keepaway', args: 'lang auto', ...COMMAND_CONTEXT })
   expect(host.store.has('lang')).toBe(false)
 })
 
@@ -681,7 +681,7 @@ test('a window that maps to an issue asks gh for it in a fifth call', async ($: 
   const host = stubHost(on)
   host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(ghCalls(host)).toBe(5)
   expect(host.argvs.filter(argv => argv.includes('view'))).toEqual([ISSUE_VIEW_ARGV])
@@ -690,7 +690,7 @@ test('a window that maps to an issue asks gh for it in a fifth call', async ($: 
 test('a window that maps to no issue makes no fifth gh call', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
   expect(host.argvs.some(argv => argv.includes('view'))).toBe(false)
@@ -712,7 +712,7 @@ test('pm1-8: a milestone counts its issues from GraphQL, not from REST, which co
   // GraphQL counts one open and one closed issue, no PR: the pane reads these.
   const host = stubHost(on, { issues, milestones, milestoneCounts: [{ number: 23, open: 1, closed: 1 }] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(await drawnPane($)).toContain('1 of 2 issues closed')
 })
@@ -722,7 +722,7 @@ test('pm1-8: more than 500 open issues flag the list partial, and the milestone 
   // The list is cut at 500 rows; the milestone's 600 open issues are counted by GraphQL, not by the cut list.
   const host = stubHost(on, { issues: issueList(501), milestones, milestoneCounts: [{ number: 23, open: 600, closed: 4 }] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain('list is partial (first 500)')
@@ -734,10 +734,10 @@ test('pm1-8: when the milestone totals query fails, the milestone keeps its REST
   const milestones = JSON.stringify([{ number: 23, title: 'Milestone B', open_issues: 5, closed_issues: 5, due_on: null }])
   const host = stubHost(on, { milestones, milestoneCounts: 'fail' })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(await drawnPane($)).toContain('5 of 10 items closed')
-  expect(host.logs.some(line => line.startsWith('keeptrack: gh api call failed'))).toBe(true)
+  expect(host.logs.some(line => line.startsWith('keepaway: gh api call failed'))).toBe(true)
 })
 
 test('pm1-9: all closed is drawn only from exact counts, never from a REST zero or a failed totals query', async ($: Engine, on) => {
@@ -745,7 +745,7 @@ test('pm1-9: all closed is drawn only from exact counts, never from a REST zero 
   const options: StubOptions = { milestones, milestoneCounts: 'fail' }
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(await drawnPane($)).not.toContain('all closed')
   options.milestoneCounts = [{ number: 23, open: 0, closed: 2 }]
@@ -758,7 +758,7 @@ test('gh3-5: a PR that closes an issue of another repo maps no issue here: no vi
     openPrs: [{ number: 40, title: 'Closes elsewhere', headRefName: 'feature/disk', closesOther: [12] }],
   })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
   expect(host.argvs.some(argv => argv.includes('view'))).toBe(false)
@@ -789,7 +789,7 @@ test('state2-3: a session.start during a poll in flight polls for the new sessio
   const options: StubOptions = { issues: ISSUE_LIST_JSON }
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   // The old poll reads 'Old issue' while it is in flight; the new session's poll is held until the old one has settled.
   options.issues = JSON.stringify([
@@ -825,8 +825,8 @@ test('state2-3: a new session polls at once, though the last poll is within the 
   expect(ghCalls(host)).toBe(8)
 })
 
-test('KEEPTRACK_BAND_POLL_MS sets the closed cadence', async ($: Engine, on) => {
-  const host = stubHost(on, { env: { KEEPTRACK_BAND_POLL_MS: '120000' } })
+test('KEEPAWAY_BAND_POLL_MS sets the closed cadence', async ($: Engine, on) => {
+  const host = stubHost(on, { env: { KEEPAWAY_BAND_POLL_MS: '120000' } })
   await $.session.start(SESSION)
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
@@ -839,7 +839,7 @@ test('st-1: a session.start clears the window issue the band reads, before its p
   const host = stubHost(on, options)
   host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(await bandDrawn($)).toContain(`#${ISSUE}`)
   options.gate = NEVER()
@@ -856,7 +856,7 @@ test('st-4: an agent read that began under the previous session writes no count 
   const options: StubOptions = { agents: [{ id: 'agent-1', status: 'running' }] }
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   options.agentHolds = [hold]
   // The band tick reads one running agent and waits on its hold; the session ends before that read is released.
@@ -876,12 +876,12 @@ test('st-5: an override set while a poll is at its window issue is polled again 
   const host = stubHost(on, options)
   host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   // The next poll waits at its `gh issue view` (106), past the point where it has read the override.
   options.viewGate = gate
   await host.clock.advance(POLL_MS)
-  await $.command.run({ command: 'keeptrack', args: 'issue 8', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'issue 8', ...COMMAND_CONTEXT })
   options.viewGate = undefined
   release()
   await host.clock.settle()
@@ -892,7 +892,7 @@ test('st-6: a session that starts with a failed repo read polls no repo of the s
   const options: StubOptions = {}
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const before = ghCalls(host)
   options.repoDenies = true
@@ -909,12 +909,12 @@ test('st-8: a session that starts while two abandoned polls hold the slots polls
   const options: StubOptions = {}
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   options.gate = gate
   // Two polls hang past their deadline (at one and two minutes); the poll at three minutes is skipped.
   await host.clock.advance(3 * POLL_MS)
-  expect(host.logs.some(line => line.startsWith('keeptrack: poll skipped ('))).toBe(true)
+  expect(host.logs.some(line => line.startsWith('keepaway: poll skipped ('))).toBe(true)
   await $.session.start(SESSION)
   const before = ghCalls(host)
   release()
@@ -927,24 +927,24 @@ test('sp-3: a poll that fails late, after a session.start, draws no failure line
   const options: StubOptions = { gate: NEVER() }
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await $.session.start(SESSION)
   options.gate = NEVER()
   // The first poll fails at its deadline, after the session changed; the new session's poll hangs too, so no snapshot exists.
   await host.clock.advance(POLL_DEADLINE_MS)
   await host.clock.settle()
-  expect(host.logs).toContain('keeptrack: poll failed (PollDeadline)')
+  expect(host.logs).toContain('keepaway: poll failed (PollDeadline)')
   const drawn = await drawnPane($)
   expect(drawn).toContain('Loading the repo...')
   expect(drawn).not.toContain('Could not read the repo: state unknown')
 })
 
-// KEEPTRACK_POLL_MS: a value that is not a whole number of at least MIN_POLL_MS (1 s) falls back to the one-minute cadence (sp-5).
+// KEEPAWAY_POLL_MS: a value that is not a whole number of at least MIN_POLL_MS (1 s) falls back to the one-minute cadence (sp-5).
 for (const raw of ['500', '1.5', '']) {
-  test(`sp-5: KEEPTRACK_POLL_MS='${raw}' falls back to the one-minute cadence`, async ($: Engine, on) => {
-    const host = stubHost(on, { env: { KEEPTRACK_POLL_MS: raw } })
+  test(`sp-5: KEEPAWAY_POLL_MS='${raw}' falls back to the one-minute cadence`, async ($: Engine, on) => {
+    const host = stubHost(on, { env: { KEEPAWAY_POLL_MS: raw } })
     await $.session.start(SESSION)
-    await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+    await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
     await host.clock.settle()
     expect(ghCalls(host)).toBe(4)
     await host.clock.advance(POLL_MS - 1)
@@ -954,10 +954,10 @@ for (const raw of ['500', '1.5', '']) {
   })
 }
 
-test('sp-5: a valid KEEPTRACK_POLL_MS sets the open cadence', async ($: Engine, on) => {
-  const host = stubHost(on, { env: { KEEPTRACK_POLL_MS: '120000' } })
+test('sp-5: a valid KEEPAWAY_POLL_MS sets the open cadence', async ($: Engine, on) => {
+  const host = stubHost(on, { env: { KEEPAWAY_POLL_MS: '120000' } })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
   await host.clock.advance(POLL_MS)
@@ -981,7 +981,7 @@ const closer = {
 test('B1: closing the pane stops its timer, so no poll runs while it is closed', { plugins: [closer] }, async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   await host.clock.advance(POLL_MS)
   expect(ghCalls(host)).toBe(8)
@@ -995,7 +995,7 @@ test('an open pane moves the timer to the pane cadence of one minute, and the ba
   await $.session.start(SESSION)
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
   await host.clock.advance(POLL_MS)
@@ -1017,7 +1017,7 @@ test('no overlapping polls: a tick during a slow poll starts nothing', async ($:
   const host = stubHost(on, { gate })
   // The first poll starts at session start and waits on the gate. Opening the pane asks for a poll during it: none starts.
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   // The gate holds for less than the poll deadline (F07), so the poll is still running at the next tick, and that tick starts nothing.
   await host.clock.advance(30_000)
   expect(ghCalls(host)).toBe(4)
@@ -1032,7 +1032,7 @@ test('W5: a pane the engine does not place starts once a render places it', asyn
   await $.session.start(SESSION)
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
   host.placed = true
@@ -1050,7 +1050,7 @@ test('W3: a git call that failed is asked again on the next poll, not kept as a 
   })
   const host = stubHost(on, { records: [OWN_RECORD, sibling], failFirstRemoteOf: SIBLING_COMMON_DIR })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const asksAtOpen = remoteAsks(host, SIBLING_COMMON_DIR)
   expect(asksAtOpen).toBeGreaterThan(0)
@@ -1069,7 +1069,7 @@ test('a remote read that succeeds is cached: the next poll asks git nothing for 
   const cached = recordOf('local_7f3a0010', { title: 'Cached worktree session', cwd: '/work/cached', gitAnchors: [{ commonDir: '/work/cached/.git' }] })
   const host = stubHost(on, { records: [OWN_RECORD, cached] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const asksAtOpen = remoteAsks(host, '/work/cached/.git')
   expect(asksAtOpen).toBeGreaterThan(0)
@@ -1081,7 +1081,7 @@ test('CR1: a record whose cwd is outside any git repo is not a candidate and set
   const loose = recordOf('local_7f3a0005', { title: 'Loose chat in Documents', cwd: '/home/u/Documents', gitAnchors: [] })
   const host = stubHost(on, { records: [OWN_RECORD, loose], nonRepoCwds: ['/home/u/Documents'] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain('Fix disk full')
@@ -1100,7 +1100,7 @@ test('a record whose common dir git says is not a repository is left out: no git
     gitErrors: { [STALE_COMMON_DIR]: `fatal: not a git repository: '${STALE_COMMON_DIR}'` },
   })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain('Fix disk full')
@@ -1120,7 +1120,7 @@ test('a git failure that is not a not-a-repository answer still gives git-failed
     gitErrors: { [BROKEN_COMMON_DIR]: `fatal: bad config line 1 in file ${BROKEN_COMMON_DIR}` },
   })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain('Broken config session')
@@ -1131,7 +1131,7 @@ test('a git failure that is not a not-a-repository answer still gives git-failed
 test('ux4-2: a first poll with no repo context draws the failure line, not Loading', async ($: Engine, on) => {
   const host = stubHost(on, { repoDenies: true })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain('Could not read the repo: state unknown')
@@ -1152,7 +1152,7 @@ test('pm1-9: an open issue of a closed milestone is drawn under that milestone t
   ])
   const host = stubHost(on, { issues })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain('Milestone Old ✅ · closed')
@@ -1165,7 +1165,7 @@ test('the override prune keeps the override of a session in another repo, since 
   const host = stubHost(on, { records: [OWN_RECORD, other], remotes: { [OTHER_COMMON_DIR]: OTHER_REMOTE } })
   host.store.set('override:local_7f3a0500', { issue: 9, ts: 0 })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(host.store.has('override:local_7f3a0500')).toBe(true)
   // The other repo's session is listed by its own window, not this one.
@@ -1175,7 +1175,7 @@ test('the override prune keeps the override of a session in another repo, since 
 test('gh takes owner and name as strings (-f, W2)', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const graphql = host.argvs.find(argv => argv.includes('graphql'))
   expect(graphql).toContain('owner=acme')
@@ -1189,7 +1189,7 @@ test('S6: an override whose session no record lists, or that is 30 days old, is 
   host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
   host.store.set('override:local_7f3a0002', { issue: 7, ts: -31 * DAY_MS })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect([...host.store.keys()].filter(key => key.startsWith('override:'))).toEqual([`override:${SESSION_ID}`])
 })
@@ -1211,7 +1211,7 @@ test('S4: a remote on another host with the same owner and name is not this repo
     remotes: { [OTHER_COMMON_DIR]: OTHER_REMOTE, [SIBLING_COMMON_DIR]: 'https://github.com/acme/app.git' },
   })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   // The poll ran: the GitHub root asked gh for its three lists, and git was asked once for each other record's origin.
   expect(ghCalls(host)).toBe(4)
@@ -1225,7 +1225,7 @@ test('S4: a remote on another host with the same owner and name is not this repo
 test('S4: a root origin that is not on GitHub is no-github mode: no gh call and the no-remote line', async ($: Engine, on) => {
   const host = stubHost(on, { rootRemote: OTHER_REMOTE })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(ghCalls(host)).toBe(0)
   expect(await drawnPane($)).toContain('no GitHub remote for this repo')
@@ -1235,7 +1235,7 @@ test('S1: at most 2000 Desktop files are read per poll', async ($: Engine, on) =
   const many = Array.from({ length: 2100 }, (_, index) => recordOf(`local_${String(index).padStart(8, '0')}`))
   const host = stubHost(on, { records: many })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(host.reads).toBeLessThan(2001)
   // One poll ran, and it read exactly the cap (DESKTOP_SCAN_MAX): no fewer files than the cap allows.
@@ -1250,7 +1250,7 @@ test('S1: at most 4 x 64 others plus this window are read for their branch per p
   )
   const host = stubHost(on, { records: [OWN_RECORD, ...many] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const branchReads = host.argvs.filter(argv => argv.includes('symbolic-ref') && argv.at(-1) === 'HEAD')
   expect(branchReads.length).toBeLessThanOrEqual(4 * 64 + 1)
@@ -1268,7 +1268,7 @@ test('S1: a record file over RECORD_MAX_BYTES is skipped unread and not counted 
   })
   host.store.set('override:local_7f3a0011', { issue: 7, ts: 0 })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   // This window's record and the one at the cap are read; the one over it is not.
   expect(host.reads).toBe(2)
@@ -1296,7 +1296,7 @@ test('an archived session of this repo within 72 h is not drawn, even with an op
     openPrs: [{ number: 78, title: 'Archived PR', headRefName: 'feature/archived' }],
   })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain('Fix disk full')
@@ -1317,7 +1317,7 @@ test('W6: an archived parent is not drawn as a row nor as a label, and its live 
   const child = { ...OWN_RECORD, spawnedFrom: { sessionId: 'local_7f3a0009', title: 'Archived parent' } }
   const host = stubHost(on, { records: [parent, child] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   // No membership check asked git for the parent's origin.
   expect(remoteAsks(host, parentCommonDir)).toBe(0)
@@ -1349,7 +1349,7 @@ test('P4: an archived parent\'s live fork is a └ row of Recents whose timeline
   const fork = { ...OWN_RECORD, forkedFromSessionId: parentId }
   const host = stubHost(on, { records: [parent, fork] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const tree = await drawnTree($, 'desktop')
   // The label line is Recents, plain Text: the parent's title is no label and no link.
@@ -1379,7 +1379,7 @@ test('P2: an archived parent is a context ancestor: its live spawn is a └ row 
   const child = { ...OWN_RECORD, spawnedFrom: { sessionId: 'local_7f3a0401' } }
   const host = stubHost(on, { records: [parent, child] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const tree = await drawnTree($)
   expect(JSON.stringify(tree)).toContain('spawned from Ended parent')
@@ -1399,7 +1399,7 @@ test('P2: a fork of an archived session hangs under the nearest listed ancestor,
   const child = { ...OWN_RECORD, forkedFromSessionId: 'local_7f3a0411' }
   const host = stubHost(on, { records: [grandparent, middle, child] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain('Listed grandparent')
@@ -1413,7 +1413,7 @@ test('P2: a live parent of another repo is a context ancestor too: the spawn is 
   const child = { ...OWN_RECORD, spawnedFrom: { sessionId: 'local_7f3a0412' } }
   const host = stubHost(on, { records: [parent, child], remotes: { [OTHER_COMMON_DIR]: OTHER_REMOTE } })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const tree = await drawnTree($)
   expect(JSON.stringify(tree)).toContain('spawned from Other repo parent')
@@ -1441,7 +1441,7 @@ test('P2: a fork filed in another Desktop Group than its parent is cut to a titl
   const options: StubOptions = { records: [OWN_RECORD, FORK] }
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const uncut = await drawnTree($)
   expect(isInGroup(uncut, 'recents', FORK_ID)).toBe(true)
@@ -1465,7 +1465,7 @@ test('P2: the Desktop config is read once while its mtime holds, and again when 
   const options: StubOptions = { records: [OWN_RECORD, FORK], desktopConfig: CUT_CONFIG }
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(configReads(host)).toBe(1)
   const cut = await drawnTree($)
@@ -1501,7 +1501,7 @@ for (const [name, config, reads] of NO_GROUP_CONFIGS) {
   test(`P2: ${name} gives no Groups, with no error line, log line or toast`, async ($: Engine, on) => {
     const host = stubHost(on, { records: [OWN_RECORD, FORK], ...config })
     await $.session.start(SESSION)
-    await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+    await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
     await host.clock.settle()
     // The poll looked for the config in its folder.
     expect(host.listed).toContain(DESKTOP_CONFIG_DIR)
@@ -1516,7 +1516,7 @@ test('P2: a config folder whose listing fails keeps the last Groups read, with n
   const options: StubOptions = { records: [OWN_RECORD, FORK], desktopConfig: CUT_CONFIG }
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(isInGroup(await drawnTree($), 'g-2', FORK_ID)).toBe(true)
   options.unlistable = [DESKTOP_CONFIG_DIR]
@@ -1547,7 +1547,7 @@ test('P2: no content of the Desktop config reaches the log', async ($: Engine, o
   // gh times out, so the poll logs its failure lines.
   const host = stubHost(on, { gh: 'timeout', records: [OWN_RECORD, FORK], desktopConfig })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   // The config was read and used: the pane still draws, with the Group's name as a label, and only the pane holds it.
   expect(await drawnPane($)).toContain(secretGroup)
@@ -1559,7 +1559,7 @@ test('P2: no content of the Desktop config reaches the log', async ($: Engine, o
 test('S2: control characters in a record title never reach the drawn pane', async ($: Engine, on) => {
   stubHost(on, { records: [recordOf(SESSION_ID, { cliSessionId: SELF, title: '\u001b]0;evil\u0007Title' })] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   const drawn = await drawnPane($)
   expect(drawn).toContain('evil')
   expect(drawn.includes('\\u001b')).toBe(false)
@@ -1570,7 +1570,7 @@ test('S2: control characters in a record title never reach the drawn pane', asyn
 function expectNoRecordContent(host: Host): void {
   expect(host.logs.length).toBeGreaterThan(0)
   for (const line of host.logs) {
-    expect(line).toMatch(/^keeptrack: [\w ()-]+$/)
+    expect(line).toMatch(/^keepaway: [\w ()-]+$/)
     expect(line.includes(SECRET_TITLE) || line.includes(REMOTE) || line.includes(RECORDS)).toBe(false)
   }
 }
@@ -1578,7 +1578,7 @@ function expectNoRecordContent(host: Host): void {
 test('no record content reaches the log: each line names only a failure', async ($: Engine, on) => {
   const host = stubHost(on, { gh: 'timeout', records: [recordOf(SESSION_ID, { cliSessionId: SELF, title: SECRET_TITLE })] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expectNoRecordContent(host)
 })
@@ -1596,7 +1596,7 @@ for (const [name, failure] of LOG_FAILURES) {
     const records = [recordOf(SESSION_ID, { cliSessionId: SELF, title: SECRET_TITLE }), SECRET_RECORD]
     const host = stubHost(on, { ...failure, records })
     await $.session.start(SESSION)
-    await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+    await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
     await host.clock.settle()
     expectNoRecordContent(host)
   })
@@ -1604,7 +1604,7 @@ for (const [name, failure] of LOG_FAILURES) {
 
 // The band as the engine draws it now, as JSON text (the terminal surface).
 async function bandDrawn($: Engine): Promise<string> {
-  const band = await $.ui.mount({ plugin: 'keeptrack-repo-pane', surface: 'terminal', component: 'AbovePrompt', props: {} as never })
+  const band = await $.ui.mount({ plugin: 'keepaway-repo', surface: 'terminal', component: 'AbovePrompt', props: {} as never })
   const drawn = JSON.stringify(await band.drawn())
   await band.unmount()
   return drawn
@@ -1635,13 +1635,13 @@ test('a repo whose only remote is named github is read from it: the poll runs an
   await $.session.start(SESSION)
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   expect(await drawnPane($)).not.toContain('no GitHub remote for this repo')
 })
 
 test('a band draw starts the poll when no session.start ran in this module instance (a reloaded module)', async ($: Engine, on) => {
   const host = stubHost(on)
-  const band = await $.ui.mount({ plugin: 'keeptrack-repo-pane', surface: 'terminal', component: 'AbovePrompt', props: {} as never })
+  const band = await $.ui.mount({ plugin: 'keepaway-repo', surface: 'terminal', component: 'AbovePrompt', props: {} as never })
   await band.unmount()
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
@@ -1714,7 +1714,7 @@ const NEVER = (): Promise<void> => new Promise<void>(() => undefined)
 test('F01: only the 100-PR cap was hit, and the snapshot is truncated so the partial-list line is drawn', async ($: Engine, on) => {
   stubHost(on, { prTotal: 101 })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   expect(await drawnPane($)).toContain('list is partial')
 })
 
@@ -1722,7 +1722,7 @@ test('F02: a failed session.repo read keeps the last repo context: the poll goes
   const options: StubOptions = {}
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const before = ghCalls(host)
   options.repoDenies = true
@@ -1737,7 +1737,7 @@ test('F02: a git timeout reading the origin keeps the last repo context: no no-r
   const options: StubOptions = { noOrigin: { name: 'github', url: 'git@github-claude-global:acme/app.git' } }
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(await drawnPane($)).not.toContain(NO_REMOTE_LINE)
   const rootAsks = (last: string): number =>
@@ -1761,7 +1761,7 @@ test('F05: archived records take no candidate slot, so a live session behind 100
   const live = recordOf('local_7f3a0100', { title: 'Old live session', lastActivityAt: 0 })
   stubHost(on, { records: [OWN_RECORD, live, ...archived] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   const drawn = await drawnPane($)
   expect(drawn).toContain('Old live session')
   expect(drawn).not.toContain('Archived one')
@@ -1771,13 +1771,13 @@ test('F07: a poll whose call never settles fails at its deadline, keeps the last
   const options: StubOptions = {}
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   options.gate = NEVER()
   await host.clock.advance(POLL_MS)
   expect(ghCalls(host)).toBe(8)
   await host.clock.advance(POLL_DEADLINE_MS)
-  expect(host.logs).toContain('keeptrack: poll failed (PollDeadline)')
+  expect(host.logs).toContain('keepaway: poll failed (PollDeadline)')
   expect(await drawnPane($)).toContain('Fix disk full')
 })
 
@@ -1789,7 +1789,7 @@ test('F07: a poll slower than its 30 s deadline is abandoned, and its late resul
   const options: StubOptions = {}
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   options.gate = gate
   await host.clock.advance(POLL_MS)
@@ -1804,21 +1804,21 @@ test('F07: a poll slower than its 30 s deadline is abandoned, and its late resul
 test('the band flags a snapshot with errors as data error', async ($: Engine, on) => {
   stubHost(on, { gh: { exitCode: 1, stderr: 'boom' } })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   expect(await bandDrawn($)).toContain('data error')
 })
 
 test('a clean snapshot draws no data error flag', async ($: Engine, on) => {
   stubHost(on)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   expect(await bandDrawn($)).not.toContain('data error')
 })
 
 test('a snapshot whose only error is no-remote draws no data error in the band', async ($: Engine, on) => {
   const host = stubHost(on, { rootRemote: OTHER_REMOTE })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(await drawnPane($)).toContain(NO_REMOTE_LINE)
   expect(await bandDrawn($)).not.toContain('data error')
@@ -1852,7 +1852,7 @@ test('waiting: a verdict other than ask clears the flag, so an answered question
 test('waiting: no Askaway folder is read, so an Askaway question cannot light the band', async ($: Engine, on) => {
   const host = stubHost(on, {})
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(host.listed.some(path => path.includes('askaway'))).toBe(false)
   expect(host.readPaths.some(path => path.includes('askaway'))).toBe(false)
@@ -1867,7 +1867,7 @@ test('D7: another session whose summary says it stopped blocked, within 24 h, dr
   const stopped = recordOf('local_7f3a0020', { title: 'Stopped session', cliSessionId: 'sess-stopped', postTurnSummary: STOPPED_SUMMARY })
   const host = stubHost(on, { records: [OWN_RECORD, stopped] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain(`Stopped session ${actionIconEmoji('waiting')}`)
@@ -1883,7 +1883,7 @@ test('D7: a malformed summary is no data: the session draws as an ordinary row w
   ]
   const host = stubHost(on, { records: [OWN_RECORD, ...malformed] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain('Summary as text')
@@ -1902,7 +1902,7 @@ test('D7: a stopped session older than 24 h takes the normal rule: no waiting ic
   // The clock moves past the window before the pane opens: a poll per minute while open would make the advance slow.
   await host.clock.advance(WAITING_WINDOW_MS + POLL_MS)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain(`Old stopped session ${actionIconEmoji('idle')}`)
@@ -1919,7 +1919,7 @@ for (const [error, gh, line] of UNFLAGGED_GH_CASES) {
   test(`ux-8: a ${error} draws no data error in the band`, async ($: Engine, on) => {
     const host = stubHost(on, { gh })
     await $.session.start(SESSION)
-    await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+    await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
     await host.clock.settle()
     expect(await drawnPane($)).toContain(line)
     expect(await bandDrawn($)).not.toContain('data error')
@@ -1929,16 +1929,16 @@ for (const [error, gh, line] of UNFLAGGED_GH_CASES) {
 test('F07: a poll that throws before its snapshot write logs the failure name, not silence', async ($: Engine, on) => {
   const host = stubHost(on, { storeKeysDenies: true })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(host.logs.some(line => line.startsWith('keeptrack: poll failed ('))).toBe(true)
+  expect(host.logs.some(line => line.startsWith('keepaway: poll failed ('))).toBe(true)
 })
 
 test('F14: a poll that failed at its deadline clears the polling flag, so the next tick polls again', async ($: Engine, on) => {
   const options: StubOptions = {}
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   options.gate = NEVER()
   await host.clock.advance(POLL_MS)
@@ -1956,7 +1956,7 @@ test('F14: after a poll failed at its deadline, a render a full cadence after th
   await host.clock.settle()
   // The pane opens 10 s after the first poll: its ticks fall at 70 s and 130 s, and the open starts no poll.
   await host.clock.advance(10_000)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
   options.gate = NEVER()
@@ -1965,7 +1965,7 @@ test('F14: after a poll failed at its deadline, a render a full cadence after th
   await drawnPane($)
   await host.clock.advance(POLL_DEADLINE_MS)
   expect(ghCalls(host)).toBe(8)
-  expect(host.logs).toContain('keeptrack: poll failed (PollDeadline)')
+  expect(host.logs).toContain('keepaway: poll failed (PollDeadline)')
   await host.clock.advance(30_000)
   expect(ghCalls(host)).toBe(8)
   // At 120 s, before the tick at 130 s, a render finds a full cadence since the failed poll began and polls again.
@@ -1995,7 +1995,7 @@ test('F13: a gh timeout after a good poll keeps the last good issues and draws i
   const options: StubOptions = { issues: ISSUE_LIST_JSON }
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(await drawnPane($)).toContain('1 open issue')
   options.gh = 'timeout'
@@ -2003,7 +2003,7 @@ test('F13: a gh timeout after a good poll keeps the last good issues and draws i
   const drawn = await drawnPane($)
   expect(drawn).toContain('1 open issue')
   expect(drawn).toContain('GitHub did not answer in time')
-  expect(host.logs).toContain('keeptrack: gh issue call failed (timeout)')
+  expect(host.logs).toContain('keepaway: gh issue call failed (timeout)')
 })
 
 // The log names each gh failure's kind, and never its stderr (F03).
@@ -2028,10 +2028,10 @@ for (const [kind, gh] of GH_FAILURE_KINDS) {
   test(`a gh failure logs its kind: ${kind}`, async ($: Engine, on) => {
     const host = stubHost(on, { gh })
     await $.session.start(SESSION)
-    await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+    await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
     await host.clock.settle()
-    expect(host.logs).toContain(`keeptrack: gh issue call failed (${kind})`)
-    expect(host.logs).toContain(`keeptrack: gh api call failed (${kind})`)
+    expect(host.logs).toContain(`keepaway: gh issue call failed (${kind})`)
+    expect(host.logs).toContain(`keepaway: gh api call failed (${kind})`)
     if (typeof gh === 'object') for (const line of host.logs) expect(line.includes(gh.stderr)).toBe(false)
   })
 }
@@ -2046,13 +2046,13 @@ test('F17: an agent list that rejects still lets the band redraw on its tick, an
   options.agentsDenied = true
   await host.clock.advance(BAND_TICK_MS)
   expect(host.redraws).toBeGreaterThan(before)
-  expect(host.logs.some(line => line.startsWith('keeptrack: agent list failed ('))).toBe(true)
+  expect(host.logs.some(line => line.startsWith('keepaway: agent list failed ('))).toBe(true)
 })
 
 test('a file in the records folder that is not a session record is ignored: no data error beside valid records', async ($: Engine, on) => {
   stubHost(on, { records: [OWN_RECORD], strayFiles: ['scheduled-tasks.json', 'deleted_0a1b2c3d'] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   expect(await bandDrawn($)).not.toContain('data error')
   expect(await drawnPane($)).not.toContain('could not be read')
 })
@@ -2060,7 +2060,7 @@ test('a file in the records folder that is not a session record is ignored: no d
 test('F18: a records folder that cannot be listed draws no records line', async ($: Engine, on) => {
   const host = stubHost(on, { unlistable: [`${RECORDS}/org/user`] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   // The scan reached the folder and was refused: no line because nothing could be read, not because no scan ran.
   expect(host.denies).toContain(`fs.list refused: ${RECORDS}/org/user`)
@@ -2073,7 +2073,7 @@ test('F18: a records folder that cannot be listed draws no records line', async 
 test('F18: a listed record file that cannot be read draws the records line, and the band flags it', async ($: Engine, on) => {
   const host = stubHost(on, { records: [OWN_RECORD, recordOf('local_7f3a0012')], unreadable: [recordPath('local_7f3a0012')] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain('1 session record could not be read')
@@ -2103,7 +2103,7 @@ test('F08: a window that maps to an issue whose view fails reads #106 in the ban
   const host = stubHost(on, { gh: { exitCode: 1, stderr: 'synthetic failure' } })
   host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const band = await bandDrawn($)
   expect(band).toContain('#106')
@@ -2133,7 +2133,7 @@ test('R2-01: an override of a record past the 2000-file cap is kept', async ($: 
 test('R2-02: a gh call that exits 0 with unreadable stdout draws the gh-failed line', async ($: Engine, on) => {
   const host = stubHost(on, { gh: 'unreadable' })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain('GitHub did not answer as expected: showing the last data')
@@ -2144,7 +2144,7 @@ test('R2-03: a failing poll keeps the cadence, so renders between two polls do n
   const options: StubOptions = {}
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
   options.storeKeysDenies = true
@@ -2174,9 +2174,9 @@ test('R2-04: a poll that misses its deadline writes its late result when no newe
   const options: StubOptions = { gate }
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.advance(POLL_DEADLINE_MS)
-  expect(host.logs).toContain('keeptrack: poll failed (PollDeadline)')
+  expect(host.logs).toContain('keepaway: poll failed (PollDeadline)')
   options.issues = JSON.stringify([LATE_ISSUE])
   release()
   await host.clock.settle()
@@ -2205,7 +2205,7 @@ test('R2-04: a late poll result is discarded when a newer poll already wrote', a
   const options: StubOptions = {}
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   options.gate = gate
   await host.clock.advance(POLL_MS)
@@ -2230,13 +2230,13 @@ test('a poll past its deadline is abandoned, and at most two abandoned polls run
   const options: StubOptions = {}
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   options.gate = gate
   // Two stuck polls make 6 gh calls; the polls after them are skipped with a log line, however long the hang lasts.
   await host.clock.advance(20 * POLL_MS)
   expect(ghCalls(host)).toBe(12)
-  expect(host.logs.some(line => line.startsWith('keeptrack: poll skipped ('))).toBe(true)
+  expect(host.logs.some(line => line.startsWith('keepaway: poll skipped ('))).toBe(true)
   await host.clock.advance(20 * POLL_MS)
   expect(ghCalls(host)).toBe(12)
   release()
@@ -2253,7 +2253,7 @@ test('a band read that finishes after a newer read is discarded, so an ended age
   const options: StubOptions = { agents: [{ id: 'agent-1', status: 'running' }] }
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   options.agentHolds = [hold]
   // The band tick reads the list while it still shows one running agent, and the read waits on its hold.
@@ -2277,7 +2277,7 @@ test('DL7: a session with an open PR is drawn even when it is older than the 64 
     openPrs: [{ number: 77, title: 'Old PR', headRefName: 'feature/old' }],
   })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   // The header counts the listed sessions; the cap hides rows past 20. 65: this window, the 63 newest others and the old session its open PR keeps.
   expect(await drawnPane($)).toContain('65 sessions')
@@ -2306,7 +2306,7 @@ for (const [name, fork, drawn] of [
       openPrs: [{ number: 77, title: 'Old PR', headRefName: 'feature/old', isCrossRepository: fork }],
     })
     await $.session.start(SESSION)
-    await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+    await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
     await host.clock.settle()
     // As DL7: the header counts the listed sessions, which the row cap does not change (65 with the old session, 64 without).
     expect(await drawnPane($)).toContain(`${drawn ? 65 : 64} sessions`)
@@ -2332,7 +2332,7 @@ test('DL8: an override past its 30-day TTL is not used when the scan failed', as
   await host.clock.advance(31 * DAY_MS)
   host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(host.argvs.some(argv => argv.includes('view') && argv.includes(String(ISSUE)))).toBe(false)
 })
@@ -2340,7 +2340,7 @@ test('DL8: an override past its 30-day TTL is not used when the scan failed', as
 test('DL10: exactly 500 open issues draw no partial-list line, since gh is asked for one more', async ($: Engine, on) => {
   const host = stubHost(on, { issues: issueList(500) })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(host.argvs.some(argv => argv.includes('list') && argv.includes('501'))).toBe(true)
   expect(await drawnPane($)).not.toContain('list is partial')
@@ -2349,7 +2349,7 @@ test('DL10: exactly 500 open issues draw no partial-list line, since gh is asked
 test('DL10: 501 open issues draw the partial-list line with the first 500 kept', async ($: Engine, on) => {
   const host = stubHost(on, { issues: issueList(501) })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(await drawnPane($)).toContain('list is partial (first 500)')
 })
@@ -2357,7 +2357,7 @@ test('DL10: 501 open issues draw the partial-list line with the first 500 kept',
 test('DL11: a tag named like the checked-out branch does not make it heads/<name>, so the default branch reads no commits', async ($: Engine, on) => {
   const host = stubHost(on, { branches: { [REPO_ROOT]: 'main' }, tags: ['main'] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(host.argvs.some(argv => argv.includes('log'))).toBe(false)
 })
@@ -2365,7 +2365,7 @@ test('DL11: a tag named like the checked-out branch does not make it heads/<name
 test('DL11: an unborn branch is not a git failure', async ($: Engine, on) => {
   const host = stubHost(on, { branches: { [REPO_ROOT]: 'main' }, unborn: [REPO_ROOT] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(await drawnPane($)).not.toContain('git failed')
 })
@@ -2375,7 +2375,7 @@ test('DL11: a detached HEAD is no branch and no git failure', async ($: Engine, 
   // An issue for this window draws its details, whose Branch line shows the branch the poll read.
   host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const branchReads = host.argvs.filter(argv => argv.includes('symbolic-ref') && argv.at(-1) === 'HEAD')
   expect(branchReads.map(argv => argv[argv.indexOf('-C') + 1])).toContain(REPO_ROOT)
@@ -2386,7 +2386,7 @@ test('DL11: a detached HEAD is no branch and no git failure', async ($: Engine, 
 test('DL13: a last commit with an empty subject is still a commit', async ($: Engine, on) => {
   const host = stubHost(on, { log: `${'a'.repeat(40)}\t1700000000\t` })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   // Each timeline row is keyed by its session and index: the session's start, plus the commit.
   const rows = (await drawnPane($)).split(`event-${SESSION_ID}-`).length - 1
@@ -2396,11 +2396,11 @@ test('DL13: a last commit with an empty subject is still a commit', async ($: En
 const COMMIT_SHA = '0123456789abcdef0123456789abcdef01234567'
 const COMMIT_LINK = `](https://github.com/acme/app/commit/${COMMIT_SHA})`
 
-// The window's session drawn with the given git log answer: the timeline of this window, after a `/keeptrack open`.
+// The window's session drawn with the given git log answer: the timeline of this window, after a `/keepaway open`.
 async function drawnAfterOpen(on: On, $: Engine, surface: 'desktop' | 'terminal', log: string): Promise<string> {
   const host = stubHost(on, { log })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   return drawnPane($, surface)
 }
@@ -2408,7 +2408,7 @@ async function drawnAfterOpen(on: On, $: Engine, surface: 'desktop' | 'terminal'
 test('a commit id from git log reaches its commit link: the 40-hex id read with %H links to /commit/<id> on the desktop', async ($: Engine, on) => {
   const host = stubHost(on, { log: `${COMMIT_SHA}\t1700000000\tfix the thing` })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(host.argvs.some(argv => argv.includes('--format=%H%x09%ct%x09%s'))).toBe(true)
   expect(await drawnPane($, 'desktop')).toContain(COMMIT_LINK)
@@ -2447,7 +2447,7 @@ test('two sessions with two origins: each title opens its own session, and neith
   })
   const host = stubHost(on, { records: [OWN_RECORD, OTHER], remotes: { [`${OTHER_FOLDER}/.git`]: 'https://github.com/Acme/App.git' } })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const desktop = await drawnPane($, 'desktop')
   expect(desktop).toContain('[Second origin](#local_7f3a0002)')
@@ -2456,11 +2456,11 @@ test('two sessions with two origins: each title opens its own session, and neith
   expect(desktop).not.toContain('](https://github.com/acme/app)')
 })
 
-test('SP5-1: /keeptrack open or issue with extra words toasts usage and changes nothing', async ($: Engine, on) => {
+test('SP5-1: /keepaway open or issue with extra words toasts usage and changes nothing', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open extra', ...COMMAND_CONTEXT })
-  await $.command.run({ command: 'keeptrack', args: 'issue 106 extra', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open extra', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'issue 106 extra', ...COMMAND_CONTEXT })
   expect(host.toasts).toEqual([USAGE_TOAST, USAGE_TOAST])
   expect([...host.store.keys()]).toEqual([])
 })
@@ -2472,7 +2472,7 @@ test('ST3 guard: a newer poll after a deadline failure draws its data', async ($
   const options: StubOptions = {}
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   options.gate = NEVER()
   await host.clock.advance(POLL_MS)
@@ -2502,7 +2502,7 @@ test('DL9: a PR closing more issues than the page holds links no issue, since it
   const closes = Array.from({ length: 50 }, (_, index) => index + 17)
   const host = stubHost(on, { openPrs: [{ number: 5, title: 'Wide PR', headRefName: 'feature/disk', closes, closesTotal: 60 }] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(prQueryOf(host)).toContain('closingIssuesReferences(first: 50) { totalCount nodes { number repository { nameWithOwner } } }')
   expect(viewedIssues(host)).toEqual([])
@@ -2512,7 +2512,7 @@ test('DL9: a PR with 11 closing issues links the lowest, the 11th, since the pag
   const closes = [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 12]
   const host = stubHost(on, { openPrs: [{ number: 5, title: 'Wide PR', headRefName: 'feature/disk', closes }] })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(prQueryOf(host)).toContain('closingIssuesReferences(first: 50)')
   expect(viewedIssues(host)).toEqual(['12'])
@@ -2521,7 +2521,7 @@ test('DL9: a PR with 11 closing issues links the lowest, the 11th, since the pag
 test('RB1-4: the open milestones are read with --paginate, so a repo past 100 open milestones is not cut silently', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const milestoneCalls = host.argvs.filter(argv => argv[0] === 'gh' && argv.some(arg => arg.includes('/milestones')))
   expect(milestoneCalls).toEqual([['gh', 'api', '--paginate', 'repos/acme/app/milestones?state=open&per_page=100']])
@@ -2531,9 +2531,9 @@ test('RB1-5: a malformed issue item is dropped and counted in the log, and the r
   const issues = JSON.stringify([...(JSON.parse(ISSUE_LIST_JSON) as unknown[]), MALFORMED_ISSUE])
   const host = stubHost(on, { issues })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(host.logs).toEqual(['keeptrack: gh issue items not readable (1)'])
+  expect(host.logs).toEqual(['keepaway: gh issue items not readable (1)'])
   const drawn = await drawnPane($)
   expect(drawn).toContain('1 open issue')
   expect(drawn).not.toContain(GH_FAILED_LINE)
@@ -2543,17 +2543,17 @@ test('RB1-5: a malformed issue item is dropped and counted in the log, and the r
 test('RB1-5: an issue list whose every item is malformed is an unreadable answer: the gh-failed line', async ($: Engine, on) => {
   const host = stubHost(on, { issues: JSON.stringify([MALFORMED_ISSUE, MALFORMED_ISSUE]) })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(await drawnPane($)).toContain(GH_FAILED_LINE)
-  expect(host.logs).toContain('keeptrack: gh issue answer not readable')
+  expect(host.logs).toContain('keepaway: gh issue answer not readable')
 })
 
 test('RB1-5: a dropped item does not hide the 501st item, so the partial-list line still shows', async ($: Engine, on) => {
   const issues = JSON.stringify([...(JSON.parse(issueList(500)) as unknown[]), MALFORMED_ISSUE])
   const host = stubHost(on, { issues })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(await drawnPane($)).toContain('list is partial (first 500)')
 })
@@ -2561,12 +2561,12 @@ test('RB1-5: a dropped item does not hide the 501st item, so the partial-list li
 test('SE3: a gh answer the engine cut at its stdout cap is unreadable: the gh-failed line, nothing parsed', async ($: Engine, on) => {
   const host = stubHost(on, { gh: 'cut', issues: ISSUE_LIST_JSON })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain(GH_FAILED_LINE)
   expect(drawn).not.toContain('1 open issue')
-  expect(host.logs).toContain('keeptrack: gh issue answer not readable')
+  expect(host.logs).toContain('keepaway: gh issue answer not readable')
 })
 
 test('SE3: a gh answer over the byte cap, counted in UTF-8 bytes, is unreadable before it is parsed', async ($: Engine, on) => {
@@ -2575,7 +2575,7 @@ test('SE3: a gh answer over the byte cap, counted in UTF-8 bytes, is unreadable 
   const issues = JSON.stringify([{ ...issue, body: 'é'.repeat(GH_OUTPUT_MAX_BYTES / 2 + 1) }])
   const host = stubHost(on, { issues })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain(GH_FAILED_LINE)
@@ -2585,7 +2585,7 @@ test('SE3: a gh answer over the byte cap, counted in UTF-8 bytes, is unreadable 
 test('SP3-1: both the issue list and the PR list cut draw one partial-list line each, with its own limit', async ($: Engine, on) => {
   const host = stubHost(on, { issues: issueList(501), prTotal: 101 })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain('list is partial (first 500)')
@@ -2599,7 +2599,7 @@ test('F: a pane with two sessions under Recents, two open issues and two issue b
   const records = [{ ...OWN_RECORD, title: 'Fix disk full #1' }, recordOf(otherId, { title: 'Other family #2' })]
   const host = stubHost(on, { records, issues: issueList(4) })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   // The engine refuses the whole draw when two Markdown elements share a key, so the tree is the proof it was drawn.
   const tree = await drawnTree($, 'desktop')
@@ -2625,7 +2625,7 @@ test('the host UTC offset comes from date +%z at session.start and on each poll;
   const options: StubOptions = { utcOffset: '-0300\n' }
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(host.argvs).toContainEqual(['date', '+%z'])
   expect(await drawnPane($)).toContain(clockAtEpochZeroIn(-180))
@@ -2653,7 +2653,7 @@ const TRUNCATED_PNG = LOGO_BYTES.slice(0, -4)
 const LOGO_FRAME = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><image href="data:image/png;base64,${TINY_PNG}" width="1" height="1"/></svg>`
 const openPane = async ($: Engine): Promise<void> => {
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
 }
 // The repo logo's drawn picture: the Svg the desktop draws with the logo's alt text (the KeepGlide mark is another Svg).
 const repoLogoOf = (tree: DrawnNode): DrawnNode[] => nodesOf(tree).filter(node => node.type === 'Svg' && node.props?.alt === 'acme/app logo')
@@ -2661,7 +2661,7 @@ const repoLogoOf = (tree: DrawnNode): DrawnNode[] => nodesOf(tree).filter(node =
 const contentsCalls = (host: Host): number =>
   host.argvs.filter(argv => argv[0] === 'gh' && (argv[2] ?? '').includes('/contents/')).length
 // The logo store lines the window logged: each operation once.
-const logoStoreLogs = (host: Host): string[] => host.logs.filter(line => line.startsWith('keeptrack: logo store'))
+const logoStoreLogs = (host: Host): string[] => host.logs.filter(line => line.startsWith('keepaway: logo store'))
 
 test('a logo file in the checkout is drawn before the title on the desktop, and GitHub is not asked', async ($: Engine, on) => {
   const host = stubHost(on, { lookLogos: true, checkout: { [`${REPO_ROOT}/logo.png`]: LOGO_BYTES } })
@@ -2762,7 +2762,7 @@ test('a failed lookup is logged by its kind, kept for an hour, and the pane stil
   const host = stubHost(on, { lookLogos: true, contentsFailure: 'gh: Server Error (HTTP 500)' })
   await openPane($)
   await host.clock.settle()
-  expect(host.logs).toContain('keeptrack: logo lookup failed (HTTP 5xx)')
+  expect(host.logs).toContain('keepaway: logo lookup failed (HTTP 5xx)')
   expect(contentsCalls(host)).toBe(1)
   expect(host.store.get(LOGO_STORE_KEY)).toMatchObject({ source: null, failed: true })
   expect(await drawnPane($)).toContain('Fix disk full')
@@ -2791,12 +2791,12 @@ test('a store that refuses its writes and reads is logged once per operation, an
 
 // The Pane mounted on a surface: the caller reads or presses it, then unmounts it (the engine keeps no other copy).
 const mountPane = ($: Engine, surface: 'desktop' | 'terminal' = 'terminal') =>
-  $.ui.mount({ plugin: 'keeptrack-repo-pane', surface, component: 'Pane', requestId: PANE_ID, props: {} as never })
+  $.ui.mount({ plugin: 'keepaway-repo', surface, component: 'Pane', requestId: PANE_ID, props: {} as never })
 // The legend's button and its table in a mounted Pane.
 const legendButtonLabelOf = async (mounted: Awaited<ReturnType<typeof mountPane>>): Promise<string | undefined> =>
   (await mounted.find({ type: 'Button', key: 'legend-toggle' }))?.props.label as string | undefined
 // The legend's store lines the window logged.
-const legendStoreLogs = (host: Host): string[] => host.logs.filter(line => line.startsWith('keeptrack: legend store'))
+const legendStoreLogs = (host: Host): string[] => host.logs.filter(line => line.startsWith('keepaway: legend store'))
 
 // SPEC section 19: the legend is an accordion, closed by default. A press opens it and stores `legendOpen`; the next press closes it and
 // removes the key. The state is read from the store on every draw, so a reload draws the same state.
@@ -2902,8 +2902,8 @@ test('this window\'s issue view is reused while its updatedAt is unchanged, and 
   }
   const host = stubHost(on, options)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'issue 106', ...COMMAND_CONTEXT })
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'issue 106', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const viewCalls = (): number => host.argvs.filter(argv => argv[0] === 'gh' && argv.includes('view')).length
   expect(viewCalls()).toBe(1)
@@ -2941,7 +2941,7 @@ test('a glab that times out fails its lookup: kept an hour and logged, and the p
   await openPane($)
   await host.clock.settle()
   expect(host.argvs.filter(argv => argv[0] === 'glab' && argv[1] === '--version')).toHaveLength(1)
-  expect(host.logs).toContain('keeptrack: logo lookup failed (glab)')
+  expect(host.logs).toContain('keepaway: logo lookup failed (glab)')
   expect(host.store.get(logoStoreKeyOf('gitlab.example.test/acme/app'))).toMatchObject({ source: null, failed: true })
   expect(await drawnPane($)).toContain('Fix disk full')
 })
@@ -3075,7 +3075,7 @@ test('an ssh alias whose ssh -G times out keeps the alias, logs the failure by i
   await host.clock.settle()
   expect(sshCalls(host)).toHaveLength(1)
   expect(contentsCalls(host)).toBe(0)
-  expect(host.logs).toContain('keeptrack: ssh alias lookup failed (HooksError)')
+  expect(host.logs).toContain('keepaway: ssh alias lookup failed (HooksError)')
   expect(await drawnPane($)).toContain('Fix disk full')
 })
 
@@ -3134,7 +3134,7 @@ test('an organization owner avatar is drawn when the checkout and the contents h
   await openPane($)
   await host.clock.settle()
   expect(contentsCalls(host)).toBe(3)
-  expect(host.argvs.find(argv => argv[0] === 'sh')).toEqual(['sh', '-c', AVATAR_FETCH_SCRIPT, 'keeptrack-logo', ORG_AVATAR_SIZED])
+  expect(host.argvs.find(argv => argv[0] === 'sh')).toEqual(['sh', '-c', AVATAR_FETCH_SCRIPT, 'keepaway-logo', ORG_AVATAR_SIZED])
   const logo = repoLogoOf(await drawnTree($, 'desktop'))[0]
   expect(logo?.props).toMatchObject({ alt: 'acme/app logo', width: 32, height: 32 })
   expect(String(logo?.props?.source)).toContain(`data:image/png;base64,${TINY_PNG}`)
@@ -3199,7 +3199,7 @@ test('a failed avatar fetch is logged once, kept for an hour, and the pane still
   const host = stubHost(on, { lookLogos: true, ownerType: 'Organization', ownerAvatarUrl: ORG_AVATAR })
   await openPane($)
   await host.clock.settle()
-  expect(host.logs).toEqual(['keeptrack: logo lookup failed (avatar fetch)'])
+  expect(host.logs).toEqual(['keepaway: logo lookup failed (avatar fetch)'])
   expect(host.store.get(LOGO_STORE_KEY)).toMatchObject({ source: null, failed: true })
   expect(await drawnPane($)).toContain('Fix disk full')
   await host.clock.advance(POLL_MS)
@@ -3285,28 +3285,28 @@ test('a transcript with no prompt draws no summary line', async ($: Engine, on) 
   await expectClean(host, $)
 })
 
-test('/keeptrack summary off hides the lines and stops transcript reads; on draws them again', async ($: Engine, on) => {
+test('/keepaway summary off hides the lines and stops transcript reads; on draws them again', async ($: Engine, on) => {
   const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine('Fix the disk full error') } })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'summary off', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'summary off', ...COMMAND_CONTEXT })
   expect(host.toasts).toEqual(['Session summary lines: off'])
   expect(host.store.get('summary')).toBe(false)
   await openPane($)
   await host.clock.settle()
   expect(headCalls(host)).toEqual([])
   expect(await drawnPane($)).not.toContain('Summary:')
-  await $.command.run({ command: 'keeptrack', args: 'summary on', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'summary on', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(host.toasts.at(-1)).toBe('Session summary lines: on')
   expect(await drawnPane($)).toContain('Fix the disk full error')
   await expectClean(host, $)
 })
 
-test('/keeptrack summary with another word toasts the usage line and stores nothing', async ($: Engine, on) => {
+test('/keepaway summary with another word toasts the usage line and stores nothing', async ($: Engine, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'summary maybe', ...COMMAND_CONTEXT })
-  await $.command.run({ command: 'keeptrack', args: 'summary on off', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'summary maybe', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'summary on off', ...COMMAND_CONTEXT })
   expect(host.toasts).toEqual([USAGE_TOAST, USAGE_TOAST])
   expect(host.store.has('summary')).toBe(false)
 })
@@ -3452,7 +3452,7 @@ test('a failed condensing keeps the cut prompt, is logged once by its reason, an
   await openPane($)
   await host.clock.settle()
   expect(await drawnPane($)).toContain('1. Header Repository')
-  expect(host.logs).toEqual(['keeptrack: session brief failed (api-error)'])
+  expect(host.logs).toEqual(['keepaway: session brief failed (api-error)'])
   await host.clock.advance(POLL_MS)
   await host.clock.settle()
   expect(calls).toHaveLength(1)
@@ -3480,7 +3480,7 @@ test('a refused transcript read is logged once by its name, keeps the other line
   await host.clock.advance(POLL_MS)
   await host.clock.settle()
   expect(host.logs).toHaveLength(1)
-  expect(host.logs[0]).toMatch(/^keeptrack: session summary failed \(\w+\)$/)
+  expect(host.logs[0]).toMatch(/^keepaway: session summary failed \(\w+\)$/)
   expect(host.logs.join('\n')).not.toContain(TRANSCRIPT_OWN)
   expect(headCalls(host)).toHaveLength(1)
   expect(await drawnPane($)).not.toContain('Fix the disk full error')
@@ -3511,8 +3511,8 @@ test('the window draws the newest "Decision:" comment as Decided, and the milest
   const issues = JSON.stringify([{ number: 1, title: 'Open one', updatedAt: '2026-10-20T16:00:00Z', url: 'https://github.com/acme/app/issues/1', milestone: { number: 23 }, labels: [] }])
   const host = stubHost(on, { issueView, issues, milestones })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'issue 106', ...COMMAND_CONTEXT })
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'issue 106', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   // The terminal draws each label and value as its own text node, so the heading and the value are checked apart.
@@ -3529,8 +3529,8 @@ test('no decision comment and no description draw neither the Decided line nor t
   const issues = JSON.stringify([{ number: 1, title: 'Open one', updatedAt: '2026-10-20T16:00:00Z', url: 'https://github.com/acme/app/issues/1', milestone: { number: 23 }, labels: [] }])
   const host = stubHost(on, { issues, milestones })
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'issue 106', ...COMMAND_CONTEXT })
-  await $.command.run({ command: 'keeptrack', args: 'open', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'issue 106', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   const drawn = await drawnPane($)
   expect(drawn).toContain('"Last comment:"')

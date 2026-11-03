@@ -1,4 +1,0 @@
-{
-  "description": "The KeepTrack hooks module: the poll, the pane and the /keeptrack command",
-  "modules": ["./register.tsx"]
-}

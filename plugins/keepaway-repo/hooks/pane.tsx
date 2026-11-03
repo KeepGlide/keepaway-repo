@@ -1,4 +1,4 @@
-// The KeepTrack pane: the header, the hero (risks first, then the count), the sessions by group (a bold label, a Desktop Group's name,
+// The KeepAway Repo pane: the header, the hero (risks first, then the count), the sessions by group (a bold label, a Desktop Group's name,
 // else Recents, then its tops as titled rows with their derived sessions under them; this window's group first, the window
 // highlighted with its issue details, its timeline and its GitHub link), the issues without a session by milestone, and the
 // footer. It draws one Snapshot the register hands in and reads or writes no state. Nothing folds: every row, every detail and
@@ -23,7 +23,7 @@ import { actionIconEmoji, priorityEmoji, statusIconEmoji, type ActionIconKey, ty
 import { t, type Lang, type MessageKey } from './i18n'
 import { PAGE_URL, RECENTS_GROUP, TEXT_MAX, TIMELINE_LIMIT, cutAtWord, isSessionLinkId, milestonePageOf, plain, priorityOf, repoPageOf } from './model'
 import { BAR_EMPTY, BAR_FILLED, BRANCH_GLYPH, DETAILS_FILL, DISCLOSURE_CLOSED, DISCLOSURE_OPEN, EMPHASISED_PRIORITIES, LINK_MARK } from './look'
-import { KEEPGLIDE_HEADER_SIZE, renderKeepGlide, renderKeepTrackLogo, renderRepoLogo } from './logo-element'
+import { KEEPGLIDE_HEADER_SIZE, renderKeepGlide, renderKeepAwayLogo, renderRepoLogo } from './logo-element'
 import type { HeldButtons } from './held'
 import { repoLabelOf } from './repo-logo'
 
@@ -192,7 +192,7 @@ export function renderPane(elements: Ui, context: PaneContext): RenderElement {
   const body = snapshot === null ? renderUnsettled(view, context.loadFailed === true) : renderSnapshot(view, snapshot)
   view.held.end()
   return (
-    <Box key="keeptrack-repo-pane" flexDirection="column" gap={1}>
+    <Box key="keepaway-repo" flexDirection="column" gap={1}>
       {header}
       {body}
     </Box>
@@ -212,7 +212,7 @@ function renderHeader(view: View, snapshot: Snapshot | null): RenderElement {
   return (
     <Box key="header" flexDirection="row" flexWrap="wrap" justifyContent="space-between" alignItems="center" gap={1}>
       <Box key="brand" flexDirection="row" alignItems="center" gap={1}>
-        {renderKeepTrackLogo(view.ui, view.desktop, '')}
+        {renderKeepAwayLogo(view.ui, view.desktop, '')}
         <Text key="heading" bold>{t(view.lang, 'pane.heading')}</Text>
       </Box>
       <Box key="header-end" flexDirection="row" alignItems="center" gap={1}>
