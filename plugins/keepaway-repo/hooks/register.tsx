@@ -1,4 +1,4 @@
-// The hooks module of the KeepTrack pane: the poll timer, the atoms the pane draws, the /keeptrack command and the close
+// The hooks module of the KeepAway Repo pane: the poll timer, the atoms the pane draws, the /keepaway command and the close
 // of the pane. The only module that calls $ (repo-work-pane-design-spec.md 3.3). The pure rules are in model.ts, the text in i18n.ts, and
 // pane.tsx draws from the snapshot alone. Nothing here logs or stores a record's content, a remote URL or a title.
 import { atom, read, update } from 'claude-code'
@@ -90,10 +90,10 @@ import type {
 } from '../types'
 
 const PANE = 'repo-work'
-const COMMAND = 'keeptrack'
-// The poll cadence while the pane is open (repo-work-pane-design-spec.md 2.5); KEEPTRACK_POLL_MS overrides it for tests.
+const COMMAND = 'keepaway'
+// The poll cadence while the pane is open (repo-work-pane-design-spec.md 2.5); KEEPAWAY_POLL_MS overrides it for tests.
 const POLL_MS = 60_000
-// The slow cadence while the pane is closed, which keeps the band's repo data fresh; KEEPTRACK_BAND_POLL_MS overrides it.
+// The slow cadence while the pane is closed, which keeps the band's repo data fresh; KEEPAWAY_BAND_POLL_MS overrides it.
 const BAND_POLL_MS = 300_000
 // The band's own redraw tick: it redraws the elapsed and idle times between the events that change them (bandRedrawDue).
 const BAND_TICK_MS = 30_000
@@ -162,7 +162,7 @@ const MILESTONE_QUERY = `query($owner: String!, $name: String!) {
 const PR_STATES = ['OPEN', 'MERGED', 'CLOSED'] as const
 const REVIEW_DECISIONS = ['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED'] as const
 const CHECK_STATES = ['SUCCESS', 'FAILURE', 'PENDING', 'ERROR', 'EXPECTED'] as const
-// The /keeptrack language choices as typed (case does not matter); `auto` follows the environment.
+// The /keepaway language choices as typed (case does not matter); `auto` follows the environment.
 const LANG_CHOICES: ReadonlyMap<string, Lang | 'auto'> = new Map<string, Lang | 'auto'>([
   ['en', 'en'],
   ['pt-br', 'pt'],
@@ -171,21 +171,21 @@ const LANG_CHOICES: ReadonlyMap<string, Lang | 'auto'> = new Map<string, Lang | 
 
 // The drawn state the pane reads (PluginState in types/index.d.ts). The poll writes the snapshot; the handlers write the
 // open flag and the language.
-const snapshotAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'snapshot' } as const, null as Snapshot | null)
-const openAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'open' } as const, false)
+const snapshotAtom = atom({ plugin: 'keepaway-repo', key: 'snapshot' } as const, null as Snapshot | null)
+const openAtom = atom({ plugin: 'keepaway-repo', key: 'open' } as const, false)
 // Set when the first poll settled with no snapshot to show, so the pane draws the failure line instead of Loading (ux4-2).
-const loadFailedAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'loadFailed' } as const, false)
-const langAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'lang' } as const, 'en' as Lang)
+const loadFailedAtom = atom({ plugin: 'keepaway-repo', key: 'loadFailed' } as const, false)
+const langAtom = atom({ plugin: 'keepaway-repo', key: 'lang' } as const, 'en' as Lang)
 // The host's UTC offset in minutes east of UTC, read with `date +%z` at session.start and on each poll; the pane draws its clock times
 // in it, since the runtime's own zone may not be the host's. Until a read lands it is the runtime's offset.
-const utcOffsetAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'utcOffset' } as const, runtimeUtcOffset())
+const utcOffsetAtom = atom({ plugin: 'keepaway-repo', key: 'utcOffset' } as const, runtimeUtcOffset())
 // The main loop's turn, written by turn.start, tool.call, turn.complete and turn.abort: the band's status line reads it.
-const turnAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'turn' } as const, IDLE_TURN)
+const turnAtom = atom({ plugin: 'keepaway-repo', key: 'turn' } as const, IDLE_TURN)
 // Whether this window's session waits for the person: the engine asked about a tool call (tool.check answered ask) and the call has not run.
-const waitingAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'waiting' } as const, false)
+const waitingAtom = atom({ plugin: 'keepaway-repo', key: 'waiting' } as const, false)
 // The agents that have not ended, from $.agent.list(), and since when the current run of them began (readAgents).
 type AgentRun = { count: number; since: number | null }
-const agentRunAtom = atom({ plugin: 'keeptrack-repo-pane', key: 'agentRun' } as const, { count: 0, since: null } as AgentRun)
+const agentRunAtom = atom({ plugin: 'keepaway-repo', key: 'agentRun' } as const, { count: 0, since: null } as AgentRun)
 // The agent statuses that are still work: pending, running, and waiting on the background work it owns (AgentStatus).
 const ACTIVE_AGENT_STATUSES: readonly string[] = ['pending', 'running', 'waiting']
 
@@ -296,7 +296,7 @@ async function currentLang($: EngineInterface): Promise<Lang> {
 }
 
 function logLine($: EngineInterface, text: string): void {
-  $.ui.log(`keeptrack: ${text}`)
+  $.ui.log(`keepaway: ${text}`)
 }
 
 // A failure as the log carries it: its name only, since a message can carry a path or a URL.
@@ -318,9 +318,9 @@ function heldFor(surface: RenderSurface, requestId: string): HeldButtons {
 
 // ---- Desktop records (read only) ----
 
-// The records root: KEEPTRACK_DESKTOP_SESSIONS when set (tests), else the Desktop folder under HOME.
+// The records root: KEEPAWAY_DESKTOP_SESSIONS when set (tests), else the Desktop folder under HOME.
 async function recordsRootOf($: EngineInterface): Promise<string | undefined> {
-  const override = await $.env.get('KEEPTRACK_DESKTOP_SESSIONS')
+  const override = await $.env.get('KEEPAWAY_DESKTOP_SESSIONS')
   if (override) return override
   const home = await $.env.get('HOME')
   return home ? `${home}/.config/Claude/claude-code-sessions` : undefined
@@ -916,7 +916,7 @@ async function sessionsOf(
 
 // ---- session summaries (SPEC section 21): the first prompt of each session, read from the head of its transcript ----
 
-// The setting in the store: `summary` is false when the person turned the lines off (`/keeptrack summary off`); absent is on.
+// The setting in the store: `summary` is false when the person turned the lines off (`/keepaway summary off`); absent is on.
 const SUMMARY_SETTING_KEY = 'summary'
 // Summaries are never stored (SPEC section 21). A build that stored them left `summary:<sessionId>` keys, which this window deletes once.
 const SUMMARY_KEY_PREFIX = 'summary:'
@@ -1526,7 +1526,7 @@ async function glabInstalled($: EngineInterface): Promise<boolean | 'timeout'> {
 // cap is no logo.
 async function avatarLogoOf($: EngineInterface, url: string): Promise<LogoFound> {
   try {
-    const run = await $.process.run(['sh', '-c', AVATAR_FETCH_SCRIPT, 'keeptrack-logo', url], { timeoutMs: AVATAR_TIMEOUT_MS })
+    const run = await $.process.run(['sh', '-c', AVATAR_FETCH_SCRIPT, 'keepaway-logo', url], { timeoutMs: AVATAR_TIMEOUT_MS })
     if (run.exitCode !== 0 || run.stdout.trim() === '') return { source: null, failure: 'avatar fetch' }
     // An answer the engine cut at its own cap is over the logo cap as well: no logo.
     return { source: run.isStdoutTruncated ? null : pictureDocumentOf(run.stdout), failure: null }
@@ -2232,8 +2232,8 @@ function intervalOf(raw: string | undefined, fallback: number): number {
 // (repo-work-pane-design-spec.md 2.5). The open flag is read last, after the awaits, so a close or open during an await
 // is never missed (B1); the cadence is set in the same synchronous step, so no second timer can start beside it.
 async function scheduleTimer($: EngineInterface): Promise<void> {
-  const openMs = intervalOf(await $.env.get('KEEPTRACK_POLL_MS'), POLL_MS)
-  const closedMs = intervalOf(await $.env.get('KEEPTRACK_BAND_POLL_MS'), BAND_POLL_MS)
+  const openMs = intervalOf(await $.env.get('KEEPAWAY_POLL_MS'), POLL_MS)
+  const closedMs = intervalOf(await $.env.get('KEEPAWAY_BAND_POLL_MS'), BAND_POLL_MS)
   const everyMs = (await read($, openAtom)) ? openMs : closedMs
   if (poller !== undefined && pollerMs === everyMs) return
   stopTimer()
@@ -2298,12 +2298,12 @@ async function openPane($: EngineInterface): Promise<void> {
   if (opened.isPlaced) await startIfOpen($)
 }
 
-// ---- the /keeptrack command ----
+// ---- the /keepaway command ----
 
 async function registerCommand($: EngineInterface, lang: Lang): Promise<void> {
   await $.command
     .register({ name: COMMAND, description: t(lang, 'command.describe') })
-    .catch(() => logLine($, 'the /keeptrack command was not registered'))
+    .catch(() => logLine($, 'the /keepaway command was not registered'))
 }
 
 async function toastUsage($: EngineInterface): Promise<void> {
@@ -2324,7 +2324,7 @@ function issueArgOf(value: string): number | 'none' | null {
   return /^\d{1,6}$/.test(value) ? issueNumberOf(Number(value)) : null
 }
 
-// /keeptrack issue <n> sets this window's issue, /keeptrack issue none clears it (repo-work-pane-design-spec.md 2.6).
+// /keepaway issue <n> sets this window's issue, /keepaway issue none clears it (repo-work-pane-design-spec.md 2.6).
 async function setIssue($: EngineInterface, value: string): Promise<void> {
   const issue = issueArgOf(value)
   if (issue === null) return toastUsage($)
@@ -2337,7 +2337,7 @@ async function setIssue($: EngineInterface, value: string): Promise<void> {
   if (await read($, openAtom)) repollSoon($)
 }
 
-// /keeptrack lang en|pt-BR|auto: stores the choice (auto removes it) and switches the language at once.
+// /keepaway lang en|pt-BR|auto: stores the choice (auto removes it) and switches the language at once.
 async function setLanguage($: EngineInterface, value: string): Promise<void> {
   const choice = LANG_CHOICES.get(value.toLowerCase())
   if (choice === undefined) return toastUsage($)
@@ -2348,7 +2348,7 @@ async function setLanguage($: EngineInterface, value: string): Promise<void> {
   await registerCommand($, next)
 }
 
-// /keeptrack summary on|off: stores the setting and answers in the session's language. An open pane polls at once, so the lines are
+// /keepaway summary on|off: stores the setting and answers in the session's language. An open pane polls at once, so the lines are
 // drawn or hidden without waiting for the next minute.
 async function setSummary($: EngineInterface, value: string): Promise<void> {
   const choice = SUMMARY_CHOICES.get(value.toLowerCase())

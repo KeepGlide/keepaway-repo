@@ -9,8 +9,8 @@ export type LangEnv = { LC_ALL?: string; LC_MESSAGES?: string; LANG?: string; LA
 const LOCALE_VARS = ['LC_ALL', 'LC_MESSAGES', 'LANG', 'LANGUAGE'] as const
 
 const EN = {
-  'pane.title': 'KeepTrack',
-  'pane.heading': 'KeepTrack',
+  'pane.title': 'KeepAway Repo',
+  'pane.heading': 'KeepAway Repo',
   'pane.loading': 'Loading the repo...',
   'pane.loadFailed': 'Could not read the repo: state unknown',
   'band.open': 'Open',
@@ -23,8 +23,8 @@ const EN = {
   'band.span.hours': '{hours} h {minutes} min',
   'band.noRemote': 'no GitHub remote',
   'band.error': 'data error',
-  'command.describe': 'KeepTrack: open issues, sessions and their timeline for this repo',
-  'toast.usage': 'Usage: /keeptrack open | issue <n> | issue none | lang en|pt-BR|auto | summary on|off',
+  'command.describe': 'KeepAway Repo: open issues, sessions and their timeline for this repo',
+  'toast.usage': 'Usage: /keepaway open | issue <n> | issue none | lang en|pt-BR|auto | summary on|off',
   'toast.summaryOn': 'Session summary lines: on',
   'toast.summaryOff': 'Session summary lines: off',
   'toast.noSession': 'This window is not a Desktop session: nothing to set',
@@ -163,8 +163,8 @@ const EN = {
 export type MessageKey = keyof typeof EN
 
 const PT: Record<MessageKey, string> = {
-  'pane.title': 'KeepTrack',
-  'pane.heading': 'KeepTrack',
+  'pane.title': 'KeepAway Repo',
+  'pane.heading': 'KeepAway Repo',
   'pane.loading': 'Carregando o repo...',
   'pane.loadFailed': 'Não foi possível ler o repo: estado desconhecido',
   'band.open': 'Abrir',
@@ -177,8 +177,8 @@ const PT: Record<MessageKey, string> = {
   'band.span.hours': '{hours} h {minutes} min',
   'band.noRemote': 'sem remote no GitHub',
   'band.error': 'erro nos dados',
-  'command.describe': 'KeepTrack: issues abertas, sessões e a linha do tempo deste repo',
-  'toast.usage': 'Uso: /keeptrack open | issue <n> | issue none | lang en|pt-BR|auto | summary on|off',
+  'command.describe': 'KeepAway Repo: issues abertas, sessões e a linha do tempo deste repo',
+  'toast.usage': 'Uso: /keepaway open | issue <n> | issue none | lang en|pt-BR|auto | summary on|off',
   'toast.summaryOn': 'Linhas de resumo das sessões: ligadas',
   'toast.summaryOff': 'Linhas de resumo das sessões: desligadas',
   'toast.noSession': 'Esta janela não é uma sessão do Desktop: nada a definir',

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# The look gate of KeepTrack (keeptrack-repo-pane): the drawn code (hooks/*.ts and *.tsx, except logo.ts and keepglide.ts, which hold the
-# colours of the two marks: the KeepTrack product mark and the KeepGlide mark) takes its colours from the engine's theme keys and
-# draws no emoji. action-icons.ts is exempt from the emoji scan only: it is the one module that holds every emoji of KeepTrack (the
+# The look gate of KeepAway Repo (keepaway-repo): the drawn code (hooks/*.ts and *.tsx, except logo.ts and keepglide.ts, which hold the
+# colours of the two marks: the KeepAway Repo product mark and the KeepGlide mark) takes its colours from the engine's theme keys and
+# draws no emoji. action-icons.ts is exempt from the emoji scan only: it is the one module that holds every emoji of KeepAway Repo (the
 # band's and the pane's icons, and the priority icons), and the drawn code takes them by name from it.
 # Exit 0 when clean, 1 on a hex colour, a colour function or an emoji, 2 when the gate cannot run (no module found, or grep fails).
 set -euo pipefail
@@ -24,7 +24,7 @@ for file in "$here"/hooks/*.ts "$here"/hooks/*.tsx; do
   case "$(basename "$file")" in action-icons.ts) ;; *) emoji_files+=("$file") ;; esac
 done
 if [ "${#files[@]}" -eq 0 ]; then
-  echo "keeptrack-look-check: no hooks module found under $here/hooks" >&2
+  echo "keepaway-look-check: no hooks module found under $here/hooks" >&2
   exit 2
 fi
 
@@ -36,9 +36,9 @@ scan() {
   shift 2
   LC_ALL=C.UTF-8 grep -nP -- "$pattern" "$@" || status=$?
   case "$status" in
-    0) echo "keeptrack-look-check: $label found (see above)" >&2; failed=1 ;;
+    0) echo "keepaway-look-check: $label found (see above)" >&2; failed=1 ;;
     1) ;;
-    *) echo "keeptrack-look-check: grep failed ($status) while checking $label" >&2; exit 2 ;;
+    *) echo "keepaway-look-check: grep failed ($status) while checking $label" >&2; exit 2 ;;
   esac
 }
 
@@ -49,4 +49,4 @@ scan "an emoji" "$emoji" "${emoji_files[@]}"
 if [ "$failed" -ne 0 ]; then
   exit 1
 fi
-echo "keeptrack-look-check: ${#files[@]} module(s) clean"
+echo "keepaway-look-check: ${#files[@]} module(s) clean"

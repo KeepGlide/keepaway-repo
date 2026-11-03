@@ -1,10 +1,10 @@
-// The KeepTrack logo as one drawing element, shared by the pane heading and the band row: the SVG on the desktop, the text
+// The KeepAway Repo logo as one drawing element, shared by the pane heading and the band row: the SVG on the desktop, the text
 // glyph elsewhere. The desktop flag decides, not `'Svg' in ui` alone: the terminal's elements carry an Svg too, drawn empty.
 // The KeepGlide mark (a local copy of askaway's) sits at the pane header's right edge, on the desktop only.
 import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import { KEEPGLIDE_ALT, keepglideSvg } from './keepglide'
-import { LOGO_GLYPH, keepTrackSvg } from './logo'
+import { LOGO_GLYPH, keepAwaySvg } from './logo'
 
 type Ui = Elements[RenderSurface]
 
@@ -14,10 +14,10 @@ const REPO_LOGO_SIZE = 32
 export const KEEPGLIDE_HEADER_SIZE = 24
 
 // `alt` is the picture's text for a screen reader; "" marks it decorative when a line beside it already names the pane.
-export function renderKeepTrackLogo(ui: Ui, desktop: boolean, alt: string): RenderElement {
+export function renderKeepAwayLogo(ui: Ui, desktop: boolean, alt: string): RenderElement {
   if (desktop && 'Svg' in ui) {
     const { Svg } = ui
-    return <Svg key="logo" source={keepTrackSvg({ size: LOGO_SIZE })} alt={alt} width={LOGO_SIZE} height={LOGO_SIZE} />
+    return <Svg key="logo" source={keepAwaySvg({ size: LOGO_SIZE })} alt={alt} width={LOGO_SIZE} height={LOGO_SIZE} />
   }
   const { Text } = ui
   return <Text key="logo" bold>{LOGO_GLYPH}</Text>
@@ -25,10 +25,10 @@ export function renderKeepTrackLogo(ui: Ui, desktop: boolean, alt: string): Rend
 
 // The band's leading mark: on the desktop the still product mark, in every state (it never turns: a turning loop has no pause,
 // WCAG 2.2.2, ux4-13). The terminal draws none: the state icon after it already says running or idle.
-export function renderKeepTrackMark(ui: Ui, desktop: boolean): RenderElement | false {
+export function renderKeepAwayMark(ui: Ui, desktop: boolean): RenderElement | false {
   if (desktop && 'Svg' in ui) {
     const { Svg } = ui
-    return <Svg key="mark" source={keepTrackSvg({ size: LOGO_SIZE })} alt="" width={LOGO_SIZE} height={LOGO_SIZE} />
+    return <Svg key="mark" source={keepAwaySvg({ size: LOGO_SIZE })} alt="" width={LOGO_SIZE} height={LOGO_SIZE} />
   }
   return false
 }

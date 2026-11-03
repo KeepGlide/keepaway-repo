@@ -1,4 +1,4 @@
-// The contracts of the KeepTrack pane (repo-work-pane-design-spec.md section 2.6), read by hooks/model.ts, hooks/register.tsx and
+// The contracts of the KeepAway Repo pane (repo-work-pane-design-spec.md section 2.6), read by hooks/model.ts, hooks/register.tsx and
 // hooks/pane.tsx. The record fields are the ones repo-work-pane-design-spec.md section 2.7 reads and no others.
 
 // countsExact: openIssues and closedIssues count the issues only, from GraphQL; false when they are REST's counts (PRs included) or
@@ -146,7 +146,7 @@ export type SessionInput = ProjectedRecord & {
 // The drawn state the hooks module reads and writes (see hooks/register.tsx).
 declare module 'claude-code' {
   interface PluginState {
-    'keeptrack-repo-pane': {
+    'keepaway-repo': {
       // The last poll's result, or null before the first poll.
       snapshot: Snapshot | null
       // Whether the pane is open (set by the command and by ui.close).

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Self-check of the look gate (scripts/keeptrack-look-check.sh): the real tree passes; an emoji in a drawn module fails; an emoji in
+# Self-check of the look gate (scripts/keepaway-look-check.sh): the real tree passes; an emoji in a drawn module fails; an emoji in
 # action-icons.ts, the one module that holds every emoji, passes; a hex colour in that module still fails. It works on a copy in a
 # temp folder, so the plugin tree is never edited. Exit 0 when every case behaves as stated, 1 otherwise.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-gate="$here/scripts/keeptrack-look-check.sh"
-work="$(mktemp -d "${TMPDIR:-/tmp}/keeptrack-look-selftest-XXXXXX")"
+gate="$here/scripts/keepaway-look-check.sh"
+work="$(mktemp -d "${TMPDIR:-/tmp}/keepaway-look-selftest-XXXXXX")"
 trap 'rm -rf -- "$work"' EXIT
 
 failed=0
@@ -22,11 +22,11 @@ fresh_copy() {
 # expect <label> <want: pass|fail> : run the gate on the copy and check its exit code.
 expect() {
   local label="$1" want="$2" status=0
-  bash "$work/scripts/keeptrack-look-check.sh" > /dev/null 2>&1 || status=$?
+  bash "$work/scripts/keepaway-look-check.sh" > /dev/null 2>&1 || status=$?
   if { [ "$want" = pass ] && [ "$status" -eq 0 ]; } || { [ "$want" = fail ] && [ "$status" -eq 1 ]; }; then
-    echo "keeptrack-look-selftest: ok - $label"
+    echo "keepaway-look-selftest: ok - $label"
   else
-    echo "keeptrack-look-selftest: FAILED - $label (exit $status, wanted $want)" >&2
+    echo "keepaway-look-selftest: FAILED - $label (exit $status, wanted $want)" >&2
     failed=1
   fi
 }

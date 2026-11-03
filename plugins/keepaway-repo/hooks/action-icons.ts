@@ -1,4 +1,4 @@
-// Every emoji of KeepTrack lives in this module, and the drawn code takes them by name (the look gate, scripts/keeptrack-look-check.sh,
+// Every emoji of KeepAway Repo lives in this module, and the drawn code takes them by name (the look gate, scripts/keepaway-look-check.sh,
 // exempts this file from its emoji scan only). Three tables:
 // - the band's action icons: each key has its terminal emoji and its desktop SVG, drawn on a 24 px grid with a 2 px stroke, round caps
 //   and joins, and `currentColor`, so the icon takes the theme's own text colour on light and dark. The desktop draws the SVG, because an

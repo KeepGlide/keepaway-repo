@@ -87,7 +87,7 @@ type Host = { opened: { id: string; focus: boolean | undefined }[]; clock: Retur
 function stubHost(on: On): Host {
   const store = new Map<string, unknown>()
   const host: Host = { opened: [], clock: mock.clock(on) }
-  mock.env(on, { HOME, KEEPTRACK_DESKTOP_SESSIONS: RECORDS })
+  mock.env(on, { HOME, KEEPAWAY_DESKTOP_SESSIONS: RECORDS })
   on('command.register', (_$, event) => ({ value: { command: event.name } }))
   on('session.start', (_$, event) => ({ cwd: event.cwd }))
   on('session.id', () => ({ value: 'sess-self' }))
@@ -115,7 +115,7 @@ function stubHost(on: On): Host {
 }
 
 const mountBand = ($: Engine, surface: 'desktop' | 'terminal') =>
-  $.ui.mount({ plugin: 'keeptrack-repo-pane', surface, component: 'AbovePrompt', props: {} as never })
+  $.ui.mount({ plugin: 'keepaway-repo', surface, component: 'AbovePrompt', props: {} as never })
 
 // The strings a drawn node holds, its children read in order (JSX hands a Text its children as an array).
 function stringsOf(node: unknown): string[] {
@@ -425,7 +425,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
 test('the band reads in the stored language', async ($, on) => {
   const host = stubHost(on)
   await $.session.start(SESSION)
-  await $.command.run({ command: 'keeptrack', args: 'lang pt-BR', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'lang pt-BR', ...COMMAND_CONTEXT })
   const band = await mountBand($, 'terminal')
   expect((await band.find({ type: 'Button', key: 'open' }))?.props.label).toBe('Abrir')
   await band.press({ key: 'open' })

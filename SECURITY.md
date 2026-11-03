@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-KeepTrack is pre-stable (`0.y.z`). Fixes land on the latest `0.2.0` beta.
+KeepAway Repo is pre-stable (`0.y.z`). Fixes land on the latest `0.2.0` beta.
 
 | Version | Supported |
 | ------- | --------- |

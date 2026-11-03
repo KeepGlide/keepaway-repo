@@ -1,0 +1,4 @@
+{
+  "description": "The KeepAway Repo hooks module: the poll, the pane and the /keepaway command",
+  "modules": ["./register.tsx"]
+}

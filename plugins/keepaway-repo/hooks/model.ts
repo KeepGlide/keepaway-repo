@@ -1,4 +1,4 @@
-// Pure rules of the KeepTrack pane: the GitHub remote, the session-to-issue mapping, the session tree, the issue
+// Pure rules of the KeepAway Repo pane: the GitHub remote, the session-to-issue mapping, the session tree, the issue
 // groups, the timelines, the session state and the projection of a Desktop session record. Nothing here reads the host
 // or the engine; register.tsx reads and calls, pane.tsx draws. Every function is unit-tested (tests/model.test.ts).
 import type {

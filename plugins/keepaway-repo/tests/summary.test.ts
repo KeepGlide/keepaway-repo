@@ -57,8 +57,8 @@ test('pasted content: the typed text stays and the paste goes; a message that is
 })
 
 test('pasted content with an attributed close (the Desktop form): a message that is only the paste gives its text, with no tag', () => {
-  expect(summaryOfTranscript(line('<pasted_content id="7ff7">1. Header Repository: keeptrack</pasted_content id="7ff7">'))).toBe(
-    '1. Header Repository: keeptrack',
+  expect(summaryOfTranscript(line('<pasted_content id="7ff7">1. Header Repository: keepaway</pasted_content id="7ff7">'))).toBe(
+    '1. Header Repository: keepaway',
   )
 })
 

@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="assets/keeptrack-cover-1600x400.png" alt="KeepTrack: Your repo's work, beside the chat." width="100%" />
+<img src="assets/keepaway-cover-1600x400.png" alt="KeepAway Repo: Your repo's work, beside the chat." width="100%" />
 
-<img src="assets/keeptrack-icon.svg" alt="KeepTrack mark: a milestone ring crossed by a kite, with one progress dot" width="96" />
+<img src="assets/keepaway-icon.svg" alt="KeepAway Repo mark: a milestone ring crossed by a kite, with one progress dot" width="96" />
 
-# 🧭 KeepTrack
+# 🧭 KeepAway Repo
 
 [![🇺🇸 English](https://img.shields.io/badge/%F0%9F%87%BA%F0%9F%87%B8-English-blue.svg)](README.md) [![🇧🇷 Português (Brasil)](https://img.shields.io/badge/%F0%9F%87%A7%F0%9F%87%B7-Portugu%C3%AAs%20(Brasil)-green.svg)](README.pt-BR.md)
 
@@ -51,7 +51,7 @@ Beta (`0.2.0-beta.24`). The project follows [SemVer](https://semver.org/): while
 
 ## 💡 Why it exists
 
-When one repository has several Desktop sessions open at once, each session shows only its own conversation. Nothing tells you which session works on which issue, which issues no session touches, or whether a session is waiting for you. KeepTrack reads that information from GitHub and from this machine, and draws it in two places: a pane and a band above the prompt.
+When one repository has several Desktop sessions open at once, each session shows only its own conversation. Nothing tells you which session works on which issue, which issues no session touches, or whether a session is waiting for you. KeepAway Repo reads that information from GitHub and from this machine, and draws it in two places: a pane and a band above the prompt.
 
 It is for one person on one machine: it reads that machine's session records.
 
@@ -59,7 +59,7 @@ It does **not** change anything on GitHub or in your repository. It does not tra
 
 ## 🎁 What it delivers
 
-- **`/keeptrack`** opens the pane (`/keeptrack open` does the same). `/keeptrack issue <n>` sets the issue of this window, `/keeptrack issue none` clears it, and `/keeptrack lang en|pt-BR|auto` sets the language.
+- **`/keepaway`** opens the pane (`/keepaway open` does the same). `/keepaway issue <n>` sets the issue of this window, `/keepaway issue none` clears it, and `/keepaway lang en|pt-BR|auto` sets the language.
 - **This window first**: the session of the window with its issue's details and timeline.
 - **Current task and timeline**: each session shows `Now: <task>` (the plan step in progress) and its plan steps, commits and PR, newest first; the 5 newest are drawn and the rest sit behind `▸ Earlier (N)`.
 - **Sessions grouped as in the Desktop sidebar**: the group label on top, in plain bold text, then its sessions. A session filed in a Desktop sidebar Group (its own, or its root's) is drawn under the Group's name; every session without a Group is listed under one group labelled `Recents`, as the Desktop sidebar names them. The label is `Recents` in both languages, because the Desktop app has no translated label, and a Desktop Group named "Recents" keeps its own label next to it. Each top session is a titled `├`/`└` row with its state, issue and milestone, and its derived sessions (fork or spawn) are nested under it at 1, 3 and 5 cells. This window's group comes first, then the named Groups by newest activity, then `Recents`; inside a group, this window's session comes first, then the sessions waiting for you, then the newest. Each session title links to its Desktop session.
@@ -72,9 +72,9 @@ It does **not** change anything on GitHub or in your repository. It does not tra
 - **Links**: on the desktop a session title opens that session. On the desktop, milestones, commits, PRs and issues link to their pages.
 - **Risks first**: above the sessions, chips for an overdue milestone (⚠️), a milestone due within 14 days (📅, `due today` on the day) and the other sessions that stopped waiting for you (⏳, with their issue numbers); then `14 of 24 closed in the open milestones`, the bar, the issues left and the sessions working.
 - **Waiting sessions**: another session whose last turn stopped needing you (the Desktop's post-turn summary, last activity under 24 h) shows ⏳ and a `Needs you:` line of up to 90 characters, and sorts right after this window's session. A group lists 20 top sessions, then `+k more`.
-- **Summary of each session**: a line right under the session's title with its first prompt, cleaned and cut to 93 characters, with no label. `/keeptrack summary off` hides it.
+- **Summary of each session**: a line right under the session's title with its first prompt, cleaned and cut to 93 characters, with no label. `/keepaway summary off` hides it.
 - **Decisions and objectives**: this window's block shows `Decided:` from the newest issue comment by the owner, a member or a collaborator that starts with `Decision:` or `Decisão:`; each milestone shows its description as `Objective:`.
-- **Icons after the title**: state (🟢 working, ⏳ waiting for you, 💤 idle, with no state word), the timeline (📝 commit, 🔀 PR, 🚀 session), issues to do (📋) or in progress (🛠️), milestones (🎯) with a text progress bar, due date (📅) and overdue marker (⚠️), and priorities (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3). A legend at the foot of the pane, an accordion named Labels Descriptions that is closed by default, names each one. The full table is in [SPEC section 19](plugins/keeptrack-repo-pane/SPEC.md). The screenshots still show the design from before the icons.
+- **Icons after the title**: state (🟢 working, ⏳ waiting for you, 💤 idle, with no state word), the timeline (📝 commit, 🔀 PR, 🚀 session), issues to do (📋) or in progress (🛠️), milestones (🎯) with a text progress bar, due date (📅) and overdue marker (⚠️), and priorities (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3). A legend at the foot of the pane, an accordion named Labels Descriptions that is closed by default, names each one. The full table is in [SPEC section 19](plugins/keepaway-repo/SPEC.md). The screenshots still show the design from before the icons.
 
 ## 📸 Screenshots
 
@@ -83,10 +83,10 @@ It does **not** change anything on GitHub or in your repository. It does not tra
 
 | Light | Dark |
 |---|---|
-| ![KeepTrack pane and band, light design mock](docs/screenshots/keeptrack-session-first-light.jpg) | ![KeepTrack pane and band, dark design mock](docs/screenshots/keeptrack-session-first-dark.jpg) |
+| ![KeepAway Repo pane and band, light design mock](docs/screenshots/keepaway-session-first-light.jpg) | ![KeepAway Repo pane and band, dark design mock](docs/screenshots/keepaway-session-first-dark.jpg) |
 
 > [!IMPORTANT]
-> **Real captures are pending.** They wait for Sophia's check of the running mod in Claude Code Desktop ([SPEC §17](plugins/keeptrack-repo-pane/SPEC.md#17-desktop-check-for-sophia)). Until then, the slots below hold no image.
+> **Real captures are pending.** They wait for Sophia's check of the running mod in Claude Code Desktop ([SPEC §17](plugins/keepaway-repo/SPEC.md#17-desktop-check-for-sophia)). Until then, the slots below hold no image.
 
 | Screen | Capture |
 |---|---|
@@ -102,7 +102,7 @@ flowchart LR
     GIT[Local git: remote, branch, log] --> POLL
     REC[Desktop session records] --> POLL
     POLL[Poll every 60 s open, 5 min closed, 30 s deadline] --> SNAP[Snapshot in one atom]
-    SNAP --> PANE[Pane: /keeptrack]
+    SNAP --> PANE[Pane: /keepaway]
     SNAP --> BAND[Band above the prompt]
 ```
 
@@ -111,7 +111,7 @@ The main round trip of one poll:
 ```mermaid
 sequenceDiagram
     participant T as Timer
-    participant K as KeepTrack
+    participant K as KeepAway Repo
     participant G as gh and git
     participant D as Desktop records
     T->>K: tick at the cadence of the open flag
@@ -126,7 +126,7 @@ sequenceDiagram
 
 The timer polls every 60 seconds while the pane is open and every 5 minutes while it is closed, so the band stays current. A poll that is not settled after 30 seconds is abandoned, and a newer poll may start. The pane and the band only read the snapshot; they call no process and no file.
 
-The session-to-issue mapping takes the first match and never merges two sessions. The full rules are in [the spec](plugins/keeptrack-repo-pane/SPEC.md).
+The session-to-issue mapping takes the first match and never merges two sessions. The full rules are in [the spec](plugins/keepaway-repo/SPEC.md).
 
 ## 📋 Prerequisites
 
@@ -142,7 +142,7 @@ The session-to-issue mapping takes the first match and never merges two sessions
 
 ## 🚀 Installation
 
-KeepTrack is installed from `sophia-mods`, the local marketplace of Sophia's Claude Code mods: the folder `~/.claude/mods`, whose `.claude-plugin/marketplace.json` lists `keeptrack-repo-pane`.
+KeepAway Repo is installed from `sophia-mods`, the local marketplace of Sophia's Claude Code mods: the folder `~/.claude/mods`, whose `.claude-plugin/marketplace.json` lists `keepaway-repo`.
 
 ### 1️⃣ Add the marketplace (once per machine)
 
@@ -155,12 +155,12 @@ claude plugin marketplace add ~/.claude/mods
 ### 2️⃣ Install the plugin
 
 ```bash
-claude plugin install keeptrack-repo-pane@sophia-mods
+claude plugin install keepaway-repo@sophia-mods
 ```
 
 ### 3️⃣ Load it
 
-Restart Claude Code, or run `/reload-plugins` if your version has it. Then run `/keeptrack` in a session of a repository with a GitHub remote.
+Restart Claude Code, or run `/reload-plugins` if your version has it. Then run `/keepaway` in a session of a repository with a GitHub remote.
 
 <details>
 <summary><strong>Manual path: load the mod from a clone, without a marketplace</strong></summary>
@@ -172,13 +172,13 @@ git clone https://github.com/KeepGlide/keeptrack.git
 ```
 
 ```bash
-claude --plugin-dir keeptrack/plugins/keeptrack-repo-pane
+claude --plugin-dir keeptrack/plugins/keepaway-repo
 ```
 
 </details>
 
 > [!NOTE]
-> **KeepGlide catalog: pending.** The KeepGlide catalog ([KeepGlide/claude-plugins](https://github.com/KeepGlide/claude-plugins)) has no `keeptrack` entry yet. When the entry is published, the install from it will be `claude plugin marketplace add KeepGlide/claude-plugins` and then `claude plugin install keeptrack-repo-pane@keepglide`, and the update and uninstall commands below take `@keepglide` in place of `@sophia-mods`. These commands are not run yet for this plugin.
+> **KeepGlide catalog: pending.** The KeepGlide catalog ([KeepGlide/claude-plugins](https://github.com/KeepGlide/claude-plugins)) has no `keepaway` entry yet. When the entry is published, the install from it will be `claude plugin marketplace add KeepGlide/claude-plugins` and then `claude plugin install keepaway-repo@keepglide`, and the update and uninstall commands below take `@keepglide` in place of `@sophia-mods`. These commands are not run yet for this plugin.
 
 ## 🤖 Install with an AI agent (spec)
 
@@ -196,11 +196,11 @@ Ground rules:
 | 1 | Check that gh is signed in | `gh auth status` | Exit 0 and a line `Logged in to github.com`. If not, the human runs `gh auth login`. |
 | 2 | Check that the repository has a GitHub remote | `git remote get-url origin` | Exit 0 and a URL whose host is `github.com`, or an SSH alias with `github` in its name (for example `git@github-<label>:<owner>/<repo>.git`). Otherwise the pane shows `no GitHub remote for this repo`. |
 | 3 🧑 | Add the marketplace, unless `claude plugin marketplace list` already shows `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Exit 0, and `claude plugin marketplace list` shows `sophia-mods` with `Source: Folder (<path>)`. |
-| 4 🧑 | Install the plugin | `claude plugin install keeptrack-repo-pane@sophia-mods` | Exit 0, and `claude plugin list` shows `keeptrack-repo-pane@sophia-mods` with `Version: 0.2.0-beta.24` and `Status: ✔ enabled`. |
-| 5 | Check that the command is registered | In a Desktop session, `/keeptrack bogus` | A toast with the usage line `Usage: /keeptrack open \| issue <n> \| issue none \| lang en\|pt-BR\|auto`. Nothing changes. |
-| 6 | Open the pane | `/keeptrack` | A pane titled `KeepTrack` opens. It shows `Loading the repo...`, then the open issues by milestone, or an error line from [Troubleshooting](#-troubleshooting). |
-| 7 | Switch the language to Portuguese | `/keeptrack lang pt-BR` | The pane and the band switch to Portuguese. While loading, the pane shows `Carregando o repo...`. |
-| 8 | Return to the automatic language | `/keeptrack lang auto` | The stored choice is removed. The language follows the first set variable of `LC_ALL`, `LC_MESSAGES`, `LANG` or `LANGUAGE`: `pt*` gives Portuguese, anything else gives English. |
+| 4 🧑 | Install the plugin | `claude plugin install keepaway-repo@sophia-mods` | Exit 0, and `claude plugin list` shows `keepaway-repo@sophia-mods` with `Version: 0.2.0-beta.24` and `Status: ✔ enabled`. |
+| 5 | Check that the command is registered | In a Desktop session, `/keepaway bogus` | A toast with the usage line `Usage: /keepaway open \| issue <n> \| issue none \| lang en\|pt-BR\|auto`. Nothing changes. |
+| 6 | Open the pane | `/keepaway` | A pane titled `KeepAway Repo` opens. It shows `Loading the repo...`, then the open issues by milestone, or an error line from [Troubleshooting](#-troubleshooting). |
+| 7 | Switch the language to Portuguese | `/keepaway lang pt-BR` | The pane and the band switch to Portuguese. While loading, the pane shows `Carregando o repo...`. |
+| 8 | Return to the automatic language | `/keepaway lang auto` | The stored choice is removed. The language follows the first set variable of `LC_ALL`, `LC_MESSAGES`, `LANG` or `LANGUAGE`: `pt*` gives Portuguese, anything else gives English. |
 | 9 | Check that gh reads the repository | `gh issue list -R <owner>/<repo> --state open --limit 1 --json number` | Exit 0 and a JSON array: `[]` or `[{"number":<n>}]`. |
 | 10 | Hand back | none | Report to the human the result of each step, the output of step 9 and any skipped step. No token is printed. |
 
@@ -210,8 +210,8 @@ Ground rules:
 
 **Undo** (🧑 the human decides):
 
-1. Run `/keeptrack lang auto` and `/keeptrack issue none` in each window where they were used.
-2. Run `claude plugin uninstall keeptrack-repo-pane@sophia-mods`.
+1. Run `/keepaway lang auto` and `/keepaway issue none` in each window where they were used.
+2. Run `claude plugin uninstall keepaway-repo@sophia-mods`.
 3. Run `claude plugin marketplace remove sophia-mods` only if step 3 added it and no other plugin uses that marketplace.
 
 ## 🔄 Updating
@@ -223,7 +223,7 @@ claude plugin marketplace update sophia-mods
 ```
 
 ```bash
-claude plugin update keeptrack-repo-pane@sophia-mods
+claude plugin update keepaway-repo@sophia-mods
 ```
 
 Restart Claude Code, or run `/reload-plugins`, after an update, as after an install.
@@ -231,7 +231,7 @@ Restart Claude Code, or run `/reload-plugins`, after an update, as after an inst
 ## 🧹 Uninstall
 
 ```bash
-claude plugin uninstall keeptrack-repo-pane@sophia-mods
+claude plugin uninstall keepaway-repo@sophia-mods
 ```
 
 Restart Claude Code, or run `/reload-plugins`, afterwards. What the mod leaves behind:
@@ -239,7 +239,7 @@ Restart Claude Code, or run `/reload-plugins`, afterwards. What the mod leaves b
 | Item | Where | After uninstall |
 |---|---|---|
 | Plugin code and hooks | Claude Code's plugin installation | Removed by `claude plugin uninstall`. |
-| Stored language (`lang`) and window issues (`override:<session id>`) | The mod's store in Claude Code | Stay. The mod has no step that deletes them. Overrides expire after 30 days, or earlier when no session record lists their session. To clear the language first, run `/keeptrack lang auto`. |
+| Stored language (`lang`) and window issues (`override:<session id>`) | The mod's store in Claude Code | Stay. The mod has no step that deletes them. Overrides expire after 30 days, or earlier when no session record lists their session. To clear the language first, run `/keepaway lang auto`. |
 | Session records and the Desktop config | `~/.config/Claude/claude-code-sessions`, `~/.config/Claude/claude_desktop_config.json` (only the sidebar Groups and their session assignments are read) | Not touched. The mod only reads them. |
 | GitHub and the repository | GitHub and your working tree | Not touched. The mod writes nothing there. |
 
@@ -247,21 +247,21 @@ Restart Claude Code, or run `/reload-plugins`, afterwards. What the mod leaves b
 
 | Command | What it does |
 |---|---|
-| `/keeptrack` or `/keeptrack open` | Opens the pane. It polls at once when the snapshot is older than one interval. The band's Open button does the same. |
-| `/keeptrack issue <n>` | Sets the issue of this window, from 1 to 999999. Stored per session as `override:<session id>` for 30 days. Only a Desktop session can set it; any other window gets a toast. |
-| `/keeptrack issue none` | Clears the issue of this window. |
-| `/keeptrack lang en\|pt-BR\|auto` | Stores the language (case does not matter) and switches it at once. `auto` removes the stored choice and follows the environment. |
-| `/keeptrack summary on\|off` | Shows or hides the summary line of each session (on by default). Off, no transcript is read. |
-| Any other argument | A toast with the usage line. Nothing changes. Extra words after `open` or `issue <n>` (for example `/keeptrack open now`) count as another argument. |
+| `/keepaway` or `/keepaway open` | Opens the pane. It polls at once when the snapshot is older than one interval. The band's Open button does the same. |
+| `/keepaway issue <n>` | Sets the issue of this window, from 1 to 999999. Stored per session as `override:<session id>` for 30 days. Only a Desktop session can set it; any other window gets a toast. |
+| `/keepaway issue none` | Clears the issue of this window. |
+| `/keepaway lang en\|pt-BR\|auto` | Stores the language (case does not matter) and switches it at once. `auto` removes the stored choice and follows the environment. |
+| `/keepaway summary on\|off` | Shows or hides the summary line of each session (on by default). Off, no transcript is read. |
+| Any other argument | A toast with the usage line. Nothing changes. Extra words after `open` or `issue <n>` (for example `/keepaway open now`) count as another argument. |
 
 ## 🎛️ Configuration
 
 | Name | Default | Effect |
 |---|---|---|
-| `KEEPTRACK_POLL_MS` | `60000` | Poll interval while the pane is open. A value below 1000, or one that is not a whole number, is ignored and the default is used. |
-| `KEEPTRACK_BAND_POLL_MS` | `300000` | Poll interval while the pane is closed. Same rule as `KEEPTRACK_POLL_MS`. |
-| `KEEPTRACK_DESKTOP_SESSIONS` | `$HOME/.config/Claude/claude-code-sessions` | Session records folder that is read (read only). Set for tests. |
-| `LC_ALL`, `LC_MESSAGES`, `LANG`, `LANGUAGE` | unset | Language when no choice is stored: the first one that is set decides. `pt*` gives Portuguese; anything else gives English. A stored `/keeptrack lang` choice always wins. |
+| `KEEPAWAY_POLL_MS` | `60000` | Poll interval while the pane is open. A value below 1000, or one that is not a whole number, is ignored and the default is used. |
+| `KEEPAWAY_BAND_POLL_MS` | `300000` | Poll interval while the pane is closed. Same rule as `KEEPAWAY_POLL_MS`. |
+| `KEEPAWAY_DESKTOP_SESSIONS` | `$HOME/.config/Claude/claude-code-sessions` | Session records folder that is read (read only). Set for tests. |
+| `LC_ALL`, `LC_MESSAGES`, `LANG`, `LANGUAGE` | unset | Language when no choice is stored: the first one that is set decides. `pt*` gives Portuguese; anything else gives English. A stored `/keepaway lang` choice always wins. |
 
 The default folder is built from `HOME`. When `HOME` is unset, the mod finds no records folder.
 
@@ -269,20 +269,20 @@ Fixed in the code, not configurable:
 
 | Setting | Value | Where |
 |---|---|---|
-| Poll deadline | 30 s | `POLL_DEADLINE_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
-| Band redraw tick | 30 s | `BAND_TICK_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
-| gh call timeout | 15 s | `GH_TIMEOUT_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
-| git call timeout | 5 s | `GIT_TIMEOUT_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
-| Open issues per poll | 500 | `ISSUE_LIMIT`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
-| Open pull requests per poll | 100 | `PR_LIMIT`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
-| Session cutoff | 72 h | `SESSION_CUTOFF_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
-| Issue override lifetime | 30 days | `OVERRIDE_TTL_MS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
-| Abandoned polls allowed at once | 2 | `MAX_ABANDONED_POLLS`, `plugins/keeptrack-repo-pane/hooks/register.tsx` |
-| Working-state window | 5 min after the last activity | `WORKING_WINDOW_MS`, `plugins/keeptrack-repo-pane/hooks/model.ts` |
+| Poll deadline | 30 s | `POLL_DEADLINE_MS`, `plugins/keepaway-repo/hooks/register.tsx` |
+| Band redraw tick | 30 s | `BAND_TICK_MS`, `plugins/keepaway-repo/hooks/register.tsx` |
+| gh call timeout | 15 s | `GH_TIMEOUT_MS`, `plugins/keepaway-repo/hooks/register.tsx` |
+| git call timeout | 5 s | `GIT_TIMEOUT_MS`, `plugins/keepaway-repo/hooks/register.tsx` |
+| Open issues per poll | 500 | `ISSUE_LIMIT`, `plugins/keepaway-repo/hooks/register.tsx` |
+| Open pull requests per poll | 100 | `PR_LIMIT`, `plugins/keepaway-repo/hooks/register.tsx` |
+| Session cutoff | 72 h | `SESSION_CUTOFF_MS`, `plugins/keepaway-repo/hooks/register.tsx` |
+| Issue override lifetime | 30 days | `OVERRIDE_TTL_MS`, `plugins/keepaway-repo/hooks/register.tsx` |
+| Abandoned polls allowed at once | 2 | `MAX_ABANDONED_POLLS`, `plugins/keepaway-repo/hooks/register.tsx` |
+| Working-state window | 5 min after the last activity | `WORKING_WINDOW_MS`, `plugins/keepaway-repo/hooks/model.ts` |
 
 ## 📚 Documentation
 
-- [SPEC.md](plugins/keeptrack-repo-pane/SPEC.md): what the code does now, and where it differs from the design record.
+- [SPEC.md](plugins/keepaway-repo/SPEC.md): what the code does now, and where it differs from the design record.
 - [CONTRIBUTING.md](CONTRIBUTING.md): the repository layout and the test protocol.
 - [CHANGELOG.md](CHANGELOG.md): every change, by version.
 
@@ -290,14 +290,14 @@ Fixed in the code, not configurable:
 
 - **What leaves the machine:** only `gh` calls to GitHub, to read milestones, open issues, open pull requests, the milestone totals and one issue's details. There are no paid calls and no calls to other services. For repo logos, GitHub's contents and owner type through `gh`, the organization avatar from `avatars.githubusercontent.com` (https only), and the GitLab avatar through `glab`.
 - **What is read locally:** the git remote, branch and log of the repository and of its sessions, the Desktop session records, and the Desktop config (its sidebar Groups only). With summaries on, the first 256 KiB of each listed session's transcript, for its first prompt; the summary stays in memory and is never stored.
-- **What is written:** only the state of the mod (the open flag, the language and the issue set by `/keeptrack issue`). Nothing is written to GitHub or to the repository.
+- **What is written:** only the state of the mod (the open flag, the language and the issue set by `/keepaway issue`). Nothing is written to GitHub or to the repository.
 - To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## 🩺 Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `claude plugin install keeptrack-repo-pane@keepglide` finds no plugin | The catalog entry is not published yet (see [Installation](#-installation)). | Install from `sophia-mods`, or wait for the entry. |
+| `claude plugin install keepaway-repo@keepglide` finds no plugin | The catalog entry is not published yet (see [Installation](#-installation)). | Install from `sophia-mods`, or wait for the entry. |
 | `gh not found: showing sessions only` | `gh` cannot start (not installed, or not on the path Claude Code sees). | Install [`gh`](https://cli.github.com/) and check it with `gh --version`. |
 | `gh is not signed in` | `gh` exits with a login message. | Run `gh auth login`. The next poll uses it (60 s with the pane open, 5 min closed). |
 | `GitHub rate limit: showing the last data` | GitHub's API rate limit was reached. | Wait. The last data stays on screen until a poll succeeds. |
@@ -307,7 +307,7 @@ Fixed in the code, not configurable:
 | `list is partial (first 500)` (or `first 100`) | The repository has more open issues (or pull requests) than one poll reads. Exactly 500 open issues does not show the line. | None in the mod. The list is partial by design. |
 | `{count} session records could not be read` | A records file did not parse, or a text field is over 4096 characters. For one record the line reads `1 session record could not be read`. Only `local_<id>.json` files are read as records; other files in the folder, such as `scheduled-tasks.json` and `deleted_<id>` tombstones, are ignored. | The bad record is skipped and the other sessions are shown. |
 | `git failed in this folder · sessions shown without branch` | `git` failed in a session's folder. | Check that the folder exists and that `git status` works there. |
-| `This window is not a Desktop session: nothing to set` | `/keeptrack issue` ran in a window with no Desktop record. | Run it in a Desktop session window. |
+| `This window is not a Desktop session: nothing to set` | `/keepaway issue` ran in a window with no Desktop record. | Run it in a Desktop session window. |
 | The pane stays on `Loading the repo...` | The first poll has not settled, or was abandoned after 30 s. | Wait one poll. The mod logs `poll skipped` when two abandoned polls are still running, and then starts nothing until one ends. |
 
 ## 🐞 Known issues
@@ -316,7 +316,7 @@ No known open issues as of 2026-10-22. Found one? [Open an issue](https://github
 
 Known limitations, as the code does them today:
 
-- **A merged pull request does not link its issue.** Only open pull requests are queried, so an issue whose PR was merged does not show that PR. Workaround: `/keeptrack issue <n>` in the window sets the issue by hand.
+- **A merged pull request does not link its issue.** Only open pull requests are queried, so an issue whose PR was merged does not show that PR. Workaround: `/keepaway issue <n>` in the window sets the issue by hand.
 - **Archived sessions are never listed.** An archived session leaves the tree at once, even when its branch has an open PR, unless it is this window's session. Its live derived sessions stay listed in their group, with its title only in their timeline. Workaround: none; reopen the session from the Desktop sidebar to see it again.
 - **Checks always read `no CI`.** The mod reads the check rollup of open pull requests, but the Checks line always reads `no CI` because the issue details do not pass it through. The KeepGlide repositories run no GitHub Actions. Workaround: none.
 - **The working state is a heuristic.** A session counts as working for 5 minutes after its last activity, so the band can lag the real state. Workaround: none.
@@ -338,26 +338,26 @@ Known limitations, as the code does them today:
 | Plan steps: update_plan and TodoWrite inputs, events and the current step (`tests/steps.test.ts`) | 7 |
 | **Total** | **568** |
 
-Counts from `claude plugin test plugins/keeptrack-repo-pane` on the 0.2.0-beta.24 tree (the current task and the Earlier accordion): 568 pass, 0 fail, 9 files. The look self-check (`scripts/keeptrack-look-selftest.sh`) is a shell script and is not counted.
+Counts from `claude plugin test plugins/keepaway-repo` on the 0.2.0-beta.24 tree (the current task and the Earlier accordion): 568 pass, 0 fail, 9 files. The look self-check (`scripts/keepaway-look-selftest.sh`) is a shell script and is not counted.
 
 ## 🔧 Development
 
 From the repository root, validate the manifest, hooks and types:
 
 ```bash
-claude plugin validate plugins/keeptrack-repo-pane
+claude plugin validate plugins/keepaway-repo
 ```
 
 Run the tests:
 
 ```bash
-claude plugin test plugins/keeptrack-repo-pane
+claude plugin test plugins/keepaway-repo
 ```
 
 Run the look check, which fails on any hex colour, colour function or emoji in the drawn code (`action-icons.ts` is exempt from the emoji check only):
 
 ```bash
-bash plugins/keeptrack-repo-pane/scripts/keeptrack-look-check.sh
+bash plugins/keepaway-repo/scripts/keepaway-look-check.sh
 ```
 
 The layout of the repository and the test protocol are in [CONTRIBUTING.md](CONTRIBUTING.md).
