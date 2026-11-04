@@ -8,6 +8,9 @@ Commit hashes name the change in `git log`. Entries below the rename keep the na
 
 ## [Unreleased]
 
+### Added
+- Install from a downloaded zip: a root `.claude-plugin/marketplace.json` (marketplace `keepglide-local`, plugin `keepaway-repo`, source `./plugins/keepaway-repo`) makes the extracted folder a local marketplace; both READMEs describe the steps.
+
 ### Changed
 - The mod is renamed **KeepAway Repo** (was KeepTrack). The pane title, heading, command description, README and spec use the new name; the pt-BR text keeps the name as it is.
 - Migration, old ids → new ids:
@@ -19,7 +22,7 @@ Commit hashes name the change in `git log`. Entries below the rename keep the na
   - code names `keepTrackSvg` → `keepAwaySvg`, `renderKeepTrackLogo` → `renderKeepAwayLogo`, `renderKeepTrackMark` → `renderKeepAwayMark`;
   - assets `assets/keeptrack-icon.svg` → `assets/keepaway-icon.svg`, `assets/keeptrack-cover-1600x400.png` → `assets/keepaway-cover-1600x400.png`, `docs/screenshots/keeptrack-session-first-{light,dark}.jpg` → `docs/screenshots/keepaway-session-first-{light,dark}.jpg`.
 - The mod's saved state is keyed by the plugin id. The language (`lang`), the summary setting (`summary`), the window issues (`override:<session id>`) and the other stored values under `keeptrack-repo-pane` are not read by `keepaway-repo`, so the new id starts from its defaults. Set them again with `/keepaway lang`, `/keepaway summary` and `/keepaway issue <n>`. The old entries are not deleted by this change.
-- Unchanged on purpose: the GitHub repository `KeepGlide/keeptrack` (its URLs and its `git clone` folder name), the website pages `keepglide.com/keeptrack` and `keepglide.com/pt-br/keeptrack`, and the host path `/home/sophia/projects/keeptrack` used by a test fixture.
+- Unchanged on purpose: the GitHub repository `KeepGlide/keeptrack` (its URLs and its `git clone` folder name), and the website pages `keepglide.com/keeptrack` and `keepglide.com/pt-br/keeptrack`.
 
 ## [0.2.0-beta.24] - 2026-11-02
 
