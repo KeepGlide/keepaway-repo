@@ -178,8 +178,8 @@ test('unclosed wrapper and paste tags in a 256 KiB head: the scan stays linear, 
 })
 
 test('the transcript folder: every character that is not a letter or a digit becomes a dash', () => {
-  expect(transcriptFolderOf('/home/sophia/projects/keeptrack')).toBe('-home-sophia-projects-keeptrack')
-  expect(transcriptFolderOf('/home/sophia/.cache/keep_x.y')).toBe('-home-sophia--cache-keep-x-y')
+  expect(transcriptFolderOf('/home/u/projects/keeptrack')).toBe('-home-u-projects-keeptrack')
+  expect(transcriptFolderOf('/home/u/.cache/keep_x.y')).toBe('-home-u--cache-keep-x-y')
 })
 
 test('hasUserLine: a user message counts whether or not it carries a prompt; a session that has only other lines has none yet', () => {

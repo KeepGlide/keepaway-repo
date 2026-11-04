@@ -111,9 +111,9 @@ test('parseRemote reads owner and name from every accepted form and returns null
 
 test('parseRemote gives the host in lower case; a GitHub host is github.com or an alias that names it (S4)', () => {
   expect(parseRemote('https://GitHub.com/acme/widgets')?.host).toBe('github.com')
-  expect(parseRemote('git@github-ask-sophia-now:acme/widgets.git')?.host).toBe('github-ask-sophia-now')
+  expect(parseRemote('git@github-example:acme/widgets.git')?.host).toBe('github-example')
   expect(isGithubHost('github.com')).toBe(true)
-  expect(isGithubHost('github-ask-sophia-now')).toBe(true)
+  expect(isGithubHost('github-example')).toBe(true)
   expect(isGithubHost('gh-work')).toBe(false)
   expect(isGithubHost('gitlab.example.test')).toBe(false)
 })

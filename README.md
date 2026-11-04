@@ -180,6 +180,14 @@ claude --plugin-dir keeptrack/plugins/keepaway-repo
 > [!NOTE]
 > **KeepGlide catalog: pending.** The KeepGlide catalog ([KeepGlide/claude-plugins](https://github.com/KeepGlide/claude-plugins)) has no `keepaway` entry yet. When the entry is published, the install from it will be `claude plugin marketplace add KeepGlide/claude-plugins` and then `claude plugin install keepaway-repo@keepglide`, and the update and uninstall commands below take `@keepglide` in place of `@sophia-mods`. These commands are not run yet for this plugin.
 
+### Install from a downloaded zip
+
+Use this path when you have the `.zip` of this repository instead of access to the marketplace. The root holds `.claude-plugin/marketplace.json`, so the extracted folder is a local marketplace. Not checked in Claude Code Desktop.
+
+1. Extract the zip into an empty folder, for example `keeptrack-main`.
+2. In Claude Code, run `/plugin marketplace add ./keeptrack-main` (an absolute path works too).
+3. Install from the `/plugin` panel with **+ › Add plugins** (Claude Desktop), or run `/plugin install keepaway-repo@keepglide-local`.
+
 ## 🤖 Install with an AI agent (spec)
 
 > **For the agent:** follow this spec step by step and compare each result with **Expect**. Stop and report to the human on any mismatch. The instructions of your user come first. The spec installs from the `sophia-mods` marketplace, as [Installation](#-installation) does.
