@@ -26,8 +26,11 @@ import { BAR_EMPTY, BAR_FILLED, BRANCH_GLYPH, DETAILS_FILL, DISCLOSURE_CLOSED, D
 import { KEEPGLIDE_HEADER_SIZE, renderKeepGlide, renderKeepAwayLogo, renderRepoLogo } from './logo-element'
 import type { HeldButtons } from './held'
 import { repoLabelOf } from './repo-logo'
+import { MARK_ALT, TIMELINE_MARK_SIZE, timelineMarkSvg, type MarkKind } from './timeline-marks'
 
 type Ui = Elements[RenderSurface]
+// The desktop's table: the timeline's line draws Svg markers and Markdown titles, which only it has.
+type DesktopUi = Elements['desktop']
 
 export type PaneContext = {
   snapshot: Snapshot | null
@@ -762,15 +765,16 @@ function renderGithubLink(view: View, number: number, url: string | null, indent
   )
 }
 
-// The timeline (SPEC section 22): the current task first (`Now: <task>`), then the events newest first: time, kind glyph (none for a
-// plan step), text. The TIMELINE_SHOWN newest are always drawn; the rest, up to TIMELINE_LIMIT, sit behind the session's Earlier (N)
-// button, closed by default, since the pane has no inner scroll.
+// The timeline (SPEC sections 22 and 24): the events newest first. The TIMELINE_SHOWN newest are always drawn; the rest, up to
+// TIMELINE_LIMIT, sit behind the session's Earlier (N) button, closed by default, since the pane has no inner scroll. The desktop draws
+// them on a vertical line, alternating sides (owner's mock, 2026-11-08); the terminal keeps a flat list under a `Now:` line.
 function renderTimeline(view: View, node: SessionNode, indent: number): RenderElement {
   const { Box, Text } = view.ui
   const events = [...node.timeline].sort((a, b) => b.at - a.at).slice(0, TIMELINE_LIMIT)
   const earlier = events.slice(TIMELINE_SHOWN)
   const open = view.timelineOpen.has(node.id)
   const drawn = open ? events : events.slice(0, TIMELINE_SHOWN)
+  if (view.desktop && 'Svg' in view.ui && 'Markdown' in view.ui) return renderTimelineLine(view, node, indent, drawn, earlier.length, open)
   return (
     <Box key={`timeline-${node.id}`} flexDirection="column" gap={1} paddingLeft={indent}>
       {node.currentTask !== null && <Text key={`now-${node.id}`}>{t(view.lang, 'timeline.now', { task: node.currentTask })}</Text>}
@@ -781,19 +785,112 @@ function renderTimeline(view: View, node: SessionNode, indent: number): RenderEl
   )
 }
 
-// One timeline row: its clock time, its kind glyph (a plan step has none), and its text.
+// One terminal timeline row: its clock time, its kind glyph (a plan step has none), its text, and its detail dimmed under it.
 function renderTimelineEvent(view: View, node: SessionNode, event: TimelineEvent, index: number): RenderElement {
   const { Box, Text } = view.ui
+  const detail = event.detail ?? null
   return (
-    <Box key={`event-${node.id}-${index}`} flexDirection="row" gap={1}>
-      <Text key="time">{clockOf(event.at, view.utcOffsetMinutes)}</Text>
-      {event.kind !== 'step' && <Text key="glyph">{statusIconEmoji(TIMELINE_ICON[event.kind])}</Text>}
-      <Box key="text" flexGrow={1}>
-        {renderTimelineText(view, node, event)}
+    <Box key={`event-${node.id}-${index}`} flexDirection="column">
+      <Box key="head" flexDirection="row" gap={1}>
+        <Text key="time">{clockOf(event.at, view.utcOffsetMinutes)}</Text>
+        {event.kind !== 'step' && <Text key="glyph">{statusIconEmoji(TIMELINE_ICON[event.kind])}</Text>}
+        <Box key="text" flexGrow={1}>
+          {renderTimelineText(view, node, event)}
+        </Box>
+      </Box>
+      {detail !== null && <Text key="detail" dimColor>{detail}</Text>}
+    </Box>
+  )
+}
+
+// What a timeline row is marked as on the line: a release, a commit, a test, a PR, a session event, or a plain step. A commit or a step
+// whose words name a release is a release; a step naming a test or a commit is one.
+export function markOf(event: TimelineEvent): MarkKind {
+  if (event.kind === 'pr' || event.kind === 'session') return event.kind
+  if (RELEASE_WORDS.test(event.text)) return 'release'
+  if (event.kind === 'commit') return 'commit'
+  if (TEST_WORDS.test(event.text)) return 'test'
+  if (COMMIT_WORDS.test(event.text)) return 'commit'
+  return 'step'
+}
+const RELEASE_WORDS = /\b(release|released|releasing|publish|published|lançamento|lançar|publicar)\b/i
+const TEST_WORDS = /\b(tests?|testing|testes?|testar|e2e|qa)\b/i
+const COMMIT_WORDS = /\b(commit|commits|committed)\b/i
+
+// One row of the line: when it happened (null for the current task with no event of its own), its title, link and detail, and its mark.
+type LineRow = { at: number | null; title: string; url: string | null; detail: string | null; mark: MarkKind }
+
+// The desktop timeline: each row on one side of a vertical line, newest at the top, alternating left and right. The step in progress is
+// marked green; a current task with no event of its own (the stop detail) is a row of its own at the top, with no time.
+function renderTimelineLine(view: View, node: SessionNode, indent: number, drawn: readonly TimelineEvent[], earlier: number, open: boolean): RenderElement {
+  const { Box } = view.ui
+  const rows: LineRow[] = drawn.map(event => ({
+    at: event.at,
+    title: timelineText(view.lang, node, event),
+    url: event.url,
+    detail: event.detail ?? null,
+    mark: event.kind === 'step' && event.text === node.currentTask ? 'now' : markOf(event),
+  }))
+  const synthetic = node.currentTask !== null && !rows.some(row => row.mark === 'now')
+  if (synthetic) rows.unshift({ at: null, title: node.currentTask ?? '', url: null, detail: null, mark: 'now' })
+  // The synthetic row sits above the shown events, so it never pushes one of them under the Earlier button.
+  const split = TIMELINE_SHOWN + (synthetic ? 1 : 0)
+  const [before, after] = [rows.slice(0, split), rows.slice(split)]
+  return (
+    <Box key={`timeline-${node.id}`} flexDirection="column" gap={1} paddingLeft={indent}>
+      <Box key="line" flexDirection="column">
+        {before.map((row, index) => renderLineRow(view, node, row, index, index === rows.length - 1))}
+      </Box>
+      {earlier > 0 && renderEarlierToggle(view, node, earlier, open)}
+      {after.length > 0 && (
+        <Box key="line-earlier" flexDirection="column">
+          {after.map((row, index) => renderLineRow(view, node, row, index + split, index === after.length - 1))}
+        </Box>
+      )}
+    </Box>
+  )
+}
+
+// One row of the line: the text on its side (even rows left, odd rows right), the marker on the axis and the line under it down to the
+// next row (none under the last). The rows sit with no gap, so the line runs on; the text's bottom padding spaces them.
+function renderLineRow(view: View, node: SessionNode, row: LineRow, index: number, last: boolean): RenderElement {
+  const { Box, Svg } = view.ui as DesktopUi
+  const left = index % 2 === 0
+  const text = renderLineText(view, node, row, index, left)
+  return (
+    <Box key={`tl-row-${node.id}-${index}`} flexDirection="row" alignItems="stretch">
+      <Box key="left" width={LINE_SIDE_WIDTH} flexDirection="column" alignItems="flex-end" paddingRight={1} paddingBottom={1}>
+        {left ? text : null}
+      </Box>
+      <Box key="axis" width={LINE_AXIS_COLUMNS} flexDirection="column" alignItems="center">
+        <Svg key={`mark-${node.id}-${index}`} source={timelineMarkSvg(row.mark)} alt={MARK_ALT[row.mark]} width={TIMELINE_MARK_SIZE} height={TIMELINE_MARK_SIZE} />
+        {!last && <Box key="rule" width={LINE_RULE_WIDTH} flexGrow={1} backgroundColor="subtle" />}
+      </Box>
+      <Box key="right" width={LINE_SIDE_WIDTH} flexDirection="column" alignItems="flex-start" paddingLeft={1} paddingBottom={1}>
+        {left ? null : text}
       </Box>
     </Box>
   )
 }
+
+// A row's words: the time in bold and the title in italic (linked when it has a page), then its detail, one sentence or two, dimmed.
+function renderLineText(view: View, node: SessionNode, row: LineRow, index: number, left: boolean): RenderElement {
+  const { Box, Text, Markdown } = view.ui as DesktopUi
+  // An empty title (a commit with no subject) draws no italic marks, which would read as a stray `**`.
+  const title = row.title === '' ? '' : row.url === null ? ` *${escapeMarkdown(row.title)}*` : ` *[${escapeMarkdown(row.title)}](${row.url})*`
+  const time = row.at === null ? t(view.lang, 'timeline.nowLabel') : clockOf(row.at, view.utcOffsetMinutes)
+  return (
+    <Box key={`tl-text-${node.id}-${index}`} flexDirection="column" alignItems={left ? 'flex-end' : 'flex-start'}>
+      <Markdown key={`tl-title-${node.id}-${index}`} text={`**${escapeMarkdown(time)}**${title}`} />
+      {row.detail !== null && <Text key={`tl-detail-${node.id}-${index}`} dimColor>{row.detail}</Text>}
+    </Box>
+  )
+}
+
+// The line's geometry: each side takes LINE_SIDE_WIDTH of the row, the axis LINE_AXIS_COLUMNS cells, and the rule a sliver of the axis.
+const LINE_SIDE_WIDTH = '46%'
+const LINE_AXIS_COLUMNS = 3
+const LINE_RULE_WIDTH = '12%'
 
 // A session's Earlier (N) button: ▸ closed, ▾ open, like the legend's. Its press handle is kept across redraws (held.ts).
 function renderEarlierToggle(view: View, node: SessionNode, count: number, open: boolean): RenderElement {
@@ -953,7 +1050,8 @@ function renderIssueLine(view: View, issue: Issue): RenderElement {
 // the session states, the work, the history, the project. The band-only icons (no issue, no remote, tools) are not listed, and
 // neither are the loading and failure lines, which draw without the footer. The text glyphs and the missing priority icon are not rows:
 // one note line under the table says them (renderLegendNote).
-type LegendEntry = { id: string; icon: string; name: MessageKey; text: MessageKey }
+// A desktop row may show a timeline marker in place of the emoji (`mark`), since the desktop's timeline draws markers, not emoji.
+type LegendEntry = { id: string; icon: string; mark?: MarkKind; name: MessageKey; text: MessageKey }
 // The emoji cell's width in terminal columns: one emoji (2 columns) and two of gap. Every legend row draws one emoji, priorities included.
 const LEGEND_ICON_COLUMNS = 4
 const LEGEND_ENTRIES: readonly LegendEntry[] = [
@@ -976,6 +1074,24 @@ const LEGEND_ENTRIES: readonly LegendEntry[] = [
   { id: 'priority-p3', icon: priorityEmoji('P3'), name: 'legend.priorityP3.name', text: 'legend.priorityP3.text' },
   { id: 'sessions', icon: statusIconEmoji('sessions'), name: 'legend.sessions.name', text: 'legend.sessions.text' },
 ]
+// The timeline's rows of the table: the terminal's emoji rows (commit, PR, session event), and on the desktop the markers of the line
+// instead (SPEC section 24), in the order the legend reads them.
+const TIMELINE_LEGEND_IDS: ReadonlySet<string> = new Set(['commit', 'pr', 'session'])
+const MARK_LEGEND: readonly LegendEntry[] = [
+  { id: 'mark-now', icon: '', mark: 'now', name: 'legend.now.name', text: 'legend.now.text' },
+  { id: 'mark-release', icon: '', mark: 'release', name: 'legend.release.name', text: 'legend.release.text' },
+  { id: 'mark-commit', icon: '', mark: 'commit', name: 'legend.commit.name', text: 'legend.commit.text' },
+  { id: 'mark-test', icon: '', mark: 'test', name: 'legend.test.name', text: 'legend.test.text' },
+  { id: 'mark-pr', icon: '', mark: 'pr', name: 'legend.pr.name', text: 'legend.pr.text' },
+  { id: 'mark-session', icon: '', mark: 'session', name: 'legend.sessionEvent.name', text: 'legend.sessionEvent.text' },
+  { id: 'mark-step', icon: '', mark: 'step', name: 'legend.step.name', text: 'legend.step.text' },
+]
+
+// The table's rows on a surface: on the desktop the timeline's emoji rows give way to its markers, at the place of the first of them.
+function legendEntriesOf(view: View): readonly LegendEntry[] {
+  if (!(view.desktop && 'Svg' in view.ui)) return LEGEND_ENTRIES
+  return LEGEND_ENTRIES.flatMap(entry => (entry.id === 'commit' ? MARK_LEGEND : TIMELINE_LEGEND_IDS.has(entry.id) ? [] : [entry]))
+}
 
 // The legend, an accordion (SPEC section 19): a button that reads ▸ closed and ▾ open, then the bordered table while it is open. The
 // button is drawn on every draw; the table only when open, so a closed legend draws no row.
@@ -1001,10 +1117,10 @@ function renderLegendTable(view: View): RenderElement {
   return (
     <Box key="legend" flexDirection="column" borderStyle="round" borderDimColor paddingX={1} paddingY={1}>
       <Text key="legend-heading" bold>{t(view.lang, 'legend.title')}</Text>
-      {LEGEND_ENTRIES.map(entry => (
+      {legendEntriesOf(view).map(entry => (
         <Box key={`legend-${entry.id}`} flexDirection="row" alignItems="flex-start">
           <Box width={LEGEND_ICON_COLUMNS} flexShrink={0}>
-            <Text>{entry.icon}</Text>
+            {entry.mark !== undefined && 'Svg' in view.ui ? renderLegendMark(view, entry.mark) : <Text>{entry.icon}</Text>}
           </Box>
           <Box flexGrow={1} flexShrink={1}>
             {renderLegendMeaning(view, entry)}
@@ -1014,6 +1130,12 @@ function renderLegendTable(view: View): RenderElement {
       {renderLegendNote(view)}
     </Box>
   )
+}
+
+// A marker row's picture: the line's own marker, at its size.
+function renderLegendMark(view: View, mark: MarkKind): RenderElement {
+  const { Svg } = view.ui as DesktopUi
+  return <Svg key={`mark-legend-${mark}`} source={timelineMarkSvg(mark)} alt={MARK_ALT[mark]} width={TIMELINE_MARK_SIZE} height={TIMELINE_MARK_SIZE} />
 }
 
 // The note under the table, muted: what ↗, ~, #n and a missing priority icon mean, as text (Mock S delta 15). It is not an icon row.

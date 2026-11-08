@@ -48,10 +48,11 @@ export type IssueRef = { number: number; source: 'override' | 'pr' | 'branch' | 
 
 // url: the commit's or the PR's web page, null when the event has none (a session event, or no repo page).
 // A 'step' event is a plan step the session started (SPEC section 22); it has no icon and no page.
-export type TimelineEvent = { at: number; kind: 'commit' | 'pr' | 'session' | 'step'; text: string; url: string | null }
+// detail: one sentence or two under the event's title (owner, 2026-11-08): a commit's first body paragraph, a plan step's model line.
+export type TimelineEvent = { at: number; kind: 'commit' | 'pr' | 'session' | 'step'; text: string; url: string | null; detail?: string | null }
 
 // A session's plan steps read from its transcript (SPEC section 22): the step events, newest first, and the step in progress.
-export type SessionSteps = { events: { at: number; text: string }[]; current: string | null }
+export type SessionSteps = { events: { at: number; text: string; detail?: string | null }[]; current: string | null }
 
 // A repo's remote as the mod reads it: the host (lower case), owner and name. Never drawn; a link is built from it.
 export type RepoRemote = { host: string; owner: string; name: string }
@@ -134,7 +135,7 @@ export type SessionInput = ProjectedRecord & {
   pr: PullRequest | null
   override: number | null
   waiting: boolean
-  commits: { at: number; subject: string; sha?: string | null }[]
+  commits: { at: number; subject: string; sha?: string | null; detail?: string | null }[]
   // The session's own repo remote (its common git dir's origin), null when none is known.
   remote?: RepoRemote | null
   // The session's summary this poll has (SessionSummary); absent or null draws no line.
