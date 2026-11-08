@@ -47,7 +47,7 @@
 
 ## 📌 Status
 
-Beta (`0.2.0-beta.25`). O projeto segue o [SemVer](https://semver.org/): enquanto a versão for `0.y.z`, qualquer release pode mudar o comportamento sem aviso.
+Beta (`0.2.0-beta.26`). O projeto segue o [SemVer](https://semver.org/): enquanto a versão for `0.y.z`, qualquer release pode mudar o comportamento sem aviso.
 
 ## 💡 Por que existe
 
@@ -61,7 +61,7 @@ Ele **não** altera nada no GitHub nem no seu repositório. Não registra tempo,
 
 - **`/keepaway`** abre o painel (`/keepaway open` faz o mesmo). `/keepaway issue <n>` define a issue desta janela, `/keepaway issue none` a limpa, e `/keepaway lang en|pt-BR|auto` define o idioma.
 - **Esta janela primeiro**: a sessão da janela com os detalhes e a linha do tempo da sua issue.
-- **Tarefa atual e linha do tempo**: cada sessão mostra `Agora: <tarefa>` (a etapa do plano em andamento) e as etapas do plano, commits e PR, da mais nova para a mais antiga; as 5 mais novas aparecem e o resto fica atrás de `▸ Anteriores (N)`. No desktop os eventos ficam numa linha vertical, alternando os lados, cada um com a hora em negrito, o título em itálico e uma ou duas frases embaixo (o corpo do commit, ou uma linha que o Haiku escreve para uma etapa concluída); um marcador na linha distingue release, commit, teste, PR e evento de sessão, e a etapa em andamento fica verde.
+- **Tarefa atual e linha do tempo**: cada sessão mostra `Agora: <tarefa>` (a etapa do plano em andamento) e as etapas do plano, commits e PR, da mais nova para a mais antiga; as 7 mais novas aparecem e o resto fica atrás de `▸ Anteriores (N)`. No desktop os eventos ficam numa linha vertical, alternando os lados, cada um com a hora em negrito, o título em itálico e uma ou duas frases embaixo (o corpo do commit, ou uma linha que o Haiku escreve para uma etapa concluída); um marcador na linha, cada tipo com a sua cor, distingue release, commit, teste, PR e evento de sessão, e a etapa em andamento fica verde.
 - **Sessões agrupadas como na barra lateral do Desktop**: no topo o rótulo do grupo, em negrito simples, abaixo as sessões dele. Uma sessão que está num Grupo da barra lateral do Desktop (o dela ou o da raiz dela) é desenhada sob o nome do Grupo; toda sessão sem Grupo fica num único grupo com o rótulo `Recents`, como a barra lateral do Desktop as chama. O rótulo é `Recents` nos dois idiomas, porque o app do Desktop não tem rótulo traduzido, e um Grupo do Desktop chamado "Recents" mantém o rótulo próprio ao lado dele. Cada sessão do topo é uma linha `├`/`└` com título, estado, issue e milestone, e as derivadas (fork ou spawn) ficam aninhadas embaixo dela, a 1, 3 e 5 células. Primeiro vem o grupo desta janela, depois os Grupos com nome pela atividade mais recente, e por último `Recents`; dentro de um grupo, primeiro a sessão desta janela, depois as que esperam você, depois as mais recentes. Cada título de sessão leva à sessão no Desktop.
 - **Sessões encerradas não são listadas**: uma sessão arquivada no Desktop sai da árvore na hora, a menos que seja a sessão desta janela. Uma raiz arquivada não é desenhada: as derivadas ativas dela viram linhas do grupo delas (`Recents` quando não têm Grupo), com o título da mãe na linha do tempo.
 - **Issues abertas por milestone**: as issues abertas que nenhuma sessão trabalha, agrupadas por milestone aberto, com o progresso do milestone. Os milestones ordenam pelo prazo, o mais cedo primeiro; dentro de um grupo as issues ordenam por prioridade (`P0` a `P3`, lida dos rótulos), e cada linha traz a sua marca.
@@ -204,7 +204,7 @@ Regras de base:
 | 1 | Conferir se o gh está logado | `gh auth status` | Saída 0 e uma linha `Logged in to github.com`. Se não, a pessoa roda `gh auth login`. |
 | 2 | Conferir se o repositório tem um remote no GitHub | `git remote get-url origin` | Saída 0 e uma URL cujo host é `github.com`, ou um alias SSH com `github` no nome (por exemplo `git@github-<label>:<owner>/<repo>.git`). Se não, o painel mostra `sem remote no GitHub para este repo`. |
 | 3 🧑 | Adicionar o marketplace, a menos que `claude plugin marketplace list` já mostre `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Saída 0, e `claude plugin marketplace list` mostra `sophia-mods` com `Source: Folder (<path>)`. |
-| 4 🧑 | Instalar o plugin | `claude plugin install keepaway-repo@sophia-mods` | Saída 0, e `claude plugin list` mostra `keepaway-repo@sophia-mods` com `Version: 0.2.0-beta.25` e `Status: ✔ enabled`. |
+| 4 🧑 | Instalar o plugin | `claude plugin install keepaway-repo@sophia-mods` | Saída 0, e `claude plugin list` mostra `keepaway-repo@sophia-mods` com `Version: 0.2.0-beta.26` e `Status: ✔ enabled`. |
 | 5 | Conferir se o comando está registrado | Em uma sessão do Desktop, `/keepaway bogus` | Um toast com a linha de uso `Usage: /keepaway open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em inglês, ou `Uso: /keepaway open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em português. Nada muda. |
 | 6 | Abrir o painel | `/keepaway` | Abre um painel com o título `KeepAway Repo`. Mostra `Carregando o repo...`, depois as issues abertas por milestone, ou uma linha de erro de [Solução de problemas](#-solução-de-problemas). |
 | 7 | Trocar o idioma para português | `/keepaway lang pt-BR` | O painel e a faixa mudam para português. Durante o carregamento, o painel mostra `Carregando o repo...`. |
@@ -338,15 +338,15 @@ Limitações conhecidas, como o código se comporta hoje:
 | Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo e detalhes dos eventos, projeção de registros, leitura do fuso UTC (`tests/model.test.ts`) | 129 |
 | Módulo de hooks: consulta, comando do painel, temporizadores, fechamento, fuso UTC do host, leitura das etapas do plano, corpos de commit e explicações das etapas (`tests/register.test.ts`) | 225 |
 | Faixa: linha de status, estados e botão Open (`tests/band.test.ts`) | 41 |
-| Painel: desenho do snapshot, relógio do host, datas de prazo, o acordeão Anteriores e a linha do tempo do desktop (`tests/pane.test.ts`) | 128 |
+| Painel: desenho do snapshot, relógio do host, datas de prazo, o acordeão Anteriores, a linha do tempo do desktop, a linha sob o cabeçalho e os blocos de milestone (`tests/pane.test.ts`) | 131 |
 | Idioma: dicionários em inglês e português do Brasil (`tests/i18n.test.ts`) | 10 |
 | Transições de turno da faixa (`tests/turn.test.ts`) | 8 |
 | Logo do repo: busca do arquivo, checagem da imagem e script de download do avatar (`tests/repo-logo.test.ts`) | 15 |
 | Resumo: limpeza do transcript, cortes, a varredura linear das tags e a linha condensada (`tests/summary.test.ts`) | 30 |
 | Etapas do plano: entradas de update_plan e TodoWrite, eventos, a etapa atual, o contexto da etapa e o pedido de explicação (`tests/steps.test.ts`) | 12 |
-| **Total** | **598** |
+| **Total** | **601** |
 
-Contagens de `claude plugin test plugins/keepaway-repo` na árvore 0.2.0-beta.25 (a linha do tempo do desktop e as explicações dos eventos): 598 aprovados, 0 falhas, 9 arquivos. A verificação de aparência (`scripts/keepaway-look-selftest.sh`) é um script de shell e não entra na contagem.
+Contagens de `claude plugin test plugins/keepaway-repo` na árvore 0.2.0-beta.26 (marcadores coloridos, 7 eventos, a linha sob o cabeçalho e os blocos de milestone): 601 aprovados, 0 falhas, 9 arquivos. A verificação de aparência (`scripts/keepaway-look-selftest.sh`) é um script de shell e não entra na contagem.
 
 ## 🔧 Desenvolvimento
 

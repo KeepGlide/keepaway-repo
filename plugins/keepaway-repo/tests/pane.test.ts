@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { clockOf, dateOf, daysUntilDue, isDueSoon, isOverdue, markOf, progressBarOf, renderPane, type PaneContext } from '../hooks/pane'
-import type { MarkKind } from '../hooks/timeline-marks'
+import { TIMELINE_MARK_SIZE, timelineMarkSvg, type MarkKind } from '../hooks/timeline-marks'
 import { priorityEmoji, statusIconEmoji } from '../hooks/action-icons'
 import { TEXT_MAX, WORKING_WINDOW_MS, buildTree, groupIssues, type DesktopGroups } from '../hooks/model'
 import { t } from '../hooks/i18n'
@@ -1833,24 +1833,24 @@ test('a step event draws its time and text with no kind glyph', () => {
   expect(nodesOf(row).some(node => node.props.key === 'glyph')).toBe(false)
 })
 
-test('the 5 newest events are drawn and the rest sit behind a closed Earlier (N) button', () => {
-  const tree = drawTerminal({ snapshot: withWindowTimeline(stepEvents(8)) })
+test('the 7 newest events are drawn and the rest sit behind a closed Earlier (N) button', () => {
+  const tree = drawTerminal({ snapshot: withWindowTimeline(stepEvents(10)) })
   const texts = drawnTexts(tree)
-  for (const step of ['Step 1', 'Step 5']) expect(texts).toContain(step)
-  for (const step of ['Step 6', 'Step 8']) expect(texts).not.toContain(step)
+  for (const step of ['Step 1', 'Step 7']) expect(texts).toContain(step)
+  for (const step of ['Step 8', 'Step 10']) expect(texts).not.toContain(step)
   expect(keyed(tree, `earlier-${THIS_WINDOW}`)?.props.label).toBe(`${DISCLOSURE_CLOSED} Earlier (3)`)
-  const pt = drawTerminal({ snapshot: withWindowTimeline(stepEvents(8)), lang: 'pt' })
+  const pt = drawTerminal({ snapshot: withWindowTimeline(stepEvents(10)), lang: 'pt' })
   expect(keyed(pt, `earlier-${THIS_WINDOW}`)?.props.label).toBe(`${DISCLOSURE_CLOSED} Anteriores (3)`)
 })
 
 test('an open session draws every event after a ▾ Earlier button, and a press calls onTimelineToggle with its id', () => {
   const pressed: string[] = []
   const tree = drawDesktop({
-    snapshot: withWindowTimeline(stepEvents(8)),
+    snapshot: withWindowTimeline(stepEvents(10)),
     timelineOpen: new Set([THIS_WINDOW]),
     onTimelineToggle: id => pressed.push(id),
   })
-  expect(lineTitlesOf(tree)).toContain('Step 8')
+  expect(lineTitlesOf(tree)).toContain('Step 10')
   const button = keyed(tree, `earlier-${THIS_WINDOW}`)
   expect(button?.props.label).toBe(`${DISCLOSURE_OPEN} Earlier (3)`)
   const onPress = button?.props.onPress
@@ -1916,9 +1916,9 @@ test('the step in progress is marked in progress, and a current task that is one
 })
 
 test('a current task with no step of its own is the first row, read Now in English, and the shown events stay above the Earlier button', () => {
-  const tree = drawDesktop({ snapshot: withCurrentTask(withWindowTimeline(stepEvents(8)), 'Fix the pane') })
+  const tree = drawDesktop({ snapshot: withCurrentTask(withWindowTimeline(stepEvents(10)), 'Fix the pane') })
   expect(lineRowsOf(lineOf(tree))[0]).toEqual(['Now', 'Fix the pane'])
-  expect(lineTitlesOf(lineOf(tree))).toEqual(['Fix the pane', 'Step 1', 'Step 2', 'Step 3', 'Step 4', 'Step 5'])
+  expect(lineTitlesOf(lineOf(tree))).toEqual(['Fix the pane', 'Step 1', 'Step 2', 'Step 3', 'Step 4', 'Step 5', 'Step 6', 'Step 7'])
   expect(keyed(tree, 'line-earlier')).toBeUndefined()
   expect(keyed(tree, `earlier-${THIS_WINDOW}`)?.props.label).toBe(`${DISCLOSURE_CLOSED} Earlier (3)`)
   expect(keyed(tree, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('in progress')
@@ -1965,4 +1965,53 @@ test('a row with no title draws its time alone, with no italic marks', () => {
   // A commit with an empty subject: a session event is titled by its word ("started"), so it never has an empty title.
   const tree = drawDesktop({ snapshot: withCurrentTask(withWindowTimeline([{ at: NOW, kind: 'commit', text: '', url: null }]), null) })
   expect(String(keyed(tree, `tl-title-${THIS_WINDOW}-0`)?.props.text)).toMatch(/^\*\*\d{2}\\?:\d{2}\*\*$/)
+})
+
+test('each typed marker is filled with its own colour at 26 px, white icon inside; the step dot and the green now keep theirs (owner choice C)', () => {
+  expect(TIMELINE_MARK_SIZE).toBe(26)
+  const fillOf = (kind: MarkKind): string => /<circle cx="12" cy="12" r="(?:11|5)" fill="(#[0-9a-f]{6})"/.exec(timelineMarkSvg(kind))?.[1] ?? ''
+  const typed: MarkKind[] = ['release', 'commit', 'test', 'pr', 'session']
+  const fills = typed.map(fillOf)
+  expect(new Set(fills).size).toBe(typed.length)
+  expect(fills).not.toContain(fillOf('now'))
+  expect(fills).not.toContain(fillOf('step'))
+  for (const kind of typed) {
+    expect(timelineMarkSvg(kind)).toContain('width="26" height="26"')
+    expect(timelineMarkSvg(kind)).toContain('stroke="#ffffff"')
+  }
+})
+
+test('a rule sits right under the header, as in AskAway User: a 1px SVG line across the pane on the desktop, a row of ─ on the terminal', () => {
+  for (const draw of [drawDesktop, drawTerminal]) {
+    const root = draw() as Drawn
+    const children = (root.props.children as unknown[]).filter((child): child is Drawn => typeof child === 'object' && child !== null)
+    expect(children[0]?.props.key).toBe('header')
+    expect(children[1]?.props.key).toBe('header-rule')
+  }
+  const svg = keyed(drawDesktop(), 'header-rule')
+  expect(svg?.tag).toBe('Svg')
+  expect(svg?.props.alt).toBe('')
+  expect(svg?.props.height).toBe(1)
+  expect(svg?.props.width).toBeUndefined()
+  expect(String(svg?.props.source)).toContain('width="4000" height="1"')
+  const text = keyed(drawTerminal(), 'header-rule')
+  expect(text?.tag).toBe('Text')
+  expect(text?.props.dimColor).toBe(true)
+  expect(textOf(text?.props.children)).toBe('─'.repeat(40))
+})
+
+test('each milestone of the issues section sits in its own bordered block, its heading and issues inside, on both surfaces', () => {
+  for (const draw of [drawDesktop, drawTerminal]) {
+    const tree = draw()
+    const blocks = nodesOf(tree).filter(node => String(node.props.key).startsWith('milestone-block-'))
+    expect(blocks.length).toBeGreaterThan(2)
+    expect(new Set(blocks.map(node => node.props.key)).size).toBe(blocks.length)
+    for (const block of blocks) {
+      expect(block.props.borderStyle).toBe('round')
+      expect(block.props.borderDimColor).toBe(true)
+      expect(drawnTexts(block).length).toBeGreaterThan(0)
+    }
+    const none = blocks.find(node => node.props.key === 'milestone-block-none')
+    expect(drawnTexts(none)).toContain('No milestone / issue')
+  }
 })

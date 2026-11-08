@@ -26,6 +26,7 @@ import { BAR_EMPTY, BAR_FILLED, BRANCH_GLYPH, DETAILS_FILL, DISCLOSURE_CLOSED, D
 import { KEEPGLIDE_HEADER_SIZE, renderKeepGlide, renderKeepAwayLogo, renderRepoLogo } from './logo-element'
 import type { HeldButtons } from './held'
 import { repoLabelOf } from './repo-logo'
+import { HEADER_RULE_COLUMNS, HEADER_RULE_HEIGHT, HEADER_RULE_SVG } from './divider'
 import { MARK_ALT, TIMELINE_MARK_SIZE, timelineMarkSvg, type MarkKind } from './timeline-marks'
 
 type Ui = Elements[RenderSurface]
@@ -122,7 +123,7 @@ const NO_VALUE = '—'
 const MARKDOWN_PUNCTUATION = /[\\`*_[\]()<>!|~&:.@]/g
 // The icon of each timeline kind (the history), of each session state, and of each PR state on a PR line.
 // The timeline events drawn before a session's Earlier button.
-const TIMELINE_SHOWN = 5
+const TIMELINE_SHOWN = 7
 // A plan step (SPEC section 22) has no icon: its text says what the session did.
 const TIMELINE_ICON: Readonly<Record<Exclude<TimelineEvent['kind'], 'step'>, StatusIconKey>> = { commit: 'commit', pr: 'pr', session: 'session' }
 const STATE_ICON: Readonly<Record<SessionNode['state'], ActionIconKey>> = { working: 'working', idle: 'idle', waiting: 'waiting' }
@@ -197,6 +198,7 @@ export function renderPane(elements: Ui, context: PaneContext): RenderElement {
   return (
     <Box key="keepaway-repo" flexDirection="column" gap={1}>
       {header}
+      {renderHeaderRule(view)}
       {body}
     </Box>
   )
@@ -224,6 +226,17 @@ function renderHeader(view: View, snapshot: Snapshot | null): RenderElement {
       </Box>
     </Box>
   )
+}
+
+// The rule under the header (owner, 2026-11-08), as AskAway User draws it: a 1px line across the pane on the desktop, a row of '─' on
+// the terminal.
+function renderHeaderRule(view: View): RenderElement {
+  if (view.desktop && 'Svg' in view.ui) {
+    const { Svg } = view.ui as DesktopUi
+    return <Svg key="header-rule" source={HEADER_RULE_SVG} alt="" height={HEADER_RULE_HEIGHT} />
+  }
+  const { Text } = view.ui
+  return <Text key="header-rule" dimColor>{'─'.repeat(HEADER_RULE_COLUMNS)}</Text>
 }
 
 // The header's heading (owner, 2026-11-08): the window's repository name, bold, and its owner muted; the product name is the tab's title
@@ -461,7 +474,10 @@ function renderGroupLabel(view: View, group: SessionGroup): RenderElement {
 }
 
 function renderIssuesSection(view: View, snapshot: Snapshot): RenderElement {
-  const rows = snapshot.issueGroups.flatMap(group => renderIssueGroup(view, group))
+  const rows = snapshot.issueGroups.flatMap(group => {
+    const parts = renderIssueGroup(view, group)
+    return parts.length > 0 ? [renderIssueBlock(view, group, parts)] : []
+  })
   const { Text } = view.ui
   // No group is built when every open issue sits on a session: then the header counts them, so the line says they are in sessions (ux-2).
   const emptyKey = snapshot.openIssueCount > 0 ? 'issues.allLinked' : 'issues.none'
@@ -889,7 +905,7 @@ function renderLineText(view: View, node: SessionNode, row: LineRow, index: numb
 
 // The line's geometry: each side takes LINE_SIDE_WIDTH of the row, the axis LINE_AXIS_COLUMNS cells, and the rule a sliver of the axis.
 const LINE_SIDE_WIDTH = '46%'
-const LINE_AXIS_COLUMNS = 3
+const LINE_AXIS_COLUMNS = 4
 const LINE_RULE_WIDTH = '12%'
 
 // A session's Earlier (N) button: ▸ closed, ▾ open, like the legend's. Its press handle is kept across redraws (held.ts).
@@ -921,6 +937,19 @@ function renderMilestoneHeading(view: View, key: string, text: string, number: n
 // A timeline event's text: a link to its commit or PR page on the desktop when the event has a page that passes PAGE_URL; plain elsewhere.
 function renderTimelineText(view: View, node: SessionNode, event: TimelineEvent): RenderElement {
   return linkedOrText(view, 'label', timelineText(view.lang, node, event), event.url)
+}
+
+// One milestone's block in the issues section (owner, 2026-11-08): its title, objective, progress and issues inside a bordered box with
+// the legend's border, so each milestone reads apart from the next. The key names the group: a closed milestone by its title, an open one
+// by its number, the group with no milestone as none.
+function renderIssueBlock(view: View, group: IssueGroup, parts: RenderElement[]): RenderElement {
+  const { Box } = view.ui
+  const name = group.closedTitle !== null ? `closed-${group.closedTitle}` : group.milestone === null ? 'none' : String(group.milestone.number)
+  return (
+    <Box key={`milestone-block-${name}`} flexDirection="column" gap={1} borderStyle="round" borderDimColor paddingX={1}>
+      {parts}
+    </Box>
+  )
 }
 
 // A milestone's title is followed by its closed and total issues (pm1-1); the total is the open plus the closed issues.

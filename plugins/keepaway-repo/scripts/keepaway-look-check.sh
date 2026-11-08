@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The look gate of KeepAway Repo (keepaway-repo): the drawn code (hooks/*.ts and *.tsx, except logo.ts, keepglide.ts and timeline-marks.ts, which hold the
-# colours of their drawings: the KeepAway Repo product mark, the KeepGlide mark and the timeline markers; they draw no emoji, so both scans skip them) takes its colours from the engine's theme keys and
+# The look gate of KeepAway Repo (keepaway-repo): the drawn code (hooks/*.ts and *.tsx, except logo.ts, keepglide.ts, timeline-marks.ts and divider.ts, which hold the
+# colours of their drawings: the KeepAway Repo product mark, the KeepGlide mark, the timeline markers and the header rule; they draw no emoji, so both scans skip them) takes its colours from the engine's theme keys and
 # draws no emoji. action-icons.ts is exempt from the emoji scan only: it is the one module that holds every emoji of KeepAway Repo (the
 # band's and the pane's icons, and the priority icons), and the drawn code takes them by name from it.
 # Exit 0 when clean, 1 on a hex colour, a colour function or an emoji, 2 when the gate cannot run (no module found, or grep fails).
@@ -19,7 +19,7 @@ shopt -s nullglob
 files=()
 emoji_files=()
 for file in "$here"/hooks/*.ts "$here"/hooks/*.tsx; do
-  case "$(basename "$file")" in logo.ts | keepglide.ts | timeline-marks.ts) continue ;; esac
+  case "$(basename "$file")" in logo.ts | keepglide.ts | timeline-marks.ts | divider.ts) continue ;; esac
   files+=("$file")
   case "$(basename "$file")" in action-icons.ts) ;; *) emoji_files+=("$file") ;; esac
 done
