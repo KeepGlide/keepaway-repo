@@ -672,7 +672,8 @@ test('/keepaway lang stores the choice and draws the pane in it; auto removes th
   await $.session.start(SESSION)
   await $.command.run({ command: 'keepaway', args: 'lang pt-BR', ...COMMAND_CONTEXT })
   expect(host.store.get('lang')).toBe('pt')
-  expect(await drawnPane($)).toContain('KeepAway Repo')
+  // The pane is drawn in Portuguese: its loading line, or its footer once the poll has landed.
+  expect(await drawnPane($)).toMatch(/Carregando o repo|Atualizado/)
   await $.command.run({ command: 'keepaway', args: 'lang auto', ...COMMAND_CONTEXT })
   expect(host.store.has('lang')).toBe(false)
 })

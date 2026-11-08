@@ -212,13 +212,27 @@ function renderHeader(view: View, snapshot: Snapshot | null): RenderElement {
   return (
     <Box key="header" flexDirection="row" flexWrap="wrap" justifyContent="space-between" alignItems="center" gap={1}>
       <Box key="brand" flexDirection="row" alignItems="center" gap={1}>
-        {renderKeepAwayLogo(view.ui, view.desktop, '')}
-        <Text key="heading" bold>{t(view.lang, 'pane.heading')}</Text>
+        {renderKeepAwayLogo(view.ui, view.desktop, t(view.lang, 'pane.title'))}
+        {renderHeading(view, snapshot)}
       </Box>
       <Box key="header-end" flexDirection="row" alignItems="center" gap={1}>
         {snapshot !== null && <Text key="counter">{counterText(view, snapshot)}</Text>}
         {renderKeepGlide(view.ui, view.desktop, 'keepglide-header', KEEPGLIDE_HEADER_SIZE)}
       </Box>
+    </Box>
+  )
+}
+
+// The header's heading (owner, 2026-11-08): the window's repository name, bold, and its owner muted; the product name is the tab's title
+// and the logo's alt. With no repository known yet, or no GitHub remote, the product name stands in.
+function renderHeading(view: View, snapshot: Snapshot | null): RenderElement {
+  const { Box, Text } = view.ui
+  const repo = snapshot?.repo ?? null
+  if (repo === null) return <Text key="heading" bold>{t(view.lang, 'pane.heading')}</Text>
+  return (
+    <Box key="heading" flexDirection="row" alignItems="center" gap={1}>
+      <Text key="repo" bold>{repo.name}</Text>
+      <Text key="owner" dimColor>{repo.owner}</Text>
     </Box>
   )
 }

@@ -621,3 +621,16 @@ Owner's review, 2026-11-02: each session shows the task it is on now and the tas
   open sessions are stored under `timelineOpen` (session ids, the 64 last opened kept; the key is deleted when none is open), read on every
   draw, so a reload draws the same state. A refused store read draws all closed; a refused read or write is logged once.
 - Labels: a step event has no icon, so the Labels table is unchanged.
+
+## 23. Pane header and tab (shared design)
+
+Owner, 2026-11-08: KeepAway Repo and AskAway User keep one pane design, and each tab carries its product name.
+
+- Tab: the product name, `pane.title` (`KeepAway Repo` in both languages), passed to `ui.open`.
+- Header row: one row that wraps (`flexWrap`), items centred. Left: the product logo, 16 px on the desktop (its alt is the product name) or the bold
+  glyph in the terminal, then the heading. Right: the counter and the KeepGlide mark (24 px, desktop only).
+- Heading: the window's repository name, bold, then its owner in dim text (`renderHeading`, `hooks/pane.tsx`). With no repository known (before the
+  first snapshot, or no GitHub remote) the product name stands in (`pane.heading`). The footer still reads `gh · <owner>/<name>`.
+- AskAway User follows the same row (keys `header`, `brand`, `heading`, `header-end`, `counter`) with its own heading, `Questions waiting`; its tab
+  title is `AskAway User` from its own dictionary. No code is shared: each mod keeps its own copy (runtime independence).
+

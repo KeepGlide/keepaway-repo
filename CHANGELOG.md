@@ -12,6 +12,7 @@ Commit hashes name the change in `git log`. Entries below the rename keep the na
 - Install from a downloaded zip: a root `.claude-plugin/marketplace.json` (marketplace `keepglide-local`, plugin `keepaway-repo`, source `./plugins/keepaway-repo`) makes the extracted folder a local marketplace; both READMEs describe the steps.
 
 ### Changed
+- The pane header names the window's repository (`keepaway-repo`, its owner dimmed) instead of the product, whose name stays on the tab and in the logo's alt; the header row matches AskAway User's (SPEC section 23).
 - The mod is renamed **KeepAway Repo** (was KeepTrack). The pane title, heading, command description, README and spec use the new name; the pt-BR text keeps the name as it is.
 - Migration, old ids → new ids:
   - plugin id `keeptrack-repo-pane` → `keepaway-repo` (install `claude plugin install keepaway-repo@sophia-mods`; to remove the old id, run `claude plugin uninstall keeptrack-repo-pane@sophia-mods` first);

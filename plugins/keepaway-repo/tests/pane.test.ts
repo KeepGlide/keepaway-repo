@@ -204,9 +204,21 @@ test('with no session listed the pane draws no empty session block, in both lang
   }
 })
 
-// The header logo is decorative: the bold heading beside it already names the pane, so the picture has no alt text (ux4-14).
-test('the header logo has an empty alt, since the heading beside it names the pane', () => {
-  expect(keyed(drawDesktop(), 'logo')?.props.alt).toBe('')
+// The header (owner, 2026-11-08): the heading names the window's repository, its owner muted; the logo's alt names the product.
+test('the header heading is the repository name with its owner muted, and the logo alt is the product name', () => {
+  const tree = drawDesktop()
+  expect(keyed(tree, 'logo')?.props.alt).toBe('KeepAway Repo')
+  expect(textOf(keyed(tree, 'repo'))).toBe('synthetic-repo')
+  expect(keyed(tree, 'owner')?.props.dimColor).toBe(true)
+  expect(textOf(keyed(tree, 'owner'))).toBe('synthetic-owner')
+  expect(drawnTexts(drawTerminal())).toContain('synthetic-repo')
+})
+
+test('with no repository known, the header heading is the product name', () => {
+  for (const lang of ['en', 'pt'] as const) {
+    const heading = keyed(drawDesktop({ lang, snapshot: snapshotWith({ repo: null, mode: 'no-github' }) }), 'heading')
+    expect(textOf(heading)).toBe('KeepAway Repo')
+  }
 })
 
 // Session events in the timeline use their own glyph, not the link mark or the commit dot (ux4-20).
