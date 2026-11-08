@@ -744,9 +744,9 @@ export function timelineOf(
     kind: 'root' | 'fork' | 'spawn'
     parentTitle: string | null
     pr: PullRequest | null
-    commits: { at: number; subject: string; sha?: string | null }[]
+    commits: { at: number; subject: string; sha?: string | null; detail?: string | null }[]
     remote?: RepoRemote | null
-    steps?: readonly { at: number; text: string }[]
+    steps?: readonly { at: number; text: string; detail?: string | null }[]
   },
   limit: number = TIMELINE_LIMIT,
 ): TimelineEvent[] {
@@ -755,8 +755,11 @@ export function timelineOf(
     kind: 'commit' as const,
     text: commit.subject,
     url: commitPageOf(input.remote, commit.sha),
+    detail: commit.detail ?? null,
   }))
-  for (const step of input.steps ?? []) events.push({ at: step.at, kind: 'step', text: plain(step.text, TEXT_MAX), url: null })
+  for (const step of input.steps ?? []) {
+    events.push({ at: step.at, kind: 'step', text: plain(step.text, TEXT_MAX), url: null, detail: step.detail ?? null })
+  }
   if (input.pr !== null) {
     const openedAt = Date.parse(input.pr.createdAt)
     if (Number.isFinite(openedAt)) {
@@ -767,6 +770,17 @@ export function timelineOf(
   const origin = input.kind === 'root' ? '' : plain(input.parentTitle ?? '', TEXT_MAX)
   events.push({ at: input.createdAt, kind: 'session', text: origin, url: null })
   return events.sort((a, b) => b.at - a.at).slice(0, limit)
+}
+
+// The longest event detail drawn under a timeline title, the ellipsis counted.
+export const DETAIL_MAX = 200
+
+// A commit's detail: the first paragraph of its body without a leading `Why:` label, as one plain line cut to DETAIL_MAX; null for a
+// commit with no body.
+export function detailOfBody(body: string): string | null {
+  const paragraph = body.split(/\n\s*\n/).map(part => part.trim()).find(part => part !== '') ?? ''
+  const line = plain(paragraph.replace(/^why:\s*/i, ''), Number.POSITIVE_INFINITY)
+  return line === '' ? null : cutAtWord(line, DETAIL_MAX)
 }
 
 // The state of a session (repo-work-pane-design-spec.md D7): waiting when this window's session waits for the person; else working when its last

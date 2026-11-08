@@ -672,7 +672,8 @@ test('/keepaway lang stores the choice and draws the pane in it; auto removes th
   await $.session.start(SESSION)
   await $.command.run({ command: 'keepaway', args: 'lang pt-BR', ...COMMAND_CONTEXT })
   expect(host.store.get('lang')).toBe('pt')
-  expect(await drawnPane($)).toContain('KeepAway Repo')
+  // The pane is drawn in Portuguese: its loading line, or its footer once the poll has landed.
+  expect(await drawnPane($)).toMatch(/Carregando o repo|Atualizado/)
   await $.command.run({ command: 'keepaway', args: 'lang auto', ...COMMAND_CONTEXT })
   expect(host.store.has('lang')).toBe(false)
 })
@@ -2410,8 +2411,23 @@ test('a commit id from git log reaches its commit link: the 40-hex id read with 
   await $.session.start(SESSION)
   await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(host.argvs.some(argv => argv.includes('--format=%H%x09%ct%x09%s'))).toBe(true)
+  expect(host.argvs.some(argv => argv.includes('--format=%H%x09%ct%x09%s%x1f%b%x1e'))).toBe(true)
   expect(await drawnPane($, 'desktop')).toContain(COMMIT_LINK)
+})
+
+test('a commit body in the record format is the commit\'s detail: its first paragraph without the Why: label; the rest is not drawn', async ($: Engine, on) => {
+  const log = `${COMMIT_SHA}\t1700000000\tfix the thing\x1fWhy: the cache was stale.\n\nLonger second paragraph.\x1e\n`
+  const pane = await drawnAfterOpen(on, $, 'terminal', log)
+  expect(pane).toContain('fix the thing')
+  expect(pane).toContain('the cache was stale.')
+  expect(pane).not.toContain('Why:')
+  expect(pane).not.toContain('Longer second paragraph.')
+})
+
+test('git log output with no record separator, one commit per line, is still read: its link draws and no body is read', async ($: Engine, on) => {
+  const pane = await drawnAfterOpen(on, $, 'desktop', `${COMMIT_SHA}\t1700000000\tfix the thing\n`)
+  expect(pane).toContain(COMMIT_LINK)
+  expect(pane).toContain('fix the thing')
 })
 
 test('a tab inside a commit subject survives the git log parse: its words are drawn, the id and the time stay put', async ($: Engine, on) => {
@@ -3396,6 +3412,202 @@ test('a session\'s Earlier button opens its older events, stores the session und
   await host.clock.settle()
   await opened.unmount()
   expect(host.store.get('timelineOpen')).toBeUndefined()
+})
+
+// ---- step explanations (SPEC section 24): one or two sentences per finished step, from the words the session wrote while it ran ----
+
+const wordsLine = (time: string, text: string): string =>
+  `${JSON.stringify({ type: 'assistant', timestamp: time, message: { content: [{ type: 'text', text }] } })}\n`
+// Enough words to be explained (EXPLAIN_CONTEXT_MIN is 40 characters).
+const EXPLAIN_WORDS = 'I edited the cleaner so it skips the locked files.'
+const STEP_NAME = 'Patch the cleaner'
+const STEP_AT = Date.parse('2026-11-02T10:00:00Z')
+// Step one is finished with its words; the next step is in progress, so it is the current step and is never explained.
+const finishedStepTranscript = (): string =>
+  userLine('Fix the disk full error') +
+  planLine('2026-11-02T10:00:00Z', [{ content: STEP_NAME, status: 'in_progress' }]) +
+  wordsLine('2026-11-02T10:01:00Z', EXPLAIN_WORDS) +
+  planLine('2026-11-02T10:02:00Z', [
+    { content: STEP_NAME, status: 'completed' },
+    { content: 'Run the tests', status: 'in_progress' },
+  ])
+// The step named in an explanation request's <step> tag.
+const stepOf = (prompt: string): string | undefined => /<step>(.*)<\/step>/.exec(prompt)?.[1]
+// Steps in turn, each with its words; the last one is still in progress. Four by default.
+const RUN = ['Step one', 'Step two', 'Step three', 'Step four']
+const runTranscript = (run: readonly string[] = RUN): string =>
+  userLine('Fix the disk full error') +
+  run
+    .map((_, index) => {
+      const items = run.map((content, position) => ({
+        content,
+        status: position < index ? 'completed' : position === index ? 'in_progress' : 'pending',
+      }))
+      return planLine(`2026-11-02T10:0${index}:00Z`, items) + wordsLine(`2026-11-02T10:0${index}:30Z`, `${EXPLAIN_WORDS} ${run[index]} is done.`)
+    })
+    .join('')
+
+test('a finished step with enough of its words is explained by one Haiku call: stored under explains, and drawn as the step\'s detail', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: finishedStepTranscript() } })
+  const calls = stubModel(on, { isAnswered: true, text: 'Skipped the locked files in the cleaner.' })
+  await openPane($)
+  await host.clock.settle()
+  await host.clock.settle()
+  expect(calls).toHaveLength(1)
+  expect(calls[0]?.model).toBe('haiku')
+  expect(calls[0]?.prompt).toBe(`<step>${STEP_NAME}</step>\n\n<assistant_text>\n${EXPLAIN_WORDS}\n</assistant_text>`)
+  const stored = host.store.get('explains') as Record<string, { text: string; at: number }> | undefined
+  expect(stored?.[`${SESSION_ID}|${STEP_AT}|${STEP_NAME}`]?.text).toBe('Skipped the locked files in the cleaner.')
+  // A landed explanation is drawn by the next poll, not by a poll of its own.
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain('Skipped the locked files in the cleaner.')
+  await expectClean(host, $)
+})
+
+test('at most two explanations start per poll, the newest finished steps first', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: runTranscript() } })
+  const calls = stubModel(on, { isAnswered: true, text: 'Explained.' })
+  await openPane($)
+  await host.clock.settle()
+  expect(calls.map(call => stepOf(call.prompt))).toEqual(['Step three', 'Step two'])
+})
+
+test('only a session\'s five newest steps are explained: the older finished steps are never asked', async ($: Engine, on) => {
+  // Seven steps: Step 7 is in progress, Steps 1 to 6 are finished; the five newest finished ones are Steps 2 to 6.
+  const seven = Array.from({ length: 7 }, (_, index) => `Step ${index + 1}`)
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: runTranscript(seven) } })
+  const calls = stubModel(on, { isAnswered: true, text: 'Explained.' })
+  await openPane($)
+  await host.clock.settle()
+  for (let poll = 0; poll < 4; poll += 1) {
+    await host.clock.advance(POLL_MS)
+    await host.clock.settle()
+  }
+  const asked = calls.map(call => stepOf(call.prompt))
+  expect(asked).toContain('Step 6')
+  expect(asked).not.toContain('Step 1')
+  expect(asked).not.toContain('Step 7')
+})
+
+test('a failed explanation pauses every explanation, not only its own step, until SUMMARY_RETRY_MS has passed', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: runTranscript() } })
+  const calls = stubModel(on, { isAnswered: false, reason: 'api-error' })
+  await openPane($)
+  await host.clock.settle()
+  expect(calls).toHaveLength(2)
+  expect(host.logs).toEqual(['keepaway: step explanation failed (api-error)'])
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(calls).toHaveLength(2)
+  await host.clock.advance(SUMMARY_RETRY_MS)
+  await host.clock.settle()
+  expect(calls).toHaveLength(4)
+  expect(host.logs).toHaveLength(1)
+})
+
+test('both explanations started in one poll are stored, so the next poll asks only for the step still unexplained', async ($: Engine, on) => {
+  // Two explanations landing together are written one after the other, so neither overwrites the other (explainWrites).
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: runTranscript() } })
+  const calls = stubModel(on, { isAnswered: true, text: 'Explained.' })
+  await openPane($)
+  await host.clock.settle()
+  expect(Object.keys((host.store.get('explains') ?? {}) as Record<string, unknown>)).toHaveLength(2)
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(calls.map(call => stepOf(call.prompt))).toEqual(['Step three', 'Step two', 'Step one'])
+})
+
+test('a finished step is explained only with at least 40 characters of its words: 39 are skipped, and the step in progress is never asked', async ($: Engine, on) => {
+  const transcript =
+    userLine('Fix it') +
+    planLine('2026-11-02T10:00:00Z', [{ content: 'Short words', status: 'in_progress' }]) +
+    wordsLine('2026-11-02T10:01:00Z', 'x'.repeat(39)) +
+    planLine('2026-11-02T10:02:00Z', [
+      { content: 'Short words', status: 'completed' },
+      { content: 'Enough words', status: 'in_progress' },
+    ]) +
+    wordsLine('2026-11-02T10:03:00Z', 'y'.repeat(40)) +
+    planLine('2026-11-02T10:04:00Z', [
+      { content: 'Short words', status: 'completed' },
+      { content: 'Enough words', status: 'completed' },
+      { content: 'Current', status: 'in_progress' },
+    ]) +
+    wordsLine('2026-11-02T10:05:00Z', 'z'.repeat(60))
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: transcript } })
+  const calls = stubModel(on, { isAnswered: true, text: 'Explained.' })
+  await openPane($)
+  await host.clock.settle()
+  await host.clock.settle()
+  expect(calls).toHaveLength(1)
+  expect(calls[0]?.prompt.startsWith('<step>Enough words</step>')).toBe(true)
+  expect(calls.some(call => call.prompt.includes('Current'))).toBe(false)
+})
+
+test('an explanation still in flight is not asked again by the next poll; once it lands it is drawn', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: finishedStepTranscript() } })
+  let release: () => void = () => undefined
+  const held = new Promise<void>(resolve => {
+    release = resolve
+  })
+  const prompts: string[] = []
+  on('model.complete', async (_$, event) => {
+    prompts.push(event.prompt)
+    await held
+    return { value: { isAnswered: true, text: 'Skipped the locked files in the cleaner.', usage: NO_USAGE } }
+  })
+  await openPane($)
+  await host.clock.settle()
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(prompts).toHaveLength(1)
+  release()
+  await host.clock.settle()
+  await host.clock.settle()
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(prompts).toHaveLength(1)
+  expect(await drawnPane($)).toContain('Skipped the locked files in the cleaner.')
+})
+
+test('the step in progress is never explained, however many words it has', async ($: Engine, on) => {
+  const host = stubHost(on, {
+    transcripts: { [TRANSCRIPT_OWN]: userLine('Fix it') + planLine('2026-11-02T10:00:00Z', [{ content: STEP_NAME, status: 'in_progress' }]) + wordsLine('2026-11-02T10:01:00Z', EXPLAIN_WORDS) },
+  })
+  const calls = stubModel(on, { isAnswered: true, text: 'never asked' })
+  await openPane($)
+  await host.clock.settle()
+  expect(calls).toHaveLength(0)
+  expect(await drawnPane($)).toContain(STEP_NAME)
+  expect(host.store.get('explains')).toBeUndefined()
+})
+
+test('with the summary setting off no step is explained, and the steps are still drawn', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: finishedStepTranscript() } })
+  host.store.set('summary', false)
+  const calls = stubModel(on, { isAnswered: true, text: 'never asked' })
+  await openPane($)
+  await host.clock.settle()
+  expect(calls).toHaveLength(0)
+  expect(await drawnPane($)).toContain(STEP_NAME)
+  expect(host.store.get('explains')).toBeUndefined()
+})
+
+test('a failed explanation is logged once by its reason, leaves the step drawn alone, and is asked again after SUMMARY_RETRY_MS', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: finishedStepTranscript() } })
+  const calls = stubModel(on, { isAnswered: false, reason: 'api-error' })
+  await openPane($)
+  await host.clock.settle()
+  expect(calls).toHaveLength(1)
+  expect(host.logs).toEqual(['keepaway: step explanation failed (api-error)'])
+  expect(await drawnPane($)).toContain(STEP_NAME)
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(calls).toHaveLength(1)
+  await host.clock.advance(SUMMARY_RETRY_MS)
+  await host.clock.settle()
+  expect(calls).toHaveLength(2)
+  expect(host.logs).toEqual(['keepaway: step explanation failed (api-error)'])
 })
 
 // ---- condensed lines of long prompts (SPEC section 21, owner's review 2026-11-02) ----

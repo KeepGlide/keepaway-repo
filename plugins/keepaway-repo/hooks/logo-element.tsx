@@ -13,7 +13,7 @@ const REPO_LOGO_SIZE = 32
 // The KeepGlide mark in the pane header: the row's height, as askaway draws it beside its counter.
 export const KEEPGLIDE_HEADER_SIZE = 24
 
-// `alt` is the picture's text for a screen reader; "" marks it decorative when a line beside it already names the pane.
+// `alt` is the picture's text for a screen reader: the product name, since the heading beside it names the repository.
 export function renderKeepAwayLogo(ui: Ui, desktop: boolean, alt: string): RenderElement {
   if (desktop && 'Svg' in ui) {
     const { Svg } = ui

@@ -6,7 +6,7 @@ import type { EngineInterface, FsEntry, Register, RenderSurface } from 'claude-c
 
 import { detectLang, resolveLang, t, type Lang, type LangEnv } from './i18n'
 import { renderPane } from './pane'
-import { EMPTY_CURSOR, currentStepOf, stepsAfter, type StepCursor } from './steps'
+import { EMPTY_CURSOR, currentStepOf, explainRequestOf, stepsAfter, type StepCursor, type StepEvent } from './steps'
 import { renderBand, type BandIssue, type BandRepo } from './band'
 import { heldButtons, type HeldButtons } from './held'
 import { IDLE_TURN, bandRedrawDue, turnEnded, turnExpired, turnStarted, turnTimedOut, turnToolNamed } from './turn'
@@ -42,6 +42,7 @@ import {
   mapLimited,
   newestCommentOf,
   newestDecisionOf,
+  detailOfBody,
   parseDesktopGroups,
   parseRemote,
   parseUtcOffset,
@@ -196,7 +197,7 @@ type Entry = { path: string; size: number; mtimeMs: number }
 // A file's projected value, kept while its size and mtime stay the same.
 type Cached<T> = { size: number; mtimeMs: number; value: T }
 type Timer = ReturnType<EngineInterface['clock']['every']>
-type Commit = { at: number; subject: string; sha: string | null }
+type Commit = { at: number; subject: string; sha: string | null; detail: string | null }
 type IssueComment = { author: string; association: string; at: number; body: string }
 type GhOutcome = { ok: true; stdout: string; oversized: boolean } | { ok: false; error: PaneError; kind: string }
 type GithubMemory = {
@@ -648,19 +649,23 @@ async function commitsOf($: EngineInterface, cwd: string, branch: string): Promi
   const origin = await gitOut($, ['-C', cwd, 'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
   if (origin === null || origin.replace(/^origin\//, '') === branch) return []
   // Not trimmed: a commit with an empty subject ends in its tab, and trimming would drop it (parseCommits needs the tab).
-  const run = await gitRun($, ['-C', cwd, 'log', `-${COMMIT_LIMIT}`, '--format=%H%x09%ct%x09%s'])
+  const run = await gitRun($, ['-C', cwd, 'log', `-${COMMIT_LIMIT}`, `--format=${COMMIT_FORMAT}`])
   return run !== null && run.exitCode === 0 ? parseCommits(run.stdout) : []
 }
 
-// Lines of `%ct<TAB>%s`: epoch seconds, then the subject (which may hold tabs of its own).
-// One commit per line: its full id, the commit time in seconds, the subject. A line whose time does not parse is skipped; an id that is
-// not a commit id is kept empty, so its commit has no page to link to.
+// One commit per record: its full id, the commit time in seconds and the subject, tab-separated (the subject may hold tabs of its own),
+// then a unit separator and the body; records end with a record separator. Output with no record separator (one commit, no body) is one
+// record per line. A record whose time does not parse is skipped; an id that is not a commit id is kept empty, so its commit has no page
+// to link to.
+const COMMIT_FORMAT = '%H%x09%ct%x09%s%x1f%b%x1e'
 function parseCommits(text: string): Commit[] {
-  return text.split('\n').flatMap(line => {
-    const [sha = '', seconds = '', ...subject] = line.split('\t')
+  const records = text.includes('\x1e') ? text.split('\x1e') : text.split('\n')
+  return records.flatMap(record => {
+    const [head = '', body = ''] = record.replace(/^\n+/, '').split('\x1f')
+    const [sha = '', seconds = '', ...subject] = head.split('\t')
     const at = Number(seconds)
     if (seconds === '' || !Number.isFinite(at)) return []
-    return [{ at: at * 1000, subject: plain(subject.join('\t'), TEXT_MAX), sha: COMMIT_SHA.test(sha) ? sha : null }]
+    return [{ at: at * 1000, subject: plain(subject.join('\t'), TEXT_MAX), sha: COMMIT_SHA.test(sha) ? sha : null, detail: detailOfBody(body) }]
   })
 }
 
@@ -1126,6 +1131,9 @@ let stepsFailureLogged = false
 export function resetStepMemory(): void {
   stepMemory.clear()
   stepsFailureLogged = false
+  explainsInFlight.clear()
+  explainPausedUntil = 0
+  explainFailureLogged = false
 }
 
 // A steps failure, logged once by the error's name: a path never reaches the log.
@@ -1189,7 +1197,114 @@ async function stepsOfSessions($: EngineInterface, records: readonly ProjectedRe
     }
     if (memory !== undefined) steps.set(record.sessionId, { events: memory.cursor.events, current: currentStepOf(memory.cursor) })
   }
-  return steps
+  return explainSteps($, steps, cursorsOf(steps))
+}
+
+// The step cursors of this poll's sessions, by session id.
+function cursorsOf(steps: Map<string, SessionSteps>): Map<string, StepCursor> {
+  return new Map([...steps.keys()].flatMap(id => {
+    const cursor = stepMemory.get(id)?.cursor
+    return cursor === undefined ? [] : [[id, cursor] as const]
+  }))
+}
+
+// ---- step explanations (SPEC section 24): one sentence or two per plan step, written by Haiku from the step's title and the session's
+// own words while it ran, stored under `explains` so a later window draws them with no call ----
+
+const EXPLAINS_KEY = 'explains'
+// The most model calls started per poll, the most explanations kept in the store (the oldest out), and the least context worth a call.
+const EXPLAINS_PER_POLL = 2
+const EXPLAIN_KEEP_MAX = 400
+const EXPLAIN_CONTEXT_MIN = 40
+// Only a session's newest steps are explained: those a closed timeline shows, and 64 sessions of them stay under EXPLAIN_KEEP_MAX, so
+// no stored explanation is pushed out and asked again.
+const EXPLAIN_NEWEST = 5
+const explainsInFlight = new Set<string>()
+// After a failure no step is asked before this time: a model that fails one step is likely down for all of them.
+let explainPausedUntil = 0
+let explainFailureLogged = false
+// The explains store is read and written back one landed explanation at a time, so two landing together never overwrite each other.
+let explainWrites: Promise<void> = Promise.resolve()
+
+// The store key of one step's explanation: its session, its start time and its text.
+const explainKeyOf = (sessionId: string, event: { at: number; text: string }): string => `${sessionId}|${event.at}|${event.text}`
+
+// The stored explanations, by key; anything malformed is left out, and a refused read is none.
+async function storedExplainsOf($: EngineInterface): Promise<Record<string, StoredBrief>> {
+  const raw = await $.store.get(EXPLAINS_KEY).catch(() => null)
+  const explains: Record<string, StoredBrief> = {}
+  if (!isObject(raw)) return explains
+  for (const [key, value] of Object.entries(raw)) {
+    if (isObject(value) && typeof value.text === 'string' && typeof value.at === 'number') explains[key] = { text: value.text, at: value.at }
+  }
+  return explains
+}
+
+// An explanation failure, logged once by its reason or the error's name: a step's words never reach the log.
+function logExplainFailureOnce($: EngineInterface, reason: string): void {
+  if (explainFailureLogged) return
+  explainFailureLogged = true
+  logLine($, `step explanation failed (${reason})`)
+}
+
+// Asks the model for one step's explanation, without waiting: it is stored and drawn on the next poll (a poll of its own per explanation
+// would spend the gh budget). A failure leaves the title alone and pauses every explanation for SUMMARY_RETRY_MS.
+function startExplain($: EngineInterface, key: string, event: StepEvent, now: number): void {
+  explainsInFlight.add(key)
+  const ask = async (): Promise<void> => {
+    const reply = await $.model.complete(explainRequestOf(event.text, event.context, await read($, langAtom)))
+    const text = reply.isAnswered ? briefOfReply(reply.text) : null
+    if (text === null) {
+      logExplainFailureOnce($, reply.isAnswered ? 'empty-reply' : reply.reason)
+      explainPausedUntil = now + SUMMARY_RETRY_MS
+      return
+    }
+    const at = await $.clock.now()
+    const write = explainWrites.then(async () => {
+      const kept = Object.entries({ ...(await storedExplainsOf($)), [key]: { text, at } })
+        .sort((a, b) => b[1].at - a[1].at)
+        .slice(0, EXPLAIN_KEEP_MAX)
+      await $.store.set(EXPLAINS_KEY, Object.fromEntries(kept))
+    })
+    explainWrites = write.catch(() => undefined)
+    await write
+  }
+  void ask()
+    .catch((error: unknown) => {
+      logExplainFailureOnce($, failureNameOf(error))
+      explainPausedUntil = now + SUMMARY_RETRY_MS
+    })
+    .finally(() => explainsInFlight.delete(key))
+}
+
+// Each step event with its stored explanation as its detail. Of a session's EXPLAIN_NEWEST newest steps, a finished one (not the one in
+// progress, whose words still grow) with enough context and no explanation is asked of the model, newest first, at most
+// EXPLAINS_PER_POLL per poll, never twice at once. No call is made while the pane is closed, the summary setting is off, or a failure
+// has paused them.
+async function explainSteps($: EngineInterface, steps: Map<string, SessionSteps>, cursors: Map<string, StepCursor>): Promise<Map<string, SessionSteps>> {
+  if (steps.size === 0) return steps
+  const stored = await storedExplainsOf($)
+  const now = await $.clock.now()
+  const calls =
+    now >= explainPausedUntil && (await read($, openAtom)) && (await $.store.get(SUMMARY_SETTING_KEY).catch(() => undefined)) !== false
+  let started = 0
+  const explained = new Map<string, SessionSteps>()
+  for (const [id, sessionSteps] of steps) {
+    const cursor = cursors.get(id)
+    explained.set(id, {
+      ...sessionSteps,
+      events: sessionSteps.events.map(event => ({ at: event.at, text: event.text, detail: stored[explainKeyOf(id, event)]?.text ?? null })),
+    })
+    for (const event of [...(cursor?.events ?? [])].sort((a, b) => b.at - a.at).slice(0, EXPLAIN_NEWEST)) {
+      const key = explainKeyOf(id, event)
+      if (!calls || started >= EXPLAINS_PER_POLL) break
+      if (stored[key] !== undefined || event.text === sessionSteps.current || event.context.length < EXPLAIN_CONTEXT_MIN) continue
+      if (explainsInFlight.has(key)) continue
+      started += 1
+      startExplain($, key, event, now)
+    }
+  }
+  return explained
 }
 
 // The first PR of each branch, in the order gh lists them (most recently updated first).

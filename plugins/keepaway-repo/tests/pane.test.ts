@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
-import { clockOf, dateOf, daysUntilDue, isDueSoon, isOverdue, progressBarOf, renderPane, type PaneContext } from '../hooks/pane'
+import { clockOf, dateOf, daysUntilDue, isDueSoon, isOverdue, markOf, progressBarOf, renderPane, type PaneContext } from '../hooks/pane'
+import type { MarkKind } from '../hooks/timeline-marks'
 import { priorityEmoji, statusIconEmoji } from '../hooks/action-icons'
 import { TEXT_MAX, WORKING_WINDOW_MS, buildTree, groupIssues, type DesktopGroups } from '../hooks/model'
 import { t } from '../hooks/i18n'
@@ -87,6 +88,16 @@ const textsOfNodes = (nodes: Drawn[]): string[] =>
 
 // Every text drawn, in order.
 const drawnTexts = (tree: unknown): string[] => textsOfNodes(nodesOf(tree))
+
+// The desktop line's rows as [time, title]: each row's Markdown reads **time** *title*, the title linked when it has a page.
+const lineRowsOf = (tree: unknown): string[][] =>
+  nodesOf(tree)
+    .filter(node => node.tag === 'Markdown' && String(node.props.key).startsWith('tl-title-'))
+    .map(node => {
+      const [, time = '', title = ''] = /^\*\*(.*?)\*\* \*(.*)\*$/s.exec(String(node.props.text)) ?? []
+      return [plainMarkdown(time), plainMarkdown(title)]
+    })
+const lineTitlesOf = (tree: unknown): string[] => lineRowsOf(tree).map(([, title = '']) => title)
 
 // The Markdown blocks whose raw text carries a session link (`](#local_...)`).
 const sessionLinksIn = (tree: unknown): string[] =>
@@ -204,18 +215,33 @@ test('with no session listed the pane draws no empty session block, in both lang
   }
 })
 
-// The header logo is decorative: the bold heading beside it already names the pane, so the picture has no alt text (ux4-14).
-test('the header logo has an empty alt, since the heading beside it names the pane', () => {
-  expect(keyed(drawDesktop(), 'logo')?.props.alt).toBe('')
+// The header (owner, 2026-11-08): the heading names the window's repository, its owner muted; the logo's alt names the product.
+test('the header heading is the repository name with its owner muted, and the logo alt is the product name', () => {
+  const tree = drawDesktop()
+  expect(keyed(tree, 'logo')?.props.alt).toBe('KeepAway Repo')
+  expect(textOf(keyed(tree, 'repo'))).toBe('synthetic-repo')
+  expect(keyed(tree, 'owner')?.props.dimColor).toBe(true)
+  expect(textOf(keyed(tree, 'owner'))).toBe('synthetic-owner')
+  expect(drawnTexts(drawTerminal())).toContain('synthetic-repo')
+})
+
+test('with no repository known, the header heading is the product name', () => {
+  for (const lang of ['en', 'pt'] as const) {
+    const heading = keyed(drawDesktop({ lang, snapshot: snapshotWith({ repo: null, mode: 'no-github' }) }), 'heading')
+    expect(textOf(heading)).toBe('KeepAway Repo')
+  }
 })
 
 // Session events in the timeline use their own glyph, not the link mark or the commit dot (ux4-20).
-test('a session event in the timeline is drawn with the diamond glyph, not the link mark or the commit dot', () => {
-  const glyphs = nodesOf(drawDesktop())
+test('a session event in the timeline is drawn with the diamond glyph on the terminal and the session marker on the desktop line', () => {
+  const glyphs = nodesOf(drawTerminal())
     .filter(node => node.props.key === 'glyph')
     .map(node => textOf(node.props.children))
   expect(glyphs).toContain('🚀')
   expect(glyphs).not.toContain('▪')
+  const marks = nodesOf(drawDesktop()).filter(node => node.tag === 'Svg' && String(node.props.key).startsWith('mark-local_'))
+  expect(marks.map(node => node.props.alt)).toContain('session')
+  expect(nodesOf(drawDesktop()).some(node => node.props.key === 'glyph')).toBe(false)
 })
 
 test('the GitHub link of this window is a Markdown https link on the desktop and plain text on the terminal', () => {
@@ -453,8 +479,8 @@ test('an ended root draws no row and no label; its live derived sessions are tit
   expect(keyed(tree, 'session-local_a0000001') === undefined).toBe(true)
   expect(drawnTexts(keyed(tree, 'head-local_a0000002'))[0]).toBe('├')
   expect(drawnTexts(keyed(tree, 'head-local_a0000003'))[0]).toBe('└')
-  expect(drawnTexts(keyed(tree, 'row-local_a0000002'))).toContain('forked from Archived planning')
-  expect(drawnTexts(keyed(tree, 'row-local_a0000003'))).toContain('spawned from Archived planning')
+  expect(lineTitlesOf(keyed(tree, 'row-local_a0000002'))).toContain('forked from Archived planning')
+  expect(lineTitlesOf(keyed(tree, 'row-local_a0000003'))).toContain('spawned from Archived planning')
   expect(drawnTexts(tree)).toContain('📋 8 open issues · 🖥️ 2 sessions')
 })
 
@@ -552,9 +578,11 @@ test('a derived session whose parent has no title says so without a name (W6)', 
     cutoffMs: 24 * HOUR,
     thisCliSessionId: null,
   })
-  const texts = drawnTexts(drawDesktop({ snapshot: snapshotWith({ sessions: orphan }) }))
+  const titles = lineTitlesOf(drawDesktop({ snapshot: snapshotWith({ sessions: orphan }) }))
+  expect(titles).toContain('forked')
+  expect(titles.some(text => text.startsWith('forked from'))).toBe(false)
+  const texts = drawnTexts(drawTerminal({ snapshot: snapshotWith({ sessions: orphan }) }))
   expect(texts).toContain('forked')
-  expect(texts.some(text => text.startsWith('forked from'))).toBe(false)
 })
 
 test('an issue or PR link goes only to a GitHub page; another https host is plain text (S4)', () => {
@@ -713,9 +741,12 @@ const legendPartsOf = (tree: unknown): string[][] =>
   legendRowsOf(tree).map(row => {
     const [cell, text] = row.props.children as Drawn[]
     const meaning = ((text as Drawn).props.children as Drawn[])[0] as Drawn
+    // A marker row's cell holds the line's marker, read as its alt in brackets.
+    const mark = nodesOf(cell).find(node => node.tag === 'Svg')
+    const icon = mark === undefined ? textOf(cell) : `[${String(mark.props.alt)}]`
     if (meaning.tag === 'Markdown') {
       const [, name = '', sentence = ''] = /^\*\*(.+?)\*\*: (.*)$/.exec(String(meaning.props.text)) ?? []
-      return [textOf(cell), plainMarkdown(name), plainMarkdown(sentence)]
+      return [icon, plainMarkdown(name), plainMarkdown(sentence)]
     }
     const [nameNode, rest] = meaning.props.children as [Drawn, string]
     expect(nameNode.props.bold).toBe(true)
@@ -771,14 +802,40 @@ test('the legend is a Labels table: a bold heading, then one row per icon in gro
     ['⚪', 'prioridade P3', 'baixa, pelos rótulos da issue.'],
     ['🖥️', 'sessões', 'quantas sessões deste repositório estão listadas.'],
   ]
-  for (const tree of [drawDesktop({ lang: 'en', legendOpen: true }), drawTerminal({ lang: 'en', legendOpen: true })]) {
+  // On the desktop the timeline's emoji rows (commit, open PR, session event) give way to the line's markers, in their place.
+  const englishMarks = [
+    ['[in progress]', 'now', 'the step the session is doing now.'],
+    ['[release]', 'release', 'a release: a version published or a release commit.'],
+    ['[commit]', 'commit', "a commit made on the session's branch."],
+    ['[test]', 'test', 'a step that ran or wrote tests.'],
+    ['[pull request]', 'open PR', "a pull request opened from the session's branch."],
+    ['[session]', 'session event', 'the session started, or was forked or spawned from another.'],
+    ['[step]', 'step', "another step of the session's plan."],
+  ]
+  const portugueseMarks = [
+    ['[in progress]', 'agora', 'a etapa que a sessão está fazendo agora.'],
+    ['[release]', 'release', 'um release: uma versão publicada ou um commit de release.'],
+    ['[commit]', 'commit', 'um commit feito no branch da sessão.'],
+    ['[test]', 'teste', 'uma etapa que rodou ou escreveu testes.'],
+    ['[pull request]', 'PR aberto', 'um pull request aberto a partir do branch da sessão.'],
+    ['[session]', 'evento de sessão', 'a sessão começou ou foi derivada (fork ou spawn) de outra.'],
+    ['[step]', 'etapa', 'outra etapa do plano da sessão.'],
+  ]
+  const onDesktop = (rows: string[][], marks: string[][]): string[][] => [...rows.slice(0, 7), ...marks, ...rows.slice(10)]
+  for (const [tree, rows] of [
+    [drawDesktop({ lang: 'en', legendOpen: true }), onDesktop(english, englishMarks)],
+    [drawTerminal({ lang: 'en', legendOpen: true }), english],
+  ] as const) {
     expect(drawnTexts(keyed(tree, 'legend-heading'))).toEqual(['Labels Descriptions'])
     expect(keyed(tree, 'legend-heading')?.props.bold).toBe(true)
-    expect(legendPartsOf(tree)).toEqual(english)
+    expect(legendPartsOf(tree)).toEqual(rows)
   }
-  for (const tree of [drawDesktop({ lang: 'pt', legendOpen: true }), drawTerminal({ lang: 'pt', legendOpen: true })]) {
+  for (const [tree, rows] of [
+    [drawDesktop({ lang: 'pt', legendOpen: true }), onDesktop(portuguese, portugueseMarks)],
+    [drawTerminal({ lang: 'pt', legendOpen: true }), portuguese],
+  ] as const) {
     expect(drawnTexts(keyed(tree, 'legend-heading'))).toEqual(['Labels Descriptions'])
-    expect(legendPartsOf(tree)).toEqual(portuguese)
+    expect(legendPartsOf(tree)).toEqual(rows)
   }
 })
 
@@ -833,7 +890,9 @@ test('the legend sits above the footer, which stays the last line; its keys are 
   const keys = keysOf(drawDesktop({ legendOpen: true }))
   expect(keys.length).toBeGreaterThan(15)
   expect(new Set(keys).size).toBe(keys.length)
-  expect(keysOf(drawTerminal({ legendOpen: true }))).toEqual(keys)
+  // The surfaces differ only in the timeline's rows: the terminal's emoji rows, the desktop's marker rows.
+  const timelineRow = /^legend-(commit|pr|session|mark-\w+)(-text)?$/
+  expect(keysOf(drawTerminal({ legendOpen: true })).filter(key => !timelineRow.test(key))).toEqual(keys.filter(key => !timelineRow.test(key)))
 })
 
 test('the records line names one unreadable record in the singular, in both languages (RP2)', () => {
@@ -1670,7 +1729,8 @@ test('the open legend: its button reads ▾ with the same title, and the table f
     const tree = draw({ legendOpen: true })
     expect(keyed(tree, 'legend-toggle')?.props.label).toBe(`${DISCLOSURE_OPEN} Labels Descriptions`)
     expect(keyed(tree, 'legend')).toBeDefined()
-    expect(legendRowsOf(tree)).toHaveLength(18)
+    // The desktop trades the 3 timeline emoji rows for the line's 7 markers.
+    expect(legendRowsOf(tree)).toHaveLength(draw === drawDesktop ? 22 : 18)
   }
 })
 
@@ -1759,7 +1819,10 @@ const withCurrentTask = (snapshot: Snapshot, currentTask: string | null): Snapsh
 test('the current task is drawn as Now: <task> in English and Agora: <task> in Portuguese, and no line when there is none', () => {
   const snapshot = withCurrentTask(withWindowTimeline(stepEvents(1)), 'Fix the pane')
   expect(drawnTexts(drawTerminal({ snapshot }))).toContain('Now: Fix the pane')
-  expect(drawnTexts(drawDesktop({ snapshot, lang: 'pt' }))).toContain('Agora: Fix the pane')
+  // The desktop line draws it as its own top row, the time replaced by the word, with the green marker.
+  const desktop = drawDesktop({ snapshot, lang: 'pt' })
+  expect(lineRowsOf(desktop)[0]).toEqual(['Agora', 'Fix the pane'])
+  expect(keyed(desktop, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('in progress')
   const none = drawnTexts(drawTerminal({ snapshot: withCurrentTask(snapshot, null) }))
   expect(none.some(text => text.startsWith('Now:'))).toBe(false)
 })
@@ -1787,7 +1850,7 @@ test('an open session draws every event after a ▾ Earlier button, and a press 
     timelineOpen: new Set([THIS_WINDOW]),
     onTimelineToggle: id => pressed.push(id),
   })
-  expect(drawnTexts(tree)).toContain('Step 8')
+  expect(lineTitlesOf(tree)).toContain('Step 8')
   const button = keyed(tree, `earlier-${THIS_WINDOW}`)
   expect(button?.props.label).toBe(`${DISCLOSURE_OPEN} Earlier (3)`)
   const onPress = button?.props.onPress
@@ -1798,4 +1861,108 @@ test('an open session draws every event after a ▾ Earlier button, and a press 
 
 test('five events or fewer draw no Earlier button', () => {
   expect(keyed(drawTerminal({ snapshot: withWindowTimeline(stepEvents(5)) }), `earlier-${THIS_WINDOW}`)).toBeUndefined()
+})
+
+// The desktop line (SPEC section 24): one row per event, newest first, each marked by its kind.
+const markedEvents = (): TimelineEvent[] => [
+  { at: NOW - MINUTE, kind: 'commit', text: 'Fix the pane', url: null },
+  { at: NOW - 2 * MINUTE, kind: 'pr', text: '7 Synthetic PR', url: null },
+  { at: NOW - 3 * MINUTE, kind: 'session', text: '', url: null },
+  { at: NOW - 4 * MINUTE, kind: 'step', text: 'Run the tests', url: null },
+  { at: NOW - 5 * MINUTE, kind: 'commit', text: 'Release 1.2.0', url: null },
+]
+const lineOf = (tree: unknown): Drawn | undefined => keyed(tree, `timeline-${THIS_WINDOW}`)
+
+test('markOf: a PR and a session event keep their kind; a release word wins over the commit kind; a test, a commit word or a plain step is marked as such', () => {
+  const cases: [TimelineEvent, MarkKind][] = [
+    [{ at: NOW, kind: 'pr', text: '7 Release notes', url: null }, 'pr'],
+    [{ at: NOW, kind: 'session', text: '', url: null }, 'session'],
+    [{ at: NOW, kind: 'commit', text: 'Publish 1.2.0', url: null }, 'release'],
+    [{ at: NOW, kind: 'step', text: 'Release the build', url: null }, 'release'],
+    [{ at: NOW, kind: 'commit', text: 'Fix the pane', url: null }, 'commit'],
+    [{ at: NOW, kind: 'step', text: 'Commit the fix', url: null }, 'commit'],
+    [{ at: NOW, kind: 'step', text: 'Run the e2e suite', url: null }, 'test'],
+    [{ at: NOW, kind: 'step', text: 'Tests pass', url: null }, 'test'],
+    [{ at: NOW, kind: 'step', text: 'Protest the change', url: null }, 'step'],
+    [{ at: NOW, kind: 'step', text: 'Read the spec', url: null }, 'step'],
+  ]
+  for (const [event, kind] of cases) expect(markOf(event)).toBe(kind)
+})
+
+test('the desktop line alternates its rows left and right, marks each row by its kind, and draws a rule under every row but the last', () => {
+  const tree = drawDesktop({ snapshot: withCurrentTask(withWindowTimeline(markedEvents()), null) })
+  const rows = markedEvents().map((_, index) => keyed(tree, `tl-row-${THIS_WINDOW}-${index}`))
+  expect(rows).toHaveLength(5)
+  rows.forEach((row, index) => {
+    const side = index % 2 === 0 ? 'left' : 'right'
+    const other = index % 2 === 0 ? 'right' : 'left'
+    expect(nodesOf(nodesOf(row).find(node => node.props.key === side)).some(node => node.tag === 'Markdown')).toBe(true)
+    expect(nodesOf(nodesOf(row).find(node => node.props.key === other)).some(node => node.tag === 'Markdown')).toBe(false)
+    expect(nodesOf(row).some(node => node.props.key === 'rule')).toBe(index < rows.length - 1)
+  })
+  const alts = rows.map((_, index) => keyed(tree, `mark-${THIS_WINDOW}-${index}`)?.props.alt)
+  expect(alts).toEqual(['commit', 'pull request', 'session', 'test', 'release'])
+})
+
+test('the step in progress is marked in progress, and a current task that is one of the steps adds no row of its own', () => {
+  const events: TimelineEvent[] = [
+    { at: NOW - MINUTE, kind: 'step', text: 'Fix the pane', url: null },
+    { at: NOW - 2 * MINUTE, kind: 'step', text: 'Read the spec', url: null },
+  ]
+  const tree = drawDesktop({ snapshot: withCurrentTask(withWindowTimeline(events), 'Fix the pane') })
+  expect(lineTitlesOf(lineOf(tree))).toEqual(['Fix the pane', 'Read the spec'])
+  expect(keyed(tree, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('in progress')
+  expect(keyed(tree, `mark-${THIS_WINDOW}-1`)?.props.alt).toBe('step')
+})
+
+test('a current task with no step of its own is the first row, read Now in English, and the shown events stay above the Earlier button', () => {
+  const tree = drawDesktop({ snapshot: withCurrentTask(withWindowTimeline(stepEvents(8)), 'Fix the pane') })
+  expect(lineRowsOf(lineOf(tree))[0]).toEqual(['Now', 'Fix the pane'])
+  expect(lineTitlesOf(lineOf(tree))).toEqual(['Fix the pane', 'Step 1', 'Step 2', 'Step 3', 'Step 4', 'Step 5'])
+  expect(keyed(tree, 'line-earlier')).toBeUndefined()
+  expect(keyed(tree, `earlier-${THIS_WINDOW}`)?.props.label).toBe(`${DISCLOSURE_CLOSED} Earlier (3)`)
+  expect(keyed(tree, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('in progress')
+})
+
+test('a row\'s time is bold and its title italic, linked when the event has a page; its detail is dim Text, and only when it has one', () => {
+  const commitUrl = `${REPO_PAGE}/commit/${COMMIT_SHA}`
+  const events: TimelineEvent[] = [
+    { at: NOW, kind: 'commit', text: 'Synthetic commit', url: commitUrl, detail: 'It was the cache.' },
+    { at: NOW - MINUTE, kind: 'step', text: 'Run the tests', url: null },
+  ]
+  const tree = drawDesktop({ snapshot: withCurrentTask(withWindowTimeline(events), null) })
+  // The time's colon is escaped as Markdown punctuation, so the pattern takes an optional backslash before it.
+  expect(String(keyed(tree, `tl-title-${THIS_WINDOW}-0`)?.props.text)).toMatch(/^\*\*\d{2}\\?:\d{2}\*\* \*\[Synthetic commit\]\(https:\/\/.+\)\*$/)
+  expect(String(keyed(tree, `tl-title-${THIS_WINDOW}-1`)?.props.text)).toMatch(/^\*\*\d{2}\\?:\d{2}\*\* \*Run the tests\*$/)
+  const detail = keyed(tree, `tl-detail-${THIS_WINDOW}-0`)
+  expect(detail?.props.dimColor).toBe(true)
+  expect(textOf(detail)).toBe('It was the cache.')
+  expect(keyed(tree, `tl-detail-${THIS_WINDOW}-1`)).toBeUndefined()
+})
+
+test('a step text typed as a Markdown link is escaped in the row title: it is drawn as its words, never as a link', () => {
+  const events: TimelineEvent[] = [{ at: NOW, kind: 'step', text: '[click](https://evil.example.test) *now*', url: null }]
+  const tree = drawDesktop({ snapshot: withCurrentTask(withWindowTimeline(events), null) })
+  const raw = String(keyed(tree, `tl-title-${THIS_WINDOW}-0`)?.props.text)
+  expect(raw).not.toMatch(/(?<!\\)\]\(https:\/\/evil/)
+  expect(raw).toContain('\\[click\\]')
+})
+
+test('the terminal row draws its detail dimmed under the head row, and a row with no detail draws none', () => {
+  const events: TimelineEvent[] = [
+    { at: NOW, kind: 'commit', text: 'Synthetic commit', url: null, detail: 'It was the cache.' },
+    { at: NOW - MINUTE, kind: 'step', text: 'Run the tests', url: null },
+  ]
+  const tree = drawTerminal({ snapshot: withWindowTimeline(events) })
+  const children = keyed(tree, `event-${THIS_WINDOW}-0`)?.props.children as Drawn[]
+  expect(children.map(child => child.props.key)).toEqual(['head', 'detail'])
+  expect(children[1]?.props.dimColor).toBe(true)
+  expect(textOf(children[1])).toBe('It was the cache.')
+  expect(nodesOf(keyed(tree, `event-${THIS_WINDOW}-1`)).some(node => node.props.key === 'detail')).toBe(false)
+})
+
+test('a row with no title draws its time alone, with no italic marks', () => {
+  // A commit with an empty subject: a session event is titled by its word ("started"), so it never has an empty title.
+  const tree = drawDesktop({ snapshot: withCurrentTask(withWindowTimeline([{ at: NOW, kind: 'commit', text: '', url: null }]), null) })
+  expect(String(keyed(tree, `tl-title-${THIS_WINDOW}-0`)?.props.text)).toMatch(/^\*\*\d{2}\\?:\d{2}\*\*$/)
 })

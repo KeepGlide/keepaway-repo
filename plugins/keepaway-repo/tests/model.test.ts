@@ -30,6 +30,8 @@ import {
   parseUtcOffset,
   plain,
   priorityOf,
+  DETAIL_MAX,
+  detailOfBody,
   sshHostnameOf,
   projectRecord,
   stateOf,
@@ -941,7 +943,37 @@ test('timelineOf: the default cap keeps the TIMELINE_LIMIT newest events and dro
 test('timelineOf: plan steps become step events with plain text and no link', () => {
   const steps = [{ at: 5, text: 'Run\tthe tests' }]
   const events = timelineOf({ createdAt: 1, kind: 'root', parentTitle: null, pr: null, commits: [], steps })
-  expect(events).toContainEqual({ at: 5, kind: 'step', text: 'Run the tests', url: null })
+  expect(events).toContainEqual({ at: 5, kind: 'step', text: 'Run the tests', url: null, detail: null })
+})
+
+test('timelineOf: a commit and a step carry their detail; a commit with none carries null', () => {
+  const commits = [
+    { at: 9, subject: 'Fix it', detail: 'It was the cache.' },
+    { at: 8, subject: 'Bare' },
+  ]
+  const steps = [{ at: 7, text: 'Check', detail: 'Checked the cache.' }]
+  const events = timelineOf({ createdAt: 1, kind: 'root', parentTitle: null, pr: null, commits, steps })
+  expect(events).toContainEqual({ at: 9, kind: 'commit', text: 'Fix it', url: null, detail: 'It was the cache.' })
+  expect(events).toContainEqual({ at: 8, kind: 'commit', text: 'Bare', url: null, detail: null })
+  expect(events).toContainEqual({ at: 7, kind: 'step', text: 'Check', url: null, detail: 'Checked the cache.' })
+})
+
+test('detailOfBody: the first paragraph, one plain line, without a leading Why: label', () => {
+  expect(detailOfBody('Why: the cache was stale.\n\nLonger second paragraph.')).toBe('the cache was stale.')
+  expect(detailOfBody('WHY:   spaced  out\nover two lines.\n\nNot this.')).toBe('spaced out over two lines.')
+  expect(detailOfBody('Plain first line.\n\nNot this either.')).toBe('Plain first line.')
+})
+
+test('detailOfBody: a line longer than DETAIL_MAX is cut at a word, the ellipsis counted; a hard cut when no space falls before it', () => {
+  const cut = detailOfBody('word '.repeat(60)) ?? ''
+  expect(cut.endsWith('word…')).toBe(true)
+  expect(cut.length).toBeLessThanOrEqual(DETAIL_MAX)
+  expect(detailOfBody('x'.repeat(250))).toBe(`${'x'.repeat(DETAIL_MAX - 1)}…`)
+  expect(detailOfBody('x'.repeat(DETAIL_MAX))).toBe('x'.repeat(DETAIL_MAX))
+})
+
+test('detailOfBody: an empty, blank or label-only body gives null', () => {
+  for (const body of ['', '   \n\n  ', 'Why:', '\n\n\n']) expect(detailOfBody(body)).toBeNull()
 })
 
 test('timelineOf: an explicit limit is honoured', () => {

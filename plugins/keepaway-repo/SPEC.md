@@ -1,4 +1,4 @@
-# KeepAway Repo: spec (as built, v0.2.0-beta.24)
+# KeepAway Repo: spec (as built, v0.2.0-beta.25)
 
 Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepAway Repo, the command is `/keepaway`.
 
@@ -137,8 +137,8 @@ is read, so a tag with the branch's name no longer yields `heads/<name>`; an unb
 stderr) yields no branch and is not a failure; `rev-parse --path-format=absolute --git-common-dir` per cwd of a record
 without `gitAnchors` and for the root when there is no GitHub remote (cached per cwd); `remote get-url origin` per distinct
 common dir (cached per common dir; a not-a-repository answer is cached as no remote), and when origin is absent `remote` then `remote get-url <first>` (the same cache); the root
-without an engine origin asks the same way on each poll. `symbolic-ref --quiet --short refs/remotes/origin/HEAD` and `log -5 --format=%ct%x09%s` per
-kept session with a branch; the log is parsed from git's output as it comes, not trimmed, so a commit with an empty subject still counts.
+without an engine origin asks the same way on each poll. `symbolic-ref --quiet --short refs/remotes/origin/HEAD` and `log -5 --format=%H%x09%ct%x09%s%x1f%b%x1e` per
+kept session with a branch; the log is parsed from git's output as it comes, not trimmed, so a commit with an empty subject still counts. Records end with `\x1e` and the body follows `\x1f` (section 24); output with no `\x1e` is read one commit per line, with no body.
 
 Budget: four gh calls per minute while the pane is open, plus the fifth call (`gh issue view`) while this window maps to an issue. While the pane
 is closed: four gh calls every 5 minutes (`KEEPAWAY_BAND_POLL_MS`), plus the fifth call when mapped, so at most 5 gh calls per 5
@@ -283,7 +283,7 @@ A poll never throws into the engine: a failed job is logged by its error name on
   derivation (ux-derived). With no issue: `no issue`. The milestone part is the title of the issue's milestone, open or closed; it is omitted when no title is known, never drawn as `no milestone` (ux-1).
   On the desktop `#n` links to the issue page when it is a https://github.com page; the milestone part links to the GitHub milestone page (`milestonePageOf`). The milestone is its title up to the first
   ` · `.
-- Timeline: the session's events, newest first, up to 30 (`TIMELINE_LIMIT`). The 5 newest are always drawn; the rest sit behind the session's `Earlier (N)` button (section 22). A `Now: <task>` line comes first when the session has a current task (section 22). The timeline has no heading, in this window's block or in any other session's: its events are drawn as they are, each with its icon. Kinds, each with its icon: commit (`📝`, subject as plain text),
+- Timeline: the session's events, newest first, up to 30 (`TIMELINE_LIMIT`). The 5 newest are always drawn; the rest sit behind the session's `Earlier (N)` button (section 22). A `Now: <task>` line comes first when the session has a current task (section 22). The desktop draws the same events on a vertical line instead, with markers for icons (section 24); what follows is the terminal's list. The timeline has no heading, in this window's block or in any other session's: its events are drawn as they are, each with its icon. Kinds, each with its icon: commit (`📝`, subject as plain text),
   plan step (no icon, the step's text, section 22), PR (`🔀`, `PR #n opened: <title>`, from the PR's `createdAt`), session (`🚀`, `started`, `forked from <title>`, or
   `spawned from <title>`, the title of the session's own parent, an ended one included). Commits are the branch's own last 5, newest first, empty on the default branch. On the desktop a commit event links to its commit page (GitHub `/commit/<sha>`, GitLab `/-/commit/<sha>`, the id read with `%H` from `git log`, which must be a full hash per `COMMIT_SHA`, 40 hex digits or 64 in a SHA-256 repo; an abbreviated id gets no link) and a PR event to its PR page; each link passes `PAGE_URL` (model.ts).
 
@@ -339,7 +339,7 @@ scale as the rows: `just now` (pt-BR `agora`) under one minute, then `N min ago`
   clear it. `/keepaway lang <choice>`. `/keepaway summary on|off` (section 21). Any other argument: a toast with the usage line and no change. `/keepaway open` and
   `/keepaway issue <n>` followed by extra words also show the usage toast and change nothing.
 - A window that is not a Desktop session (no record with its `cliSessionId`) cannot set an issue: a toast says so.
-- Store keys: `override:<sessionId>` = `{ issue, ts }`, `lang`, `summary` (boolean, absent is on; section 21), `legendOpen` (`true` while the legend is open, absent when closed; section 19). Nothing else is persisted. The `summary:<sessionId>` keys an earlier build wrote are deleted once per window. An override is dropped on a poll when no record in the records folder names its session (any repo's: the store is shared by every window) or its `ts` is over 30 days old (not on a poll with an unreadable folder). The 30-day lifetime (`OVERRIDE_TTL_MS`) also applies on read: an expired override is ignored
+- Store keys: `override:<sessionId>` = `{ issue, ts }`, `lang`, `summary` (boolean, absent is on; section 21), `legendOpen` (`true` while the legend is open, absent when closed; section 19), `briefs` (section 21), `timelineOpen` (section 22), `explains` (section 24). Nothing else is persisted. The `summary:<sessionId>` keys an earlier build wrote are deleted once per window. An override is dropped on a poll when no record in the records folder names its session (any repo's: the store is shared by every window) or its `ts` is over 30 days old (not on a poll with an unreadable folder). The 30-day lifetime (`OVERRIDE_TTL_MS`) also applies on read: an expired override is ignored
   even when the record scan was partial and the prune did not run. Module memory holds the file read
   cache, git lookups and the last good gh data.
 - The state lives in the mod's `$.store`, keyed by the plugin name (`keepaway-repo`), so the store of the old name
@@ -366,7 +366,7 @@ Run from the mod folder:
 3. `scripts/keepaway-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
    `keepglide.ts`, the two marks (the KeepAway Repo product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only (it holds every emoji of KeepAway Repo). `scripts/keepaway-look-selftest.sh` runs the gate on a copy and checks those cases.
 4. `agentic-mod-release-tool.sh keepaway-repo --check` must pass before the mod is installed (CLAUDE.md rule 6a).
-   The mod is published as 0.2.0-beta.24 and installed from `sophia-mods` (README, Installation).
+   The mod is published as 0.2.0-beta.25 and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
 or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`, `parseUtcOffset`) and do not depend on the zone the test process runs in; the register test answers `date +%z` through the process stub, including a refused call.
@@ -615,9 +615,60 @@ Owner's review, 2026-11-02: each session shows the task it is on now and the tas
   activity is newer than at its last read. At most 5 transcripts per poll; this window keeps the cursors of the 64 sessions read most recently, in
   memory only, never in the store. A single line over the engine's 4 MiB output cap never completes, so that session's steps stop there. A refused read is logged once by the error's name.
 - Current task: the step in progress in the last plan; with none, the `status_detail` of the session's `postTurnSummary` unless its `status_category` is `completed`; with neither,
-  no line. Drawn first in the timeline as `Now: <task>` (pt-BR `Agora: <task>`).
+  no line. Drawn first in the terminal's timeline as `Now: <task>` (pt-BR `Agora: <task>`); on the desktop it is the line's green marker (section 24).
 - Height: the pane has no inner scroll, so a session draws its 5 newest events (`TIMELINE_SHOWN`); the older ones, up to 30, sit behind
   an `Earlier (N)` button (pt-BR `Anteriores (N)`), `▸` closed, `▾` open, like the Labels accordion. Each session opens on its own; the
   open sessions are stored under `timelineOpen` (session ids, the 64 last opened kept; the key is deleted when none is open), read on every
   draw, so a reload draws the same state. A refused store read draws all closed; a refused read or write is logged once.
-- Labels: a step event has no icon, so the Labels table is unchanged.
+- Labels: a step event has no icon in the terminal, so its Labels table is unchanged; the desktop's table lists the line's markers (section 24).
+
+## 23. Pane header and tab (shared design)
+
+Owner, 2026-11-08: KeepAway Repo and AskAway User keep one pane design, and each tab carries its product name.
+
+- Tab: the product name, `pane.title` (`KeepAway Repo` in both languages), passed to `ui.open`.
+- Header row: one row that wraps (`flexWrap`), items centred. Left: the product logo, 16 px on the desktop (its alt is the product name) or the bold
+  glyph in the terminal, then the heading. Right: the counter and the KeepGlide mark (24 px, desktop only).
+- Heading: the window's repository name, bold, then its owner in dim text (`renderHeading`, `hooks/pane.tsx`). With no repository known (before the
+  first snapshot, or no GitHub remote) the product name stands in (`pane.heading`). The footer still reads `gh · <owner>/<name>`.
+- AskAway User follows the same row (keys `header`, `brand`, `heading`, `header-end`, `counter`) with its own heading, `Questions waiting`; its tab
+  title is `AskAway User` from its own dictionary. No code is shared: each mod keeps its own copy (runtime independence).
+
+## 24. Timeline line (desktop) and event explanations
+
+Owner, 2026-11-08 (approved mock `docs/mocks/2026-11-08-alternating-timeline/`): on the desktop a session's timeline is a vertical line,
+newest at the top, each event on one side of it, alternating.
+
+- Rows (`renderTimelineLine`, `hooks/pane.tsx`): the same events as the terminal (section 10: newest first, the 5 newest shown, the rest behind
+  `Earlier (N)`). Row `tl-row-<id>-<n>`: a left box and a right box, each 46% wide, and the axis between them, 3 cells. Even rows put their
+  text on the left (right-aligned), odd rows on the right. The axis holds the marker (`mark-<id>-<n>`, an Svg of 20 px) and, under it on every
+  row but the last of its block, the line itself (`rule`, a `subtle` fill that stretches to the row's height). The rows touch, so the line runs
+  on; the text's bottom padding spaces them.
+- Text: one Markdown, `**<time>** *<title>*` (`tl-title-<id>-<n>`; the title links to the commit or PR page as in section 10), then, when the
+  event has one, its explanation in dim text (`tl-detail-<id>-<n>`).
+- Markers (`hooks/timeline-marks.ts`, `markOf`): a dark circle with a white icon for a release (a tag), a commit, a test (a flask), a PR or a
+  session event (a sprout); a plain dark dot for any other step; a green circle for the step in progress. A commit or a step whose words name a
+  release (`release`, `publish`, `lançamento`, `publicar`, ...) is a release; a step naming a test (`test`, `e2e`, `qa`, `teste`, ...) is a test,
+  one naming a commit a commit. The module holds its own colours, so the look gate skips it (as `logo.ts`). Each marker's alt is its
+  kind (`in progress`, `release`, `commit`, `test`, `pull request`, `session`, `step`).
+- Now: the step whose text is the current task (section 22) gets the green marker. A current task with no step of its own (the
+  `postTurnSummary` detail) is a row of its own at the top, `Now` (pt-BR `Agora`) in place of the time; it does not push an event under
+  `Earlier`.
+- Width: the engine gives a pane's tree no width, so the line cannot fall back to a single column on a narrow pane; the desktop always
+  alternates. The terminal keeps section 10's list, each event's explanation dim under its row (`detail`).
+- Labels (section 19): on the desktop the table's commit, open PR and session event rows give way, in their place, to one row per marker
+  (`legend-mark-<kind>`: now, release, commit, test, PR, session event, step; the marker in the icon cell). The terminal's rows are unchanged.
+- Explanations, commits: the first paragraph of the commit body, a leading `Why:` label dropped, plain text, cut at a word to 200 characters
+  (`detailOfBody`, `hooks/model.ts`); none with no body.
+- Explanations, plan steps: while a step is in progress, the assistant's own text on the following transcript lines is kept as the step's
+  context, up to 1200 characters (`STEP_CONTEXT_MAX`, `hooks/steps.ts`), in memory only. A finished step with at least 40 characters of
+  context (`EXPLAIN_CONTEXT_MIN`) is sent to Haiku with `$.model.complete` (`explainRequestOf`: model `haiku`, at most 120 tokens, 20 s; the
+  step's title and its context as data inside `<step>` and `<assistant_text>` tags, with a system text that asks for one or two sentences of at most 160 characters in the pane's
+  language, past tense, and never to follow instructions in the data). The reply becomes one plain line through `briefOfReply` (160
+  characters). Only that line is stored, under the store key `explains` (`<session id>|<at>|<step text>` -> `{ text, at }`, the 400 newest
+  kept), so a window opened later draws it with no call. Only a session's 5 newest steps are asked (`EXPLAIN_NEWEST`), so 64 sessions stay under
+  the store's 400. At most 2 calls start per poll, never two for one step, never for the step in progress; the call never blocks the poll, and
+  its line is drawn on the next poll (a poll of its own would spend the gh budget). A failure keeps the title alone, is logged once
+  (`step explanation failed (<reason>)`) and pauses every explanation for `SUMMARY_RETRY_MS`. No call is made while the pane is closed or
+  the summary setting is off (section 21).
+- PR and session events have no explanation: their title says it all.
