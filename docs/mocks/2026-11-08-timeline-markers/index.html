@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timeline markers</title>
+<style>
+  :root { --bg: #ffffff; --fg: #1f2937; --dim: #6b7280; --rule: #d1d5db; --card: #f3f4f6; --accent: #2563eb; }
+  :root[data-theme="dark"] { --bg: #1e1e1e; --fg: #e5e7eb; --dim: #9ca3af; --rule: #4b5563; --card: #2a2a2a; --accent: #60a5fa; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, "Noto Sans", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 32px 0 8px; }
+  p.lead { color: var(--dim); margin: 0 0 16px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
+  .controls button { font: inherit; border: 1px solid var(--rule); background: var(--card); color: var(--fg); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+  .controls button[aria-pressed="true"] { border-color: var(--accent); outline: 2px solid var(--accent); }
+  .variants { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  .variant { border: 1px solid var(--rule); border-radius: 12px; padding: 12px; background: var(--card); }
+  .variant h3 { margin: 0 0 2px; font-size: 15px; }
+  .variant .why { color: var(--dim); font-size: 13px; margin: 0 0 10px; }
+  .strip { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+  .strip figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: var(--dim); }
+  .zoom { margin-top: 10px; display: flex; gap: 8px; align-items: center; }
+  .zoom svg { width: 60px; height: 60px; }
+  .tag { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--accent); color: #fff; margin-left: 6px; vertical-align: middle; }
+  /* The pane sample, drawn like the approved line. */
+  .pane { border: 1px solid var(--rule); border-radius: 12px; padding: 16px; margin-top: 8px; }
+  .row { display: grid; grid-template-columns: 46% 40px 46%; }
+  .side { padding-bottom: 14px; }
+  .left { text-align: right; padding-right: 10px; }
+  .right { padding-left: 10px; }
+  .axis { display: flex; flex-direction: column; align-items: center; }
+  .rule { flex: 1; width: 3px; background: var(--rule); }
+  .detail { color: var(--dim); }
+  .earlier { display: inline-block; margin-top: 4px; background: var(--card); border-radius: 8px; padding: 4px 10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Marcadores da linha do tempo: legibilidade</h1>
+  <p class="lead">A linha, os lados alternados, a hora em negrito, o título em itálico e a frase embaixo ficam como foram aprovados. Muda só a bolinha: tamanho, contraste do ícone e, na opção C, a cor por tipo.</p>
+
+  <div class="controls" role="group" aria-label="Tema">
+    <span>Tema:</span>
+    <button type="button" data-theme-set="light" aria-pressed="true">Claro</button>
+    <button type="button" data-theme-set="dark" aria-pressed="false">Escuro</button>
+  </div>
+
+  <h2>As opções, no tamanho real e ampliadas</h2>
+  <div class="variants" id="variants"></div>
+
+  <h2>Como fica no painel</h2>
+  <div class="controls" role="group" aria-label="Opção no painel" id="pick"></div>
+  <div class="pane" id="pane"></div>
+</main>
+<script>
+  // The icons of hooks/timeline-marks.ts, in their 24 x 24 box.
+  const ICONS = {
+    release: '<path d="M4 12.5V5h7.5L19 12.5 12.5 19z"/><circle cx="8.5" cy="8.5" r="1.3" fill="currentColor"/>',
+    commit: '<circle cx="12" cy="12" r="3.5"/><path d="M3.5 12h5M15.5 12h5"/>',
+    test: '<path d="M9.5 4h5M10.5 4v5.5L5.5 18a1.5 1.5 0 0 0 1.3 2.2h10.4a1.5 1.5 0 0 0 1.3-2.2l-5-8.5V4"/><path d="M8 15h8"/>',
+    pr: '<circle cx="7" cy="6" r="2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><path d="M7 8v8M17 16V10a3 3 0 0 0-3-3h-3"/>',
+    session: '<path d="M12 20v-8M12 12c0-4 3-6 7-6 0 4-3 6-7 6zM12 15c0-3-2.5-5-6-5 0 3 2.5 5 6 5z"/>',
+  };
+  const KINDS = ['now', 'release', 'commit', 'test', 'pr', 'session', 'step'];
+  const NAMES = { now: 'agora', release: 'release', commit: 'commit', test: 'teste', pr: 'PR', session: 'sessão', step: 'etapa' };
+  const KIND_FILL = { release: '#7c3aed', commit: '#2563eb', test: '#d97706', pr: '#db2777', session: '#0d9488' };
+
+  // Each option: its size in px, and how one kind is drawn in the 24 x 24 box.
+  const VARIANTS = {
+    current: { title: 'Atual', why: '20 px; o ícone ocupa 55% do círculo, traço fino.', size: 20, fill: () => '#1f2937', ring: '#e5e7eb', icon: '#ffffff', scale: 0.55, stroke: 2.4 },
+    A: { title: 'A · Maior', why: '26 px; o ícone ocupa 72% do círculo, traço mais grosso. Mesmas cores.', size: 26, fill: () => '#1f2937', ring: '#e5e7eb', icon: '#ffffff', scale: 0.72, stroke: 2.6 },
+    B: { title: 'B · Claro com borda', why: '26 px; círculo branco, borda e ícone escuros. Contraste máximo no tema claro.', size: 26, fill: () => '#ffffff', ring: '#1f2937', ringWidth: 1.6, icon: '#1f2937', scale: 0.7, stroke: 2.4 },
+    C: { title: 'C · Cor por tipo', why: '26 px como A, e cada tipo com a sua cor: dá para reconhecer o tipo antes de ler o ícone.', size: 26, fill: kind => KIND_FILL[kind] ?? '#1f2937', ring: '#ffffff', icon: '#ffffff', scale: 0.72, stroke: 2.6 },
+  };
+  const RECOMMENDED = 'C';
+
+  function markSvg(variant, kind, px) {
+    const v = VARIANTS[variant];
+    const size = px ?? v.size;
+    const open = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" role="img" aria-label="${NAMES[kind]}">`;
+    if (kind === 'step') return `${open}<circle cx="12" cy="12" r="5" fill="#1f2937" stroke="#e5e7eb" stroke-width="1"/></svg>`;
+    if (kind === 'now') return `${open}<circle cx="12" cy="12" r="11" fill="#16a34a"/><circle cx="12" cy="12" r="4" fill="#ffffff"/></svg>`;
+    const offset = 12 - 12 * v.scale;
+    const icon = `<g transform="translate(${offset} ${offset}) scale(${v.scale})" fill="none" stroke="${v.icon}" color="${v.icon}" stroke-width="${v.stroke}" stroke-linecap="round" stroke-linejoin="round">${ICONS[kind]}</g>`;
+    return `${open}<circle cx="12" cy="12" r="11" fill="${v.fill(kind)}" stroke="${v.ring}" stroke-width="${v.ringWidth ?? 1}"/>${icon}</svg>`;
+  }
+
+  const variantsEl = document.getElementById('variants');
+  for (const key of Object.keys(VARIANTS)) {
+    const v = VARIANTS[key];
+    const card = document.createElement('section');
+    card.className = 'variant';
+    card.innerHTML = `<h3>${v.title}${key === RECOMMENDED ? '<span class="tag">recomendada</span>' : ''}</h3><p class="why">${v.why}</p>` +
+      `<div class="strip">${KINDS.map(kind => `<figure>${markSvg(key, kind)}<figcaption>${NAMES[kind]}</figcaption></figure>`).join('')}</div>` +
+      `<div class="zoom" aria-label="ampliado 3x">${['commit', 'test', 'pr'].map(kind => markSvg(key, kind, 60)).join('')}</div>`;
+    variantsEl.appendChild(card);
+  }
+
+  // The sample rows of the owner's screenshot, newest first.
+  const ROWS = [
+    { time: '17:46', title: 'Sync local main, tag AskAway v1.1.1', kind: 'now', detail: '' },
+    { time: '17:46', title: 'Merge both PRs', kind: 'step', detail: 'Merged both PRs, then synced local main and tagged the AskAway User release.' },
+    { time: '17:06', title: 'SPEC, CHANGELOG, review and commit', kind: 'commit', detail: 'Bumped KeepAway Repo to 0.2.0-beta.25 and AskAway User to 1.1.1, committed both, pushed the branches, opened PRs.' },
+    { time: '16:46', title: 'Fix and add tests, look gate', kind: 'test', detail: 'Wrote the SPEC section and CHANGELOG entries, applied the review fixes, then confirmed 598 tests pass.' },
+    { time: '16:41', title: 'Implement alternating timeline and legend', kind: 'step', detail: 'Fixed the remaining desktop timeline tests after the switch to Markdown text and Svg markers.' },
+    { time: '16:30', title: 'PR #7 opened: repo header and desktop timeline line', kind: 'pr', detail: '' },
+    { time: '16:12', title: 'Release 0.2.0-beta.25', kind: 'release', detail: 'Installed both mods; the release tool found them identical to source.' },
+  ];
+  const SHOWN = 7;
+  const EARLIER = 25;
+
+  function drawPane(variant) {
+    const pane = document.getElementById('pane');
+    pane.innerHTML = ROWS.slice(0, SHOWN).map((row, index) => {
+      const text = `<div><b>${row.time}</b> <i>${row.title}</i></div>${row.detail ? `<div class="detail">${row.detail}</div>` : ''}`;
+      const last = index === Math.min(SHOWN, ROWS.length) - 1;
+      return `<div class="row"><div class="side left">${index % 2 === 0 ? text : ''}</div>` +
+        `<div class="axis">${markSvg(variant, row.kind)}${last ? '' : '<div class="rule"></div>'}</div>` +
+        `<div class="side right">${index % 2 === 1 ? text : ''}</div></div>`;
+    }).join('') + `<span class="earlier">▸ Earlier (${EARLIER})</span>`;
+  }
+
+  const pick = document.getElementById('pick');
+  for (const key of Object.keys(VARIANTS)) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = VARIANTS[key].title;
+    button.setAttribute('aria-pressed', String(key === RECOMMENDED));
+    button.addEventListener('click', () => {
+      for (const other of pick.querySelectorAll('button')) other.setAttribute('aria-pressed', 'false');
+      button.setAttribute('aria-pressed', 'true');
+      drawPane(key);
+    });
+    pick.appendChild(button);
+  }
+  drawPane(RECOMMENDED);
+
+  for (const button of document.querySelectorAll('[data-theme-set]')) {
+    button.addEventListener('click', () => {
+      document.documentElement.dataset.theme = button.dataset.themeSet;
+      for (const other of document.querySelectorAll('[data-theme-set]')) other.setAttribute('aria-pressed', String(other === button));
+    });
+  }
+</script>
+</body>
+</html>

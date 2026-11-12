@@ -1214,11 +1214,11 @@ function cursorsOf(steps: Map<string, SessionSteps>): Map<string, StepCursor> {
 const EXPLAINS_KEY = 'explains'
 // The most model calls started per poll, the most explanations kept in the store (the oldest out), and the least context worth a call.
 const EXPLAINS_PER_POLL = 2
-const EXPLAIN_KEEP_MAX = 400
+const EXPLAIN_KEEP_MAX = 500
 const EXPLAIN_CONTEXT_MIN = 40
 // Only a session's newest steps are explained: those a closed timeline shows, and 64 sessions of them stay under EXPLAIN_KEEP_MAX, so
 // no stored explanation is pushed out and asked again.
-const EXPLAIN_NEWEST = 5
+const EXPLAIN_NEWEST = 7
 const explainsInFlight = new Set<string>()
 // After a failure no step is asked before this time: a model that fails one step is likely down for all of them.
 let explainPausedUntil = 0

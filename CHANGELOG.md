@@ -8,6 +8,14 @@ Commit hashes name the change in `git log`. Entries below the rename keep the na
 
 ## [Unreleased]
 
+## [0.2.0-beta.26] - 2026-11-08
+
+### Changed
+- Timeline markers are easier to see: 26 px (was 20), the icon fills more of the circle, and each kind has its own colour: release violet, commit blue, test amber, PR pink, session teal (owner choice C, `docs/mocks/2026-11-08-timeline-markers/`).
+- A session shows its 7 newest events (was 5); the rest stay behind `Earlier (N)`. Explanations cover the 7 shown steps, and the store keeps 500.
+- A hairline rule sits under the pane header, as in AskAway User.
+- Each milestone in "Issues without session" sits in its own bordered block, with its title, objective, progress and issues inside.
+
 ## [0.2.0-beta.25] - 2026-11-08
 
 ### Added

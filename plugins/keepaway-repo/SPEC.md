@@ -1,4 +1,4 @@
-# KeepAway Repo: spec (as built, v0.2.0-beta.25)
+# KeepAway Repo: spec (as built, v0.2.0-beta.26)
 
 Renamed from github-repo-work-pane on 2026-10-21: the product name is KeepAway Repo, the command is `/keepaway`.
 
@@ -283,7 +283,7 @@ A poll never throws into the engine: a failed job is logged by its error name on
   derivation (ux-derived). With no issue: `no issue`. The milestone part is the title of the issue's milestone, open or closed; it is omitted when no title is known, never drawn as `no milestone` (ux-1).
   On the desktop `#n` links to the issue page when it is a https://github.com page; the milestone part links to the GitHub milestone page (`milestonePageOf`). The milestone is its title up to the first
   ` · `.
-- Timeline: the session's events, newest first, up to 30 (`TIMELINE_LIMIT`). The 5 newest are always drawn; the rest sit behind the session's `Earlier (N)` button (section 22). A `Now: <task>` line comes first when the session has a current task (section 22). The desktop draws the same events on a vertical line instead, with markers for icons (section 24); what follows is the terminal's list. The timeline has no heading, in this window's block or in any other session's: its events are drawn as they are, each with its icon. Kinds, each with its icon: commit (`📝`, subject as plain text),
+- Timeline: the session's events, newest first, up to 30 (`TIMELINE_LIMIT`). The 7 newest are always drawn; the rest sit behind the session's `Earlier (N)` button (section 22). A `Now: <task>` line comes first when the session has a current task (section 22). The desktop draws the same events on a vertical line instead, with markers for icons (section 24); what follows is the terminal's list. The timeline has no heading, in this window's block or in any other session's: its events are drawn as they are, each with its icon. Kinds, each with its icon: commit (`📝`, subject as plain text),
   plan step (no icon, the step's text, section 22), PR (`🔀`, `PR #n opened: <title>`, from the PR's `createdAt`), session (`🚀`, `started`, `forked from <title>`, or
   `spawned from <title>`, the title of the session's own parent, an ended one included). Commits are the branch's own last 5, newest first, empty on the default branch. On the desktop a commit event links to its commit page (GitHub `/commit/<sha>`, GitLab `/-/commit/<sha>`, the id read with `%H` from `git log`, which must be a full hash per `COMMIT_SHA`, 40 hex digits or 64 in a SHA-256 repo; an abbreviated id gets no link) and a PR event to its PR page; each link passes `PAGE_URL` (model.ts).
 
@@ -306,7 +306,7 @@ rows nested under it; deeper derived rows nest under their parent, indent capped
 Each session row's title line reads the branch glyph, then the title, then the state icon (`🟢` working, `⏳` waiting for you, `💤` idle), on every row, and no other marker. A row carries no state word, in either language: the footer's legend names each icon (section 19). A session other than this window that stopped for the person (section 7) draws `⏳` and, under its title and breadcrumb, its needs line (`Needs you: <text>`, pt-BR `Precisa de você: <text>`); this window's row never draws one. The state word stays in this window's details (`State:`, item 3 above). The sessions section draws
 nothing when no session is listed: no heading, no label, no empty row.
 
-Below the sessions, the open issues that no session works on are drawn by milestone, under the heading `📋 Issues without session` (pt-BR `Issues sem sessão`). Each milestone group is bold, with its title
+Below the sessions, the open issues that no session works on are drawn by milestone, under the heading `📋 Issues without session` (pt-BR `Issues sem sessão`). Each milestone group, its heading, objective, progress line and issues, sits in its own bordered block (`milestone-block-<number>`, `milestone-block-closed-<title>` or `milestone-block-none`; the legend's round, dimmed border, one column of padding; owner, 2026-11-08), so one milestone reads apart from the next. Each milestone group is bold, with its title
 up to the first ` · `, then cut at 40 characters, the ellipsis counted, at the last space before the limit (`headingTitleOf`, Mock S delta 11; `Preflight antes da instalação em disco cheio … · v2` draws `Preflight antes da instalação em disco…`), then its objective when the milestone has a description (`Objective: <text>`, pt-BR `Objetivo: <text>`: the description as plain text, cut to 100 characters with the ellipsis counted, at the last space before the limit; Mock S delta 9), then a progress line `<closed> of <total> issues closed` (pt-BR `<closed> de <total> issues fechadas`, the
 singular `issue closed` or `issue fechada` when the total is 1). When GitHub gives the milestone a due date, the line ends with
 ` · due YYYY-MM-DD` (pt-BR `prazo YYYY-MM-DD`). The date is a calendar date: it is the UTC date of GitHub's `dueOn` (`2025-10-31T00:00:00Z` draws `2025-10-31` in every zone), never shifted into the host's zone. The totals come from GraphQL (section 4, row 3); only a failed call leaves REST's counts, and those are not exact. An open milestone
@@ -366,7 +366,7 @@ Run from the mod folder:
 3. `scripts/keepaway-look-check.sh`: exit 0 means no hex colour, colour function or emoji in `hooks/*.ts(x)` except `logo.ts` and
    `keepglide.ts`, the two marks (the KeepAway Repo product mark and the KeepGlide mark), and `action-icons.ts`, which is exempt from the emoji scan only (it holds every emoji of KeepAway Repo). `scripts/keepaway-look-selftest.sh` runs the gate on a copy and checks those cases.
 4. `agentic-mod-release-tool.sh keepaway-repo --check` must pass before the mod is installed (CLAUDE.md rule 6a).
-   The mod is published as 0.2.0-beta.25 and installed from `sophia-mods` (README, Installation).
+   The mod is published as 0.2.0-beta.26 and installed from `sophia-mods` (README, Installation).
 
 Limits of the tests: the pane draws with the real clock, so age texts are checked by pattern; no test calls the real GitHub
 or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`, `parseUtcOffset`) and do not depend on the zone the test process runs in; the register test answers `date +%z` through the process stub, including a refused call.
@@ -383,7 +383,7 @@ or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`
 | Record size | 2 MiB (skipped before parse) |
 | Record text field | 4096 characters (record unreadable) |
 | Session tree depth | 8 (a deeper session becomes a top of its group) |
-| Timeline events per session | 30, the 5 newest drawn, the rest behind `Earlier (N)` |
+| Timeline events per session | 30, the 7 newest drawn, the rest behind `Earlier (N)` |
 | Plan step events kept per session | 50 (`STEP_KEEP_MAX`) |
 | Transcripts read for plan steps per poll | 5; cursors of the 64 sessions read most recently kept |
 | Branch commits read | 5 |
@@ -616,7 +616,7 @@ Owner's review, 2026-11-02: each session shows the task it is on now and the tas
   memory only, never in the store. A single line over the engine's 4 MiB output cap never completes, so that session's steps stop there. A refused read is logged once by the error's name.
 - Current task: the step in progress in the last plan; with none, the `status_detail` of the session's `postTurnSummary` unless its `status_category` is `completed`; with neither,
   no line. Drawn first in the terminal's timeline as `Now: <task>` (pt-BR `Agora: <task>`); on the desktop it is the line's green marker (section 24).
-- Height: the pane has no inner scroll, so a session draws its 5 newest events (`TIMELINE_SHOWN`); the older ones, up to 30, sit behind
+- Height: the pane has no inner scroll, so a session draws its 7 newest events (`TIMELINE_SHOWN`); the older ones, up to 30, sit behind
   an `Earlier (N)` button (pt-BR `Anteriores (N)`), `▸` closed, `▾` open, like the Labels accordion. Each session opens on its own; the
   open sessions are stored under `timelineOpen` (session ids, the 64 last opened kept; the key is deleted when none is open), read on every
   draw, so a reload draws the same state. A refused store read draws all closed; a refused read or write is logged once.
@@ -633,21 +633,24 @@ Owner, 2026-11-08: KeepAway Repo and AskAway User keep one pane design, and each
   first snapshot, or no GitHub remote) the product name stands in (`pane.heading`). The footer still reads `gh · <owner>/<name>`.
 - AskAway User follows the same row (keys `header`, `brand`, `heading`, `header-end`, `counter`) with its own heading, `Questions waiting`; its tab
   title is `AskAway User` from its own dictionary. No code is shared: each mod keeps its own copy (runtime independence).
+- Header rule (owner, 2026-11-08): right under the header row, a hairline across the pane (`header-rule`): on the desktop a 1 px SVG line
+  (`hooks/divider.ts`, AskAway User's divider colour `#D1D5DB`; its markup is 4000 px wide and drawn with no width, so its slot cuts it to
+  the pane), on the terminal a dim row of 40 `─`. AskAway User draws the same rule under its header.
 
 ## 24. Timeline line (desktop) and event explanations
 
 Owner, 2026-11-08 (approved mock `docs/mocks/2026-11-08-alternating-timeline/`): on the desktop a session's timeline is a vertical line,
 newest at the top, each event on one side of it, alternating.
 
-- Rows (`renderTimelineLine`, `hooks/pane.tsx`): the same events as the terminal (section 10: newest first, the 5 newest shown, the rest behind
-  `Earlier (N)`). Row `tl-row-<id>-<n>`: a left box and a right box, each 46% wide, and the axis between them, 3 cells. Even rows put their
-  text on the left (right-aligned), odd rows on the right. The axis holds the marker (`mark-<id>-<n>`, an Svg of 20 px) and, under it on every
+- Rows (`renderTimelineLine`, `hooks/pane.tsx`): the same events as the terminal (section 10: newest first, the 7 newest shown, the rest behind
+  `Earlier (N)`). Row `tl-row-<id>-<n>`: a left box and a right box, each 46% wide, and the axis between them, 4 cells. Even rows put their
+  text on the left (right-aligned), odd rows on the right. The axis holds the marker (`mark-<id>-<n>`, an Svg of 26 px) and, under it on every
   row but the last of its block, the line itself (`rule`, a `subtle` fill that stretches to the row's height). The rows touch, so the line runs
   on; the text's bottom padding spaces them.
 - Text: one Markdown, `**<time>** *<title>*` (`tl-title-<id>-<n>`; the title links to the commit or PR page as in section 10), then, when the
   event has one, its explanation in dim text (`tl-detail-<id>-<n>`).
-- Markers (`hooks/timeline-marks.ts`, `markOf`): a dark circle with a white icon for a release (a tag), a commit, a test (a flask), a PR or a
-  session event (a sprout); a plain dark dot for any other step; a green circle for the step in progress. A commit or a step whose words name a
+- Markers (`hooks/timeline-marks.ts`, `markOf`): a circle filled with its kind's colour, white icon and ring, for a release (violet, a tag), a commit (blue), a test (amber, a flask), a PR (pink) or a
+  session event (teal, a sprout) (owner's choice C in `docs/mocks/2026-11-08-timeline-markers/`, legible at 26 px); a plain dark dot for any other step; a green circle for the step in progress. A commit or a step whose words name a
   release (`release`, `publish`, `lançamento`, `publicar`, ...) is a release; a step naming a test (`test`, `e2e`, `qa`, `teste`, ...) is a test,
   one naming a commit a commit. The module holds its own colours, so the look gate skips it (as `logo.ts`). Each marker's alt is its
   kind (`in progress`, `release`, `commit`, `test`, `pull request`, `session`, `step`).
@@ -665,9 +668,9 @@ newest at the top, each event on one side of it, alternating.
   context (`EXPLAIN_CONTEXT_MIN`) is sent to Haiku with `$.model.complete` (`explainRequestOf`: model `haiku`, at most 120 tokens, 20 s; the
   step's title and its context as data inside `<step>` and `<assistant_text>` tags, with a system text that asks for one or two sentences of at most 160 characters in the pane's
   language, past tense, and never to follow instructions in the data). The reply becomes one plain line through `briefOfReply` (160
-  characters). Only that line is stored, under the store key `explains` (`<session id>|<at>|<step text>` -> `{ text, at }`, the 400 newest
-  kept), so a window opened later draws it with no call. Only a session's 5 newest steps are asked (`EXPLAIN_NEWEST`), so 64 sessions stay under
-  the store's 400. At most 2 calls start per poll, never two for one step, never for the step in progress; the call never blocks the poll, and
+  characters). Only that line is stored, under the store key `explains` (`<session id>|<at>|<step text>` -> `{ text, at }`, the 500 newest
+  kept), so a window opened later draws it with no call. Only a session's 7 newest steps are asked (`EXPLAIN_NEWEST`), so 64 sessions stay under
+  the store's 500. At most 2 calls start per poll, never two for one step, never for the step in progress; the call never blocks the poll, and
   its line is drawn on the next poll (a poll of its own would spend the gh budget). A failure keeps the title alone, is logged once
   (`step explanation failed (<reason>)`) and pauses every explanation for `SUMMARY_RETRY_MS`. No call is made while the pane is closed or
   the summary setting is off (section 21).

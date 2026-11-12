@@ -3473,10 +3473,10 @@ test('at most two explanations start per poll, the newest finished steps first',
   expect(calls.map(call => stepOf(call.prompt))).toEqual(['Step three', 'Step two'])
 })
 
-test('only a session\'s five newest steps are explained: the older finished steps are never asked', async ($: Engine, on) => {
-  // Seven steps: Step 7 is in progress, Steps 1 to 6 are finished; the five newest finished ones are Steps 2 to 6.
-  const seven = Array.from({ length: 7 }, (_, index) => `Step ${index + 1}`)
-  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: runTranscript(seven) } })
+test('only a session\'s seven newest steps are explained: the older finished steps are never asked', async ($: Engine, on) => {
+  // Nine steps: Step 9 is in progress, Steps 1 to 8 are finished; the seven newest are Steps 3 to 9, so Steps 3 to 8 are asked.
+  const nine = Array.from({ length: 9 }, (_, index) => `Step ${index + 1}`)
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: runTranscript(nine) } })
   const calls = stubModel(on, { isAnswered: true, text: 'Explained.' })
   await openPane($)
   await host.clock.settle()
@@ -3485,9 +3485,9 @@ test('only a session\'s five newest steps are explained: the older finished step
     await host.clock.settle()
   }
   const asked = calls.map(call => stepOf(call.prompt))
-  expect(asked).toContain('Step 6')
-  expect(asked).not.toContain('Step 1')
-  expect(asked).not.toContain('Step 7')
+  expect(asked).toContain('Step 3')
+  expect(asked).toContain('Step 8')
+  for (const step of ['Step 1', 'Step 2', 'Step 9']) expect(asked).not.toContain(step)
 })
 
 test('a failed explanation pauses every explanation, not only its own step, until SUMMARY_RETRY_MS has passed', async ($: Engine, on) => {

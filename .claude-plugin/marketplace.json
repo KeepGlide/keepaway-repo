@@ -10,7 +10,7 @@
       "name": "keepaway-repo",
       "source": "./plugins/keepaway-repo",
       "description": "For this session's GitHub repository, the open milestones with their open issues and the Desktop sessions working on each issue, this session first with its issue details and timeline.",
-      "version": "0.2.0-beta.25"
+      "version": "0.2.0-beta.26"
     }
   ]
 }
