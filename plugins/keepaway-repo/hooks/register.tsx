@@ -1062,22 +1062,55 @@ function logBriefFailureOnce($: EngineInterface, reason: string): void {
   logLine($, `session brief failed (${reason})`)
 }
 
+// The model lock of one condensed line or explanation (`model-lock:<id>`): a window holds it while its model call runs, so another
+// window asks nothing for the same line. Its lifetime is the logo lock's (LOGO_LOCK_MS), so an older marker is ignored.
+const modelLockKeyOf = (id: string): string => `model-lock:${id}`
+
+// Whether another window's model call for the line holds the lock. A refused read holds none, and the ask goes on.
+async function modelLockedOf($: EngineInterface, id: string, now: number): Promise<boolean> {
+  try {
+    return isLogoLockLive(await $.store.get(modelLockKeyOf(id)), now)
+  } catch {
+    return false
+  }
+}
+
+// Takes the model lock (`{ at }`), or releases it with null; a refused call is left out, and the ask goes on without the lock.
+async function setModelLockOf($: EngineInterface, id: string, at: number | null): Promise<void> {
+  try {
+    if (at === null) await $.store.delete(modelLockKeyOf(id))
+    else await $.store.set(modelLockKeyOf(id), { at })
+  } catch {
+    // no lock to keep: the ask goes on
+  }
+}
+
 // Asks the model for one session's condensed line, without waiting: the line is stored and remembered and the pane polls again, so it
-// is drawn. A failure keeps the cut prompt and is asked again after SUMMARY_RETRY_MS.
+// is drawn. A failure keeps the cut prompt and is asked again after SUMMARY_RETRY_MS. Under the model lock, and only when no other
+// window has stored a line for this poll since the poll began.
 function startBrief($: EngineInterface, sessionId: string, prompt: string, now: number): void {
   if (briefsInFlight.has(sessionId)) return
   briefsInFlight.add(sessionId)
+  const lockId = `brief:${sessionId}`
   const ask = async (): Promise<void> => {
-    const reply = await $.model.complete(briefRequestOf(prompt, await read($, langAtom)))
-    const text = reply.isAnswered ? briefOfReply(reply.text) : null
-    if (text === null) {
-      logBriefFailureOnce($, reply.isAnswered ? 'empty-reply' : reply.reason)
-      briefRetryAt.set(sessionId, now + SUMMARY_RETRY_MS)
-      return
+    if (await modelLockedOf($, lockId, await $.clock.now())) return
+    await setModelLockOf($, lockId, await $.clock.now())
+    try {
+      const stored = (await storedBriefsOf($))[sessionId]
+      if (stored !== undefined && stored.at >= now) return
+      const reply = await $.model.complete(briefRequestOf(prompt, await read($, langAtom)))
+      const text = reply.isAnswered ? briefOfReply(reply.text) : null
+      if (text === null) {
+        logBriefFailureOnce($, reply.isAnswered ? 'empty-reply' : reply.reason)
+        briefRetryAt.set(sessionId, now + SUMMARY_RETRY_MS)
+        return
+      }
+      await storeBriefOf($, sessionId, { text, at: await $.clock.now() })
+      rememberBriefOf(sessionId, text)
+      if (await read($, openAtom)) repollSoon($)
+    } finally {
+      await setModelLockOf($, lockId, null)
     }
-    await storeBriefOf($, sessionId, { text, at: await $.clock.now() })
-    rememberBriefOf(sessionId, text)
-    if (await read($, openAtom)) repollSoon($)
   }
   void ask()
     .catch((error: unknown) => {
@@ -1282,23 +1315,32 @@ function logExplainFailureOnce($: EngineInterface, reason: string): void {
 // would spend the gh budget). A failure leaves the title alone and pauses every explanation for SUMMARY_RETRY_MS.
 function startExplain($: EngineInterface, key: string, event: StepEvent, now: number): void {
   explainsInFlight.add(key)
+  const lockId = `explain:${key}`
   const ask = async (): Promise<void> => {
-    const reply = await $.model.complete(explainRequestOf(event.text, event.context, await read($, langAtom)))
-    const text = reply.isAnswered ? briefOfReply(reply.text) : null
-    if (text === null) {
-      logExplainFailureOnce($, reply.isAnswered ? 'empty-reply' : reply.reason)
-      explainPausedUntil = now + SUMMARY_RETRY_MS
-      return
+    if (await modelLockedOf($, lockId, await $.clock.now())) return
+    await setModelLockOf($, lockId, await $.clock.now())
+    try {
+      // Read again just before the call: another window may have stored this step's explanation since the poll read the store.
+      if ((await storedExplainsOf($))[key] !== undefined) return
+      const reply = await $.model.complete(explainRequestOf(event.text, event.context, await read($, langAtom)))
+      const text = reply.isAnswered ? briefOfReply(reply.text) : null
+      if (text === null) {
+        logExplainFailureOnce($, reply.isAnswered ? 'empty-reply' : reply.reason)
+        explainPausedUntil = now + SUMMARY_RETRY_MS
+        return
+      }
+      const at = await $.clock.now()
+      const write = explainWrites.then(async () => {
+        const kept = Object.entries({ ...(await storedExplainsOf($)), [key]: { text, at } })
+          .sort((a, b) => b[1].at - a[1].at)
+          .slice(0, EXPLAIN_KEEP_MAX)
+        await $.store.set(EXPLAINS_KEY, Object.fromEntries(kept))
+      })
+      explainWrites = write.catch(() => undefined)
+      await write
+    } finally {
+      await setModelLockOf($, lockId, null)
     }
-    const at = await $.clock.now()
-    const write = explainWrites.then(async () => {
-      const kept = Object.entries({ ...(await storedExplainsOf($)), [key]: { text, at } })
-        .sort((a, b) => b[1].at - a[1].at)
-        .slice(0, EXPLAIN_KEEP_MAX)
-      await $.store.set(EXPLAINS_KEY, Object.fromEntries(kept))
-    })
-    explainWrites = write.catch(() => undefined)
-    await write
   }
   void ask()
     .catch((error: unknown) => {

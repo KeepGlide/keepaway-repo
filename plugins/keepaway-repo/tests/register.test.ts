@@ -4164,3 +4164,84 @@ test('a user line with no usable text is final: it is kept for the window life, 
   expect(headCalls(host)).toHaveLength(1)
   expect(await drawnPane($)).not.toContain('Fix the disk full error')
 })
+
+// #25: a second window is this module's memory reset over the same store, so its in-flight sets are empty and only the store's lock can stop it.
+const secondWindow = (): void => {
+  resetStepMemory()
+  resetSummaryMemory()
+}
+
+test('#25: two windows asking for the same explanation make one model call', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: finishedStepTranscript() } })
+  let release: () => void = () => undefined
+  const held = new Promise<void>(resolve => {
+    release = resolve
+  })
+  const calls: string[] = []
+  on('model.complete', async (_$, event) => {
+    calls.push(event.prompt)
+    await held
+    return { value: { isAnswered: true, text: 'Skipped the locked files in the cleaner.', usage: NO_USAGE } }
+  })
+  await openPane($)
+  await host.clock.settle()
+  expect(calls).toHaveLength(1)
+  secondWindow()
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(calls).toHaveLength(1)
+  const lockKey = `model-lock:explain:${SESSION_ID}|${STEP_AT}|${STEP_NAME}`
+  expect(host.store.has(lockKey)).toBe(true)
+  release()
+  await host.clock.settle()
+  const stored = host.store.get('explains') as Record<string, { text: string }> | undefined
+  expect(stored?.[`${SESSION_ID}|${STEP_AT}|${STEP_NAME}`]?.text).toBe('Skipped the locked files in the cleaner.')
+  expect(host.store.has(lockKey)).toBe(false)
+  expect(calls).toHaveLength(1)
+})
+
+test('#25: a second window does not ask for a brief another window is asking for, and the other window\'s line is kept', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine(LONG_PROMPT) } })
+  host.store.set(`model-lock:brief:${OWN_RECORD.sessionId}`, { at: 0 })
+  const calls = stubModel(on, { isAnswered: true, text: 'Handoff: from the second window' })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  await host.clock.settle()
+  expect(calls).toHaveLength(0)
+  expect(host.store.get('briefs')).toBeUndefined()
+  // The first window writes its line and lets go of its lock; the second window draws that line and asks nothing.
+  host.store.delete(`model-lock:brief:${OWN_RECORD.sessionId}`)
+  host.store.set('briefs', { [OWN_RECORD.sessionId]: { text: 'Handoff: from the first window', at: 1 } })
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(calls).toHaveLength(0)
+  expect(await drawnPane($)).toContain('Handoff: from the first window')
+  expect(JSON.stringify(host.store.get('briefs'))).toContain('Handoff: from the first window')
+})
+
+test('#25: a model lock older than its lifetime is ignored, and the ask goes on', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine(LONG_PROMPT) } })
+  host.store.set(`model-lock:brief:${OWN_RECORD.sessionId}`, { at: -180_000 })
+  const calls = stubModel(on, { isAnswered: true, text: 'Handoff: after a stale lock' })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  await host.clock.settle()
+  expect(calls).toHaveLength(1)
+  expect(await drawnPane($)).toContain('Handoff: after a stale lock')
+  expect(host.store.has(`model-lock:brief:${OWN_RECORD.sessionId}`)).toBe(false)
+})
+
+test('#25: a failed model call releases its lock, and the next attempt after the retry time asks again', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine(LONG_PROMPT) } })
+  const calls = stubModel(on, { isAnswered: false, reason: 'overloaded' })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  expect(calls).toHaveLength(1)
+  expect(host.store.has(`model-lock:brief:${OWN_RECORD.sessionId}`)).toBe(false)
+  await host.clock.advance(SUMMARY_RETRY_MS)
+  await host.clock.settle()
+  expect(calls).toHaveLength(2)
+})
