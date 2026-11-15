@@ -10,9 +10,9 @@
 
 **A Claude Code Desktop mod for people who run several sessions on one GitHub repository. It shows which issue each session works on, and what the repository is doing right now.**
 
-[![Version](https://img.shields.io/badge/version-0.2.0--beta.15-2BB8AE.svg)](CHANGELOG.md) [![License: MIT](https://img.shields.io/badge/license-MIT-1E2A47.svg)](LICENSE) ![Platform](https://img.shields.io/badge/Claude%20Code%20Desktop-mod-1E2A47.svg)
+[![Version](https://img.shields.io/badge/version-0.2.0--beta.26-2BB8AE.svg)](CHANGELOG.md) [![License: MIT](https://img.shields.io/badge/license-MIT-1E2A47.svg)](LICENSE) ![Platform](https://img.shields.io/badge/Claude%20Code%20Desktop-mod-1E2A47.svg)
 
-[🌐 Website](https://keepglide.com/keeptrack) · [Installation](#-installation) · [Usage](#-usage) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/KeepGlide/keeptrack/issues/new) · [Security](SECURITY.md)
+[🌐 Website](https://keepglide.com/keeptrack) · [Installation](#-installation) · [Usage](#-usage) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/KeepGlide/keepaway-repo/issues/new) · [Security](SECURITY.md)
 
 </div>
 
@@ -68,7 +68,7 @@ It does **not** change anything on GitHub or in your repository. It does not tra
 - **A band above the prompt** with the state of this window: running or idle, the current tool or MCP server with its icon, the number of agents, the elapsed time, a waiting-for-you state, a data-error state, the milestone progress and the issue number. The band shows the state by its icon alone, with no word.
 - **An Open button** on the band, with the KeepGlide mark before it (the mark shows on Desktop only).
 - **English and Brazilian Portuguese** in the pane and the band.
-- **Repo logo**: on the desktop, a session row shows its repo's logo (16 px) before the title when the repo has one: a PNG or JPEG logo file in the checkout (no SVG), else GitHub's contents, else the avatar of a GitHub organization that owns the repo; a GitLab repo gets its project's avatar through `glab`. A remote named by an ssh alias is read as the host the alias resolves to. Nothing is drawn otherwise.
+- **Repo logo**: on the desktop, a session row shows its repo's logo (32 px) before the title when the repo has one: a PNG or JPEG logo file in the checkout (no SVG), else GitHub's contents, else the avatar of a GitHub organization that owns the repo; a GitLab repo gets its project's avatar through `glab`. A remote named by an ssh alias is read as the host the alias resolves to. Nothing is drawn otherwise.
 - **Links**: on the desktop a session title opens that session. On the desktop, milestones, commits, PRs and issues link to their pages.
 - **Risks first**: above the sessions, chips for an overdue milestone (⚠️), a milestone due within 14 days (📅, `due today` on the day) and the other sessions that stopped waiting for you (⏳, with their issue numbers); then `14 of 24 closed in the open milestones`, the bar, the issues left and the sessions working.
 - **Waiting sessions**: another session whose last turn stopped needing you (the Desktop's post-turn summary, last activity under 24 h) shows ⏳ and a `Needs you:` line of up to 90 characters, and sorts right after this window's session. A group lists 20 top sessions, then `+k more`.
@@ -165,14 +165,14 @@ Restart Claude Code, or run `/reload-plugins` if your version has it. Then run `
 <details>
 <summary><strong>Manual path: load the mod from a clone, without a marketplace</strong></summary>
 
-Clone this repository (it is private: you need read access), then start Claude Code with the mod's folder. The `--plugin-dir` flag loads the plugin for that session only, so repeat it on every start. Not checked in Claude Code Desktop.
+Clone this repository, then start Claude Code with the mod's folder. The `--plugin-dir` flag loads the plugin for that session only, so repeat it on every start. Not checked in Claude Code Desktop.
 
 ```bash
-git clone https://github.com/KeepGlide/keeptrack.git
+git clone https://github.com/KeepGlide/keepaway-repo.git
 ```
 
 ```bash
-claude --plugin-dir keeptrack/plugins/keepaway-repo
+claude --plugin-dir keepaway-repo/plugins/keepaway-repo
 ```
 
 </details>
@@ -184,8 +184,8 @@ claude --plugin-dir keeptrack/plugins/keepaway-repo
 
 Use this path when you have the `.zip` of this repository instead of access to the marketplace. The root holds `.claude-plugin/marketplace.json`, so the extracted folder is a local marketplace. Not checked in Claude Code Desktop.
 
-1. Extract the zip into an empty folder, for example `keeptrack-main`.
-2. In Claude Code, run `/plugin marketplace add ./keeptrack-main` (an absolute path works too).
+1. Extract the zip into an empty folder, for example `keepaway-repo-main`.
+2. In Claude Code, run `/plugin marketplace add ./keepaway-repo-main` (an absolute path works too).
 3. Install from the `/plugin` panel with **+ › Add plugins** (Claude Desktop), or run `/plugin install keepaway-repo@keepglide-local`.
 
 ## 🤖 Install with an AI agent (spec)
@@ -205,7 +205,7 @@ Ground rules:
 | 2 | Check that the repository has a GitHub remote | `git remote get-url origin` | Exit 0 and a URL whose host is `github.com`, or an SSH alias with `github` in its name (for example `git@github-<label>:<owner>/<repo>.git`). Otherwise the pane shows `no GitHub remote for this repo`. |
 | 3 🧑 | Add the marketplace, unless `claude plugin marketplace list` already shows `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Exit 0, and `claude plugin marketplace list` shows `sophia-mods` with `Source: Folder (<path>)`. |
 | 4 🧑 | Install the plugin | `claude plugin install keepaway-repo@sophia-mods` | Exit 0, and `claude plugin list` shows `keepaway-repo@sophia-mods` with `Version: 0.2.0-beta.26` and `Status: ✔ enabled`. |
-| 5 | Check that the command is registered | In a Desktop session, `/keepaway bogus` | A toast with the usage line `Usage: /keepaway open \| issue <n> \| issue none \| lang en\|pt-BR\|auto`. Nothing changes. |
+| 5 | Check that the command is registered | In a Desktop session, `/keepaway bogus` | A toast with the usage line `Usage: /keepaway open \| issue <n> \| issue none \| lang en\|pt-BR\|auto \| summary on\|off`. Nothing changes. |
 | 6 | Open the pane | `/keepaway` | A pane titled `KeepAway Repo` opens. It shows `Loading the repo...`, then the open issues by milestone, or an error line from [Troubleshooting](#-troubleshooting). |
 | 7 | Switch the language to Portuguese | `/keepaway lang pt-BR` | The pane and the band switch to Portuguese. While loading, the pane shows `Carregando o repo...`. |
 | 8 | Return to the automatic language | `/keepaway lang auto` | The stored choice is removed. The language follows the first set variable of `LC_ALL`, `LC_MESSAGES`, `LANG` or `LANGUAGE`: `pt*` gives Portuguese, anything else gives English. |
@@ -328,7 +328,7 @@ Fixed in the code, not configurable:
 
 ## 🐞 Known issues
 
-No known open issues as of 2026-10-22. Found one? [Open an issue](https://github.com/KeepGlide/keeptrack/issues/new).
+No known open issues as of 2026-10-22. Found one? [Open an issue](https://github.com/KeepGlide/keepaway-repo/issues/new).
 
 Known limitations, as the code does them today:
 

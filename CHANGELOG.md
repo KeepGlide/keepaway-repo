@@ -3,13 +3,14 @@
 All notable changes to KeepAway Repo are recorded here, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The project follows
 [SemVer](https://semver.org/); while the version is `0.y.z`, any release may change behavior.
-The version in `plugins/keepaway-repo/.claude-plugin/plugin.json` is 0.2.0-beta.8.
+The version in `plugins/keepaway-repo/.claude-plugin/plugin.json` is 0.2.0-beta.26.
 Commit hashes name the change in `git log`. Entries below the rename keep the names they were written with (KeepTrack, `keeptrack-repo-pane`, `/keeptrack`).
 
 ## [Unreleased]
 
 ### Fixed
 - **Privacy and security text** now matches the code. The README and SECURITY.md list the paid model calls, the avatar downloads and the GitLab calls, and the stored state; they no longer say the mod makes no paid calls or that summaries are never stored.
+- **Install and repository docs** now match the current state. The version badge reads 0.2.0-beta.26, the clone and zip steps use the `keepaway-repo` name and the repository is no longer described as private, the install spec's expected usage toast lists `summary on|off`, and the repo logo is 32 px.
 
 ## [0.2.0-beta.26] - 2026-11-08
 

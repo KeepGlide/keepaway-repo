@@ -10,9 +10,9 @@
 
 **Um mod do Claude Code Desktop para quem mantém várias sessões em um mesmo repositório do GitHub. Ele mostra qual issue cada sessão está trabalhando, e o que o repositório está fazendo agora.**
 
-[![Versão](https://img.shields.io/badge/vers%C3%A3o-0.2.0--beta.15-2BB8AE.svg)](CHANGELOG.md) [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-1E2A47.svg)](LICENSE) ![Plataforma](https://img.shields.io/badge/Claude%20Code%20Desktop-mod-1E2A47.svg)
+[![Versão](https://img.shields.io/badge/vers%C3%A3o-0.2.0--beta.26-2BB8AE.svg)](CHANGELOG.md) [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-1E2A47.svg)](LICENSE) ![Plataforma](https://img.shields.io/badge/Claude%20Code%20Desktop-mod-1E2A47.svg)
 
-[🌐 Site](https://keepglide.com/pt-br/keeptrack) · [Instalação](#-instalação) · [Uso](#-uso) · [Changelog](CHANGELOG.md) · [Reportar um bug](https://github.com/KeepGlide/keeptrack/issues/new) · [Segurança](SECURITY.md)
+[🌐 Site](https://keepglide.com/pt-br/keeptrack) · [Instalação](#-instalação) · [Uso](#-uso) · [Changelog](CHANGELOG.md) · [Reportar um bug](https://github.com/KeepGlide/keepaway-repo/issues/new) · [Segurança](SECURITY.md)
 
 </div>
 
@@ -68,7 +68,7 @@ Ele **não** altera nada no GitHub nem no seu repositório. Não registra tempo,
 - **Uma faixa acima do prompt** com o estado desta janela: executando ou ociosa, a ferramenta ou o servidor MCP atual com seu ícone, a quantidade de agentes, o tempo decorrido, um estado de espera por você, um estado de erro de dados, o progresso do milestone e o número da issue. A faixa mostra o estado só pelo ícone, sem palavra.
 - **Um botão Open** na faixa, com a marca KeepGlide antes dele (a marca aparece só no Desktop).
 - **Inglês e português do Brasil** no painel e na faixa.
-- **Logo do repositório**: no desktop, a linha de uma sessão mostra o logo do repositório (16 px) antes do título, quando o repositório tem um: um arquivo de logo PNG ou JPEG no checkout (sem SVG), senão o conteúdo do GitHub, senão o avatar de uma organização do GitHub dona do repositório. Um repositório GitLab recebe o avatar do projeto pelo `glab`. Um remoto nomeado por um alias de SSH é lido como o host para o qual o alias resolve. Sem logo, nada é desenhado.
+- **Logo do repositório**: no desktop, a linha de uma sessão mostra o logo do repositório (32 px) antes do título, quando o repositório tem um: um arquivo de logo PNG ou JPEG no checkout (sem SVG), senão o conteúdo do GitHub, senão o avatar de uma organização do GitHub dona do repositório. Um repositório GitLab recebe o avatar do projeto pelo `glab`. Um remoto nomeado por um alias de SSH é lido como o host para o qual o alias resolve. Sem logo, nada é desenhado.
 - **Links**: no desktop o título de uma sessão abre essa sessão. No desktop, milestones, commits, PRs e issues levam às suas páginas.
 - **Riscos primeiro**: acima das sessões, chips para milestone atrasado (⚠️), milestone que vence em até 14 dias (📅, `vence hoje` no dia) e as outras sessões que pararam esperando você (⏳, com os números das issues); depois `14 de 24 fechadas nos milestones abertos`, a barra, as issues que faltam e as sessões trabalhando.
 - **Sessões em espera**: outra sessão cujo último turno parou precisando de você (o resumo de fim de turno do Desktop, última atividade há menos de 24 h) mostra ⏳ e uma linha `Precisa de você:` de até 90 caracteres, e vem logo depois da sessão desta janela. Um grupo lista 20 sessões de topo e depois `+k mais`.
@@ -165,14 +165,14 @@ Reinicie o Claude Code, ou rode `/reload-plugins` se a sua versão tiver esse co
 <details>
 <summary><strong>Caminho manual: carregar o mod de um clone, sem marketplace</strong></summary>
 
-Clone este repositório (ele é privado: você precisa de acesso de leitura) e inicie o Claude Code com a pasta do mod. A flag `--plugin-dir` carrega o plugin só para aquela sessão, então repita a cada início. Não conferido no Claude Code Desktop.
+Clone este repositório e inicie o Claude Code com a pasta do mod. A flag `--plugin-dir` carrega o plugin só para aquela sessão, então repita a cada início. Não conferido no Claude Code Desktop.
 
 ```bash
-git clone https://github.com/KeepGlide/keeptrack.git
+git clone https://github.com/KeepGlide/keepaway-repo.git
 ```
 
 ```bash
-claude --plugin-dir keeptrack/plugins/keepaway-repo
+claude --plugin-dir keepaway-repo/plugins/keepaway-repo
 ```
 
 </details>
@@ -184,8 +184,8 @@ claude --plugin-dir keeptrack/plugins/keepaway-repo
 
 Use este caminho quando você tiver o `.zip` deste repositório, sem acesso ao marketplace. A raiz tem `.claude-plugin/marketplace.json`, então a pasta extraída é um marketplace local. Não conferido no Claude Code Desktop.
 
-1. Extraia o zip numa pasta vazia, por exemplo `keeptrack-main`.
-2. No Claude Code, rode `/plugin marketplace add ./keeptrack-main` (um caminho absoluto também funciona).
+1. Extraia o zip numa pasta vazia, por exemplo `keepaway-repo-main`.
+2. No Claude Code, rode `/plugin marketplace add ./keepaway-repo-main` (um caminho absoluto também funciona).
 3. Instale pelo painel `/plugin`, com **+ › Add plugins** (Claude Desktop), ou rode `/plugin install keepaway-repo@keepglide-local`.
 
 ## 🤖 Instalação por um agente de IA (spec)
@@ -205,7 +205,7 @@ Regras de base:
 | 2 | Conferir se o repositório tem um remote no GitHub | `git remote get-url origin` | Saída 0 e uma URL cujo host é `github.com`, ou um alias SSH com `github` no nome (por exemplo `git@github-<label>:<owner>/<repo>.git`). Se não, o painel mostra `sem remote no GitHub para este repo`. |
 | 3 🧑 | Adicionar o marketplace, a menos que `claude plugin marketplace list` já mostre `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Saída 0, e `claude plugin marketplace list` mostra `sophia-mods` com `Source: Folder (<path>)`. |
 | 4 🧑 | Instalar o plugin | `claude plugin install keepaway-repo@sophia-mods` | Saída 0, e `claude plugin list` mostra `keepaway-repo@sophia-mods` com `Version: 0.2.0-beta.26` e `Status: ✔ enabled`. |
-| 5 | Conferir se o comando está registrado | Em uma sessão do Desktop, `/keepaway bogus` | Um toast com a linha de uso `Usage: /keepaway open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em inglês, ou `Uso: /keepaway open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em português. Nada muda. |
+| 5 | Conferir se o comando está registrado | Em uma sessão do Desktop, `/keepaway bogus` | Um toast com a linha de uso `Usage: /keepaway open \| issue <n> \| issue none \| lang en\|pt-BR\|auto \| summary on\|off` em inglês, ou `Uso: /keepaway open \| issue <n> \| issue none \| lang en\|pt-BR\|auto \| summary on\|off` em português. Nada muda. |
 | 6 | Abrir o painel | `/keepaway` | Abre um painel com o título `KeepAway Repo`. Mostra `Carregando o repo...`, depois as issues abertas por milestone, ou uma linha de erro de [Solução de problemas](#-solução-de-problemas). |
 | 7 | Trocar o idioma para português | `/keepaway lang pt-BR` | O painel e a faixa mudam para português. Durante o carregamento, o painel mostra `Carregando o repo...`. |
 | 8 | Voltar ao idioma automático | `/keepaway lang auto` | A escolha guardada é removida. O idioma segue a primeira variável definida entre `LC_ALL`, `LC_MESSAGES`, `LANG` ou `LANGUAGE`: `pt*` dá português; qualquer outra coisa dá inglês. |
@@ -328,7 +328,7 @@ Fixo no código, não configurável:
 
 ## 🐞 Problemas conhecidos
 
-Nenhum problema conhecido em aberto em 2026-10-22. Achou um? [Abra uma issue](https://github.com/KeepGlide/keeptrack/issues/new).
+Nenhum problema conhecido em aberto em 2026-10-22. Achou um? [Abra uma issue](https://github.com/KeepGlide/keepaway-repo/issues/new).
 
 Limitações conhecidas, como o código se comporta hoje:
 
