@@ -330,13 +330,12 @@ Fixo no código, não configurável:
 
 ## 🐞 Problemas conhecidos
 
-Nenhum problema conhecido em aberto em 2026-10-22. Achou um? [Abra uma issue](https://github.com/KeepGlide/keepaway-repo/issues/new).
+As issues em aberto estão na [página de issues](https://github.com/KeepGlide/keepaway-repo/issues). Achou um? [Abra uma issue](https://github.com/KeepGlide/keepaway-repo/issues/new).
 
 Limitações conhecidas, como o código se comporta hoje:
 
 - **Um pull request mesclado não vincula a sua issue.** Só pull requests abertos são consultados, então uma issue cujo PR foi mesclado não mostra esse PR. Contorno: `/keepaway issue <n>` na janela define a issue à mão.
 - **Sessões arquivadas nunca são listadas.** Uma sessão arquivada sai da árvore na hora, mesmo quando a branch dela tem um PR aberto, a menos que seja a sessão desta janela. As derivadas ativas dela continuam listadas no grupo delas, com o título dela só na linha do tempo. Contorno: nenhum; reabra a sessão pela barra lateral do Desktop para vê-la de novo.
-- **Checks sempre mostram `no CI`.** O mod lê o resumo de checks dos pull requests abertos, mas a linha Checks sempre mostra `no CI`, porque os detalhes da issue não repassam esse valor. Os repositórios KeepGlide não rodam GitHub Actions. Contorno: nenhum.
 - **O estado "trabalhando" é uma heurística.** Uma sessão conta como trabalhando por 5 minutos após a última atividade, então a faixa pode atrasar em relação ao estado real. Contorno: nenhum.
 - **Só remotes do GitHub contam.** Um remote em outro host aparece como `no GitHub remote`. O gh é chamado sem host, então um host GitHub Enterprise cujo nome contém `github` é lido do github.com; o mantenedor aceita isso. Contorno: nenhum.
 - **As listas têm limite por consulta.** São lidas 500 issues abertas e 100 pull requests abertos; além disso o painel mostra `list is partial`. Contorno: nenhum. Os totais dos milestones não vêm da lista cortada: o GraphQL os conta, para os primeiros 100 milestones abertos.
@@ -346,17 +345,17 @@ Limitações conhecidas, como o código se comporta hoje:
 | Categoria | Testes |
 |---|---|
 | Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo e detalhes dos eventos, projeção de registros, leitura do fuso UTC (`tests/model.test.ts`) | 129 |
-| Módulo de hooks: consulta, comando do painel, temporizadores, fechamento, fuso UTC do host, leitura das etapas do plano, corpos de commit e explicações das etapas (`tests/register.test.ts`) | 240 |
+| Módulo de hooks: consulta, comando do painel, temporizadores, fechamento, fuso UTC do host, leitura das etapas do plano, corpos de commit e explicações das etapas (`tests/register.test.ts`) | 251 |
 | Faixa: linha de status, estados e botão Open (`tests/band.test.ts`) | 43 |
-| Painel: desenho do snapshot, relógio do host, datas de prazo, o acordeão Anteriores, a linha do tempo do desktop, a linha sob o cabeçalho e os blocos de milestone (`tests/pane.test.ts`) | 136 |
+| Painel: desenho do snapshot, relógio do host, datas de prazo, o acordeão Anteriores, a linha do tempo do desktop, a linha sob o cabeçalho e os blocos de milestone (`tests/pane.test.ts`) | 138 |
 | Idioma: dicionários em inglês e português do Brasil (`tests/i18n.test.ts`) | 11 |
 | Transições de turno da faixa (`tests/turn.test.ts`) | 8 |
 | Logo do repo: busca do arquivo, checagem da imagem e script de download do avatar (`tests/repo-logo.test.ts`) | 15 |
 | Resumo: limpeza do transcript, cortes, a varredura linear das tags e a linha condensada (`tests/summary.test.ts`) | 30 |
 | Etapas do plano: entradas de update_plan e TodoWrite, eventos, a etapa atual, o contexto da etapa e o pedido de explicação (`tests/steps.test.ts`) | 12 |
-| **Total** | **624** |
+| **Total** | **637** |
 
-Contagens de `claude plugin test plugins/keepaway-repo` na árvore 0.2.0-beta.26 (marcadores coloridos, 7 eventos, a linha sob o cabeçalho e os blocos de milestone): 624 aprovados, 0 falhas, 9 arquivos. A verificação de aparência (`scripts/keepaway-look-selftest.sh`) é um script de shell e não entra na contagem.
+Contagens de `claude plugin test plugins/keepaway-repo` na árvore 0.2.0-beta.26 (marcadores coloridos, 7 eventos, a linha sob o cabeçalho e os blocos de milestone): 637 aprovados, 0 falhas, 9 arquivos. A verificação de aparência (`scripts/keepaway-look-selftest.sh`) é um script de shell e não entra na contagem.
 
 ## 🔧 Desenvolvimento
 

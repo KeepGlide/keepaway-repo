@@ -19,6 +19,11 @@ Commit hashes name the change in `git log`. Entries below the rename keep the na
 - **Issue command confirms and refreshes**: the issue command confirms the issue it set or cleared, and refreshes the band at once, with the pane closed too. The language command rejects extra words.
 
 ### Fixed
+- **Window issue stops re-asking GitHub**: a window whose issue GitHub cannot find, or a closed issue outside the open list, is no longer fetched on every poll and shows no failure.
+- **Month-named branches are not issues**: a branch named with a year and month, such as a November timeline branch, no longer ties its window to an issue number.
+- **Checks state in the issue details**: the Checks line shows passing, failing or running for the pull request, and is left out when GitHub does not say.
+- **Long first prompts settle**: a session whose first message is longer than the transcript head gets no summary once, instead of being read again every ten minutes.
+- **Long transcript lines no longer freeze the steps**: a transcript line longer than the read cap is skipped, so the session's later steps still appear.
 - **Privacy and security text** now matches the code. The README and the security policy list the paid model calls, which run only while the pane is open, the avatar downloads, the GitLab calls and the stored state. They no longer say the mod makes no paid calls or that summaries are never stored.
 - **Install and repository docs** now match the current state. The version badge shows 0.2.0-beta.26, the clone and zip steps use the new repository name and no longer call the repository private, the install spec's expected usage toast lists the summary option, and the repo logo is 32 px.
 - **Band icons read their state**: a screen reader now hears running, idle or waiting for the band's state icons.

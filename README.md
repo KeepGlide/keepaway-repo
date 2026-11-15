@@ -330,13 +330,12 @@ Fixed in the code, not configurable:
 
 ## 🐞 Known issues
 
-No known open issues as of 2026-10-22. Found one? [Open an issue](https://github.com/KeepGlide/keepaway-repo/issues/new).
+Open issues are listed on the [issues page](https://github.com/KeepGlide/keepaway-repo/issues). Found one? [Open an issue](https://github.com/KeepGlide/keepaway-repo/issues/new).
 
 Known limitations, as the code does them today:
 
 - **A merged pull request does not link its issue.** Only open pull requests are queried, so an issue whose PR was merged does not show that PR. Workaround: `/keepaway issue <n>` in the window sets the issue by hand.
 - **Archived sessions are never listed.** An archived session leaves the tree at once, even when its branch has an open PR, unless it is this window's session. Its live derived sessions stay listed in their group, with its title only in their timeline. Workaround: none; reopen the session from the Desktop sidebar to see it again.
-- **Checks always read `no CI`.** The mod reads the check rollup of open pull requests, but the Checks line always reads `no CI` because the issue details do not pass it through. The KeepGlide repositories run no GitHub Actions. Workaround: none.
 - **The working state is a heuristic.** A session counts as working for 5 minutes after its last activity, so the band can lag the real state. Workaround: none.
 - **Only GitHub remotes count.** A remote on another host shows as `no GitHub remote`. gh is called without a host, so a GitHub Enterprise host whose name contains `github` is read from github.com; the maintainer accepts this. Workaround: none.
 - **Lists are capped per poll.** 500 open issues and 100 open pull requests are read; past that the pane shows `list is partial`. Workaround: none. The milestone totals do not come from that capped list: GraphQL counts them, for the first 100 open milestones.
@@ -346,17 +345,17 @@ Known limitations, as the code does them today:
 | Category | Tests |
 |---|---|
 | Rules: remote parsing, session tree, issue groups, timelines and event details, record projection, UTC offset parsing (`tests/model.test.ts`) | 129 |
-| Hooks module: poll, pane command, timers, close, host UTC offset, plan-step reads, commit bodies and step explanations (`tests/register.test.ts`) | 240 |
+| Hooks module: poll, pane command, timers, close, host UTC offset, plan-step reads, commit bodies and step explanations (`tests/register.test.ts`) | 251 |
 | Band: status line, states and Open button (`tests/band.test.ts`) | 43 |
-| Pane: snapshot drawing, host clock, due dates, the Earlier accordion, the desktop timeline line, the header rule and the milestone blocks (`tests/pane.test.ts`) | 136 |
+| Pane: snapshot drawing, host clock, due dates, the Earlier accordion, the desktop timeline line, the header rule and the milestone blocks (`tests/pane.test.ts`) | 138 |
 | Language: English and pt-BR dictionaries (`tests/i18n.test.ts`) | 11 |
 | Turn transitions of the band (`tests/turn.test.ts`) | 8 |
 | Repo logo: file lookup, raster checks and the avatar fetch script (`tests/repo-logo.test.ts`) | 15 |
 | Summary: transcript cleanup, cuts, the linear tag scan and the condensed line (`tests/summary.test.ts`) | 30 |
 | Plan steps: update_plan and TodoWrite inputs, events, the current step, step context and the explanation request (`tests/steps.test.ts`) | 12 |
-| **Total** | **624** |
+| **Total** | **637** |
 
-Counts from `claude plugin test plugins/keepaway-repo` on the 0.2.0-beta.26 tree (coloured markers, 7 events, the header rule and the milestone blocks): 624 pass, 0 fail, 9 files. The look self-check (`scripts/keepaway-look-selftest.sh`) is a shell script and is not counted.
+Counts from `claude plugin test plugins/keepaway-repo` on the 0.2.0-beta.26 tree (coloured markers, 7 events, the header rule and the milestone blocks): 637 pass, 0 fail, 9 files. The look self-check (`scripts/keepaway-look-selftest.sh`) is a shell script and is not counted.
 
 ## 🔧 Development
 
