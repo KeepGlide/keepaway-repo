@@ -216,7 +216,7 @@ Each line is drawn above the groups, in the language of the pane. The sessions a
 | Error | Line (en) | When |
 |---|---|---|
 | `gh-missing` | gh not found: showing sessions only | gh cannot start (ENOENT) |
-| `gh-auth` | gh is not signed in | gh exits non-zero with a login message |
+| `gh-auth` | gh is not signed in: run gh auth login (pt-BR `gh sem login: rode gh auth login`) | gh exits non-zero with a login message |
 | `gh-rate-limit` | GitHub rate limit: showing the last data | gh reports the API rate limit; the previous data is kept, `stale` set |
 | `gh-timeout` | GitHub did not answer in time | the 15 s timeout |
 | `gh-failed` | GitHub did not answer as expected: showing the last data | a gh call failed with no mapped cause, or exited 0 with output that cannot be read (R2-02); the last data is kept and `stale` is set |
@@ -227,7 +227,7 @@ Each line is drawn above the groups, in the language of the pane. The sessions a
 
 Each cut list draws its own partial-list line: first 500 for issues, first 100 for PRs; both when both are cut. The limit names the list (`ISSUE_LIMIT` and `PR_LIMIT` in `hooks/register.tsx`, mirrored by `ISSUE_LIST_LIMIT` and `PR_LIST_LIMIT` in `hooks/pane.tsx`); a limit the pane does not know keeps the generic `list is partial (first N)` line (ux-4).
 
-Before any snapshot exists the pane draws `Loading the repo...` (pt-BR `Carregando o repo...`), with no icon (section 19) only while the first poll has not settled. A first poll that settles with no repo context (no snapshot to show, `loadFailed`) draws `Could not read the repo: state unknown` (pt-BR `Não foi possível ler o repo: estado desconhecido`) instead, so the pane never stays on Loading (ux4-2).
+Before any snapshot exists the pane draws `Loading the repo...` (pt-BR `Carregando o repo...`), with no icon (section 19) only while the first poll has not settled. A first poll that settles with no repo context (no snapshot to show, `loadFailed`) draws `Could not read the repo: state unknown. Check the remote with git remote -v, and gh with gh auth login.` (pt-BR `Não foi possível ler o repo: estado desconhecido. Confira o remote com git remote -v, e o gh com gh auth login.`) instead, so the pane never stays on Loading (ux4-2).
 
 A gh answer over 4 MiB (UTF-8 bytes), or cut by the engine, is not parsed: gh-failed.
 
@@ -280,7 +280,7 @@ A poll never throws into the engine: a failed job is logged by its error name on
 ## 10. The breadcrumb and the timeline
 
 - Breadcrumb: `#n · <milestone>`. A derived session carries no origin word or parent number: the tree's indentation already shows the
-  derivation (ux-derived). With no issue: `no issue`. The milestone part is the title of the issue's milestone, open or closed; it is omitted when no title is known, never drawn as `no milestone` (ux-1).
+  derivation (ux-derived). With no issue: `no issue`, and this window's crumb has a muted line under it naming `/keepaway issue <n>` (pt-BR `defina com /keepaway issue <n>`). The milestone part is the title of the issue's milestone, open or closed; it is omitted when no title is known, never drawn as `no milestone` (ux-1).
   On the desktop `#n` links to the issue page when it is a https://github.com page; the milestone part links to the GitHub milestone page (`milestonePageOf`). The milestone is its title up to the first
   ` · `.
 - Timeline: the session's events, newest first, up to 30 (`TIMELINE_LIMIT`). The 7 newest are always drawn; the rest sit behind the session's `Earlier (N)` button (section 22). A `Now: <task>` line comes first when the session has a current task (section 22). The desktop draws the same events on a vertical line instead, with markers for icons (section 24); what follows is the terminal's list. The timeline has no heading, in this window's block or in any other session's: its events are drawn as they are, each with its icon. Kinds, each with its icon: commit (`📝`, subject as plain text),
@@ -395,7 +395,7 @@ or reads a real record. The clock tests pass a fixed offset (`clockOf`, `dateOf`
 | Transcript head read per session | 256 KiB (`head -c`); 5 transcripts read per poll; 200 summaries kept in the store and in memory |
 | Milestone objective | 100 characters, the ellipsis counted (`OBJECTIVE_MAX`) |
 | Milestone heading title | cut at the first ` · `, then 40 characters, the ellipsis counted (`MILESTONE_TITLE_MAX`, Mock S delta 11) |
-| Top-level sessions per group | the first 20 are drawn, then one `+k more` line (pt-BR `+k mais`) for the rest; the header still counts every listed session (`SESSION_LIST_MAX`, Mock S Q7) |
+| Top-level sessions per group | the first 20 are drawn, then a held `+k more` button (pt-BR `+k mais`) for the rest; a press lifts the cut for that group, and the button then reads `Show fewer` (pt-BR `Mostrar menos`) until a second press cuts it again; the header still counts every listed session (`SESSION_LIST_MAX`, Mock S Q7) |
 | Decided line | 200 characters, the ellipsis counted (`DECISION_MAX`) |
 | Summary retry (not final) | 10 minutes (`SUMMARY_RETRY_MS`) |
 | Comment preview | 200 characters |
@@ -481,7 +481,7 @@ Done in the Claude Desktop with the mod installed, not by the build:
   - Idle: the idle icon alone (`💤`), then `<since>`, where since is the last turn's end (`just now`, `5 min ago`, `2 h ago`, `3 d ago`);
     the icon alone before the first turn.
   - The states are icons only: no state word is drawn, in either language, so the band's words are the tool, the agents and the time
-    (pt-BR: `pensando`, `agentes`). A waiting window adds the waiting icon (`⏳`) before the loop's icon.
+    (pt-BR: `pensando`, `agentes`). A waiting window adds the waiting icon (`⏳`) before the loop's icon. An icon drawn alone carries its state's name as alt text (`state.working`, `state.idle`, `state.waiting`), so a screen reader reads the state (WCAG 1.1.1); an icon beside its text keeps alt `""`.
   - Vocabulary by design: the band draws the state icons alone (`🟢`, `💤`, `⏳`), and the pane says `working`, `idle` and
     `waiting` (pt-BR `trabalhando`, `ociosa`, `esperando você`; `state.working`, `state.idle`, `state.waiting` in `hooks/i18n.ts`).
     The two vocabularies are kept apart on purpose.
@@ -491,7 +491,7 @@ Done in the Claude Desktop with the mod installed, not by the build:
   - The transitions are the pure functions of `hooks/turn.ts`, written by the hooks into the atoms `turn: { startedAt, endedAt, tool,
     endedTurnStart }`, `agentRun` and `waiting` (the band's waiting flag, a boolean).
 - Repo context (`bandContextWords`, icons 🎯 and 🛠️): `<milestone> <closed>/<total> · #<n>`. The milestone is this window's milestone
-  title (cut to 24 characters with `…` in the band); the total is the milestone's
+  title (the part before ` · `, then at most 40 characters with `…`, cut at a word: `headingTitleOf` in `hooks/milestone-title.ts`, the pane's heading rule); the total is the milestone's
   `openIssues` plus `closedIssues` (section 4, row 3: GraphQL counts, exact; REST's fallback counts PRs too and is not exact). The milestone part is the title of the issue's milestone, open or closed (pm1-9); it is omitted when no title is known, never drawn as `no milestone` (ux-1). `no issue`
   when the window maps to no issue; `no GitHub remote` when the window has no remote; nothing before the first poll. `#<n>` alone when
   the issue's details are missing (its milestone is then unknown); `no milestone · #<n>` when the details are known and the issue has no milestone (ux-1).
@@ -580,7 +580,7 @@ Above the session groups, in github mode only, since its milestones come from Gi
    - `<title>` is the milestone title up to the first ` · `. N is the milestone's open issues that no session shows (its issue group). The count is exact only when the milestone's counts are exact and the issue list is whole (not cut at 500); otherwise the milestone gets no chip.
    - Waiting (`hero-waiting`): `⏳ N stopped waiting for you · #103, #97` (pt-BR `⏳ N pararam esperando você · …`). It counts the sessions other than this window whose state is `waiting` (section 11 and SPEC §7 post-turn summary). The issue numbers are the sessions' linked issues, in drawing order, at most three then ` +k`; a session with no issue is counted and lists no number. With exactly one session the chip ends with its age: `#103 · 3 h ago` (pt-BR `#103 · há 3 h`), from its last activity (`SessionNode.lastActivityAt`).
 3. Count (`hero-number`, bold, body size): `14 of 24 closed in the open milestones` (pt-BR `14 de 24 fechadas nos milestones abertos`), the closed and total issues of the open milestones. With an inexact count in any open milestone: `~14 of ~24 closed (partial count)` (pt-BR `~14 de ~24 fechadas (contagem parcial)`). With no open milestone or a total of 0: `no open milestone` (pt-BR `nenhum milestone aberto`).
-4. Bar (`hero-bar`): the progress bar with its percentage, drawn once (`progressBarOf`), then `N left` (pt-BR `faltam N`) and `N working` (pt-BR `N trabalhando`), the sessions in the working state. With an inexact count or no open milestone the bar line is the working count alone.
+4. Bar (`hero-bar`): the progress bar with its percentage, drawn once (`progressBarOf`), then `N left` (pt-BR `faltam N`, `falta 1` at one) and `N working` (pt-BR `N trabalhando`), the sessions in the working state. With an inexact count or no open milestone the bar line is the working count alone.
 
 Idle sessions are not in the hero (idle stays as 💤 on the session row). The Labels table already lists ⚠️, 📅 and ⏳ with their meanings, so the hero adds no icon to it.
 
@@ -619,7 +619,7 @@ Owner's review, 2026-11-02: each session shows the task it is on now and the tas
 - Height: the pane has no inner scroll, so a session draws its 7 newest events (`TIMELINE_SHOWN`); the older ones, up to 30, sit behind
   an `Earlier (N)` button (pt-BR `Anteriores (N)`), `▸` closed, `▾` open, like the Labels accordion. Each session opens on its own; the
   open sessions are stored under `timelineOpen` (session ids, the 64 last opened kept; the key is deleted when none is open), read on every
-  draw, so a reload draws the same state. A refused store read draws all closed; a refused read or write is logged once.
+  draw, so a reload draws the same state. A group's lifted cut is kept in the same store under `group:<key>` ids (its group key with the prefix), and those ids share the 64-entry cap. A refused store read draws all closed; a refused read or write is logged once.
 - Labels: a step event has no icon in the terminal, so its Labels table is unchanged; the desktop's table lists the line's markers (section 24).
 
 ## 23. Pane header and tab (shared design)
@@ -652,8 +652,8 @@ newest at the top, each event on one side of it, alternating.
 - Markers (`hooks/timeline-marks.ts`, `markOf`): a circle filled with its kind's colour, white icon and ring, for a release (violet, a tag), a commit (blue), a test (amber, a flask), a PR (pink) or a
   session event (teal, a sprout) (owner's choice C in `docs/mocks/2026-11-08-timeline-markers/`, legible at 26 px); a plain dark dot for any other step; a green circle for the step in progress. A commit or a step whose words name a
   release (`release`, `publish`, `lançamento`, `publicar`, ...) is a release; a step naming a test (`test`, `e2e`, `qa`, `teste`, ...) is a test,
-  one naming a commit a commit. The module holds its own colours, so the look gate skips it (as `logo.ts`). Each marker's alt is its
-  kind (`in progress`, `release`, `commit`, `test`, `pull request`, `session`, `step`).
+  one naming a commit a commit. The module holds its own colours, so the look gate skips it (as `logo.ts`). Each marker's alt is the legend's
+  name for its kind (`now`, `release`, `commit`, `test`, `open PR`, `session event`, `step`; pt-BR from `legend.*.name`, `MARK_NAME_KEY` in `hooks/pane.tsx`).
 - Now: the step whose text is the current task (section 22) gets the green marker. A current task with no step of its own (the
   `postTurnSummary` detail) is a row of its own at the top, `Now` (pt-BR `Agora`) in place of the time; it does not push an event under
   `Earlier`.

@@ -28,7 +28,7 @@ import type { HeldButtons } from './held'
 import { repoLabelOf } from './repo-logo'
 import { HEADER_RULE_COLUMNS, HEADER_RULE_HEIGHT, HEADER_RULE_SVG } from './divider'
 import { TIMELINE_MARK_SIZE, timelineMarkSvg, type MarkKind } from './timeline-marks'
-import { headingTitleOf, titleLabel } from './milestone-title'
+import { TITLE_SEPARATOR, headingTitleOf, titleLabel } from './milestone-title'
 
 type Ui = Elements[RenderSurface]
 // The desktop's table: the timeline's line draws Svg markers and Markdown titles, which only it has.
@@ -95,7 +95,6 @@ const GROUP_INDENT = 1
 // The most top-level sessions one group draws (Mock S Q7); the rest sit behind a "+k more" button that lifts the cut for that group. A group
 // puts this window and the sessions waiting for the person first, so the cut never hides them.
 const SESSION_LIST_MAX = 20
-const TITLE_SEPARATOR = ' · '
 const MINUTE_MS = 60_000
 // The date part of a GitHub due date (YYYY-MM-DD, then the time when GitHub sends one).
 const DATE_LENGTH = 10
