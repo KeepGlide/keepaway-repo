@@ -73,7 +73,7 @@ It does **not** change anything on GitHub or in your repository. It does not tra
 - **Risks first**: above the sessions, chips for an overdue milestone (⚠️), a milestone due within 14 days (📅, `due today` on the day) and the other sessions that stopped waiting for you (⏳, with their issue numbers); then `14 of 24 closed in the open milestones`, the bar, the issues left and the sessions working.
 - **Waiting sessions**: another session whose last turn stopped needing you (the Desktop's post-turn summary, last activity under 24 h) shows ⏳ and a `Needs you:` line of up to 90 characters, and sorts right after this window's session. A group lists 20 top sessions, then `+k more`.
 - **Summary of each session**: a line right under the session's title with its first prompt, cleaned and cut to 93 characters, with no label. `/keepaway summary off` hides it.
-- **Decisions and objectives**: this window's block shows `Decided:` from the newest issue comment by the owner, a member or a collaborator that starts with `Decision:` or `Decisão:`; each milestone shows its description as `Objective:`.
+- **Decisions and objectives**: this window's block shows `Decided:` from the newest comment among the issue's newest 30 comments, by the owner, a member or a collaborator that starts with `Decision:` or `Decisão:`; each milestone shows its description as `Objective:`.
 - **Icons after the title**: state (🟢 working, ⏳ waiting for you, 💤 idle, with no state word), the timeline (📝 commit, 🔀 PR, 🚀 session), issues to do (📋) or in progress (🛠️), milestones (🎯) with a text progress bar, due date (📅) and overdue marker (⚠️), and priorities (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3). A legend at the foot of the pane, an accordion named Labels Descriptions that is closed by default, names each one. The full table is in [SPEC section 19](plugins/keepaway-repo/SPEC.md). The screenshots still show the design from before the icons.
 
 ## 📸 Screenshots
@@ -348,17 +348,17 @@ Known limitations, as the code does them today:
 | Category | Tests |
 |---|---|
 | Rules: remote parsing, session tree, issue groups, timelines and event details, record projection, UTC offset parsing (`tests/model.test.ts`) | 129 |
-| Hooks module: poll, pane command, timers, close, host UTC offset, plan-step reads, commit bodies and step explanations (`tests/register.test.ts`) | 251 |
+| Hooks module: poll, pane command, timers, close, host UTC offset, plan-step reads, commit bodies and step explanations (`tests/register.test.ts`) | 262 |
 | Band: status line, states and Open button (`tests/band.test.ts`) | 43 |
 | Pane: snapshot drawing, host clock, due dates, the Earlier accordion, the desktop timeline line, the header rule and the milestone blocks (`tests/pane.test.ts`) | 138 |
 | Language: English and pt-BR dictionaries (`tests/i18n.test.ts`) | 11 |
 | Turn transitions of the band (`tests/turn.test.ts`) | 8 |
-| Repo logo: file lookup, raster checks and the avatar fetch script (`tests/repo-logo.test.ts`) | 15 |
-| Summary: transcript cleanup, cuts, the linear tag scan and the condensed line (`tests/summary.test.ts`) | 30 |
-| Plan steps: update_plan and TodoWrite inputs, events, the current step, step context and the explanation request (`tests/steps.test.ts`) | 12 |
-| **Total** | **637** |
+| Repo logo: file lookup, raster checks and the avatar fetch script (`tests/repo-logo.test.ts`) | 16 |
+| Summary: transcript cleanup, cuts, the linear tag scan and the condensed line (`tests/summary.test.ts`) | 31 |
+| Plan steps: update_plan and TodoWrite inputs, events, the current step, step context and the explanation request (`tests/steps.test.ts`) | 13 |
+| **Total** | **651** |
 
-Counts from `claude plugin test plugins/keepaway-repo` on the 0.2.0-beta.26 tree (coloured markers, 7 events, the header rule and the milestone blocks): 637 pass, 0 fail, 9 files. The look self-check (`scripts/keepaway-look-selftest.sh`) is a shell script and is not counted.
+Counts from `claude plugin test plugins/keepaway-repo` on the 0.2.0-beta.26 tree (coloured markers, 7 events, the header rule and the milestone blocks): 651 pass, 0 fail, 9 files. The look self-check (`scripts/keepaway-look-selftest.sh`) is a shell script and is not counted.
 
 ## 🔧 Development
 

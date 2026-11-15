@@ -14,12 +14,14 @@ Commit hashes name the change in `git log`. Entries below the rename keep the na
 - **Docs check**: a local script checks that the privacy sections name every program the mod runs and every model call, so the docs cannot drift from the code unnoticed.
 
 ### Changed
+- **Fewer GitHub calls per poll**: the owner avatar takes one account call, and the issue view is one request that keeps the newest 30 comments; a pull request number still shows its details.
 - **Backoff after a GitHub rate limit**: after GitHub's rate limit the pane waits before it reads GitHub again, up to 15 minutes, and its error line says how old the data on screen is.
 - **Briefs wait for the pane**: a long first prompt is condensed only while the pane is open, so a window that never opens it makes no model call.
 - **Own commits only**: a session's timeline lists the commits of its own branch, not the default branch's.
 - **Issue command confirms and refreshes**: the issue command confirms the issue it set or cleared, and refreshes the band at once, with the pane closed too. The language command rejects extra words.
 
 ### Fixed
+- **Hardening**: the language setting falls back to the detected language when it cannot be read; prompt tags are removed from user text sent to the model; logo fetches use a portable base64 encoding; the look check also flags quoted colour codes.
 - **One model call per step across windows**: two windows of one repository no longer ask the model for the same condensed line or step explanation at once.
 - **Window issue stops re-asking GitHub**: a window whose issue GitHub cannot find, or a closed issue outside the open list, is no longer fetched on every poll and shows no failure.
 - **Month-named branches are not issues**: a branch named with a year and month, such as a November timeline branch, no longer ties its window to an issue number.

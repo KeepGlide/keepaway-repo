@@ -73,7 +73,7 @@ Ele **não** altera nada no GitHub nem no seu repositório. Não registra tempo,
 - **Riscos primeiro**: acima das sessões, chips para milestone atrasado (⚠️), milestone que vence em até 14 dias (📅, `vence hoje` no dia) e as outras sessões que pararam esperando você (⏳, com os números das issues); depois `14 de 24 fechadas nos milestones abertos`, a barra, as issues que faltam e as sessões trabalhando.
 - **Sessões em espera**: outra sessão cujo último turno parou precisando de você (o resumo de fim de turno do Desktop, última atividade há menos de 24 h) mostra ⏳ e uma linha `Precisa de você:` de até 90 caracteres, e vem logo depois da sessão desta janela. Um grupo lista 20 sessões de topo e depois `+k mais`.
 - **Resumo de cada sessão**: uma linha logo abaixo do título da sessão com o primeiro prompt, limpo e cortado em 93 caracteres, sem rótulo. `/keepaway summary off` esconde a linha.
-- **Decisões e objetivos**: o bloco desta janela mostra `Decidido:` a partir do comentário mais novo da issue, do dono, de um membro ou de um colaborador, que começa com `Decisão:` ou `Decision:`; cada milestone mostra sua descrição como `Objetivo:`.
+- **Decisões e objetivos**: o bloco desta janela mostra `Decidido:` a partir do comentário mais novo entre os 30 mais recentes da issue, do dono, de um membro ou de um colaborador, que começa com `Decisão:` ou `Decision:`; cada milestone mostra sua descrição como `Objetivo:`.
 - **Ícones depois do título**: estado (🟢 trabalhando, ⏳ esperando você, 💤 ociosa, sem palavra de estado), a linha do tempo (📝 commit, 🔀 PR, 🚀 sessão), issues a fazer (📋) ou em andamento (🛠️), milestones (🎯) com barra de progresso em texto, prazo (📅) e marca de atraso (⚠️), e prioridades (🔴 P0, 🟠 P1, 🟡 P2, ⚪ P3). A legenda no rodapé do painel, uma sanfona chamada Labels Descriptions que começa fechada, nomeia cada um. A tabela completa está na [SPEC, seção 19](plugins/keepaway-repo/SPEC.md). As capturas ainda mostram o desenho anterior aos ícones.
 
 ## 📸 Screenshots
@@ -348,17 +348,17 @@ Limitações conhecidas, como o código se comporta hoje:
 | Categoria | Testes |
 |---|---|
 | Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo e detalhes dos eventos, projeção de registros, leitura do fuso UTC (`tests/model.test.ts`) | 129 |
-| Módulo de hooks: consulta, comando do painel, temporizadores, fechamento, fuso UTC do host, leitura das etapas do plano, corpos de commit e explicações das etapas (`tests/register.test.ts`) | 251 |
+| Módulo de hooks: consulta, comando do painel, temporizadores, fechamento, fuso UTC do host, leitura das etapas do plano, corpos de commit e explicações das etapas (`tests/register.test.ts`) | 262 |
 | Faixa: linha de status, estados e botão Open (`tests/band.test.ts`) | 43 |
 | Painel: desenho do snapshot, relógio do host, datas de prazo, o acordeão Anteriores, a linha do tempo do desktop, a linha sob o cabeçalho e os blocos de milestone (`tests/pane.test.ts`) | 138 |
 | Idioma: dicionários em inglês e português do Brasil (`tests/i18n.test.ts`) | 11 |
 | Transições de turno da faixa (`tests/turn.test.ts`) | 8 |
-| Logo do repo: busca do arquivo, checagem da imagem e script de download do avatar (`tests/repo-logo.test.ts`) | 15 |
-| Resumo: limpeza do transcript, cortes, a varredura linear das tags e a linha condensada (`tests/summary.test.ts`) | 30 |
-| Etapas do plano: entradas de update_plan e TodoWrite, eventos, a etapa atual, o contexto da etapa e o pedido de explicação (`tests/steps.test.ts`) | 12 |
-| **Total** | **637** |
+| Logo do repo: busca do arquivo, checagem da imagem e script de download do avatar (`tests/repo-logo.test.ts`) | 16 |
+| Resumo: limpeza do transcript, cortes, a varredura linear das tags e a linha condensada (`tests/summary.test.ts`) | 31 |
+| Etapas do plano: entradas de update_plan e TodoWrite, eventos, a etapa atual, o contexto da etapa e o pedido de explicação (`tests/steps.test.ts`) | 13 |
+| **Total** | **651** |
 
-Contagens de `claude plugin test plugins/keepaway-repo` na árvore 0.2.0-beta.26 (marcadores coloridos, 7 eventos, a linha sob o cabeçalho e os blocos de milestone): 637 aprovados, 0 falhas, 9 arquivos. A verificação de aparência (`scripts/keepaway-look-selftest.sh`) é um script de shell e não entra na contagem.
+Contagens de `claude plugin test plugins/keepaway-repo` na árvore 0.2.0-beta.26 (marcadores coloridos, 7 eventos, a linha sob o cabeçalho e os blocos de milestone): 651 aprovados, 0 falhas, 9 arquivos. A verificação de aparência (`scripts/keepaway-look-selftest.sh`) é um script de shell e não entra na contagem.
 
 ## 🔧 Desenvolvimento
 
