@@ -154,7 +154,7 @@ Host clock (`date +%z`, `readUtcOffset` in `hooks/register.tsx`): the host's UTC
 2. PR: the open PR whose `headRefName` is the session's branch and whose `closingIssuesReferences` names issues. Several:
    the lowest number. A PR's closing references are read 50 at a time; when GitHub reports more than 50, the PR names no issue
    and the session maps by its branch, title or parent.
-3. Branch: `^(?:[\w.-]+/)?(\d{1,5})-` on the branch, where a leading `YYYY-MM-DD-` date is skipped and is not taken as the number,
+3. Branch: `^(?:[\w.-]+/)?(\d{1,5})-` on the branch, where a leading `YYYY-MM-DD-` date or `YYYY-MM-` month is skipped and is not taken as the number,
    else `issue-(\d{1,6})` (case-insensitive, word boundary); a number outside 1 to 999999 counts as no match. The prefix takes
    1 to 5 digits only: `fix/999999-big` (6 digits) matches neither rule and maps to no issue. The 5-digit cap (review gh3-4)
    keeps a long number at the start of a branch name from being read as an issue. Known leftover: a year-like prefix
