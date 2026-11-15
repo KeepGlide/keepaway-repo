@@ -8,7 +8,7 @@ import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import { ACTION_ICON_SIZE, actionIconEmoji, actionIconSvg, type ActionIconKey } from './action-icons'
 import type { HeldButtons } from './held'
-import { t, type Lang } from './i18n'
+import { t, type Lang, type MessageKey } from './i18n'
 import { renderKeepGlide, renderKeepAwayMark } from './logo-element'
 import type { BandTurn } from './turn'
 
@@ -80,6 +80,9 @@ const TOOL_ICONS = new Map<string, ActionIconKey>([
 ])
 
 const word = (text: string, icon: ActionIconKey | null = null): BandWord => ({ icon, text })
+
+// The state each icon-only word names: its icon is its alt text, so a screen reader reads the state (WCAG 1.1.1).
+const STATE_KEYS: Partial<Record<ActionIconKey, MessageKey>> = { working: 'state.working', idle: 'state.idle', waiting: 'state.waiting' }
 
 // A span of time as the running turn reads it: "42 s", "3 min", "1 h 5 min".
 function spanText(lang: Lang, ms: number): string {
@@ -188,10 +191,11 @@ export function bandWordsText(words: readonly BandWord[]): string {
 }
 
 // The icon of a word in the drawn tree: the SVG on the desktop, its emoji as text on the terminal.
-function iconNodeOf(ui: Ui, desktop: boolean, icon: ActionIconKey, key: string): RenderElement {
+// An icon beside its text is decorative (alt ""); an icon alone names its state (alt is the state's text).
+function iconNodeOf(ui: Ui, desktop: boolean, icon: ActionIconKey, key: string, alt: string): RenderElement {
   if (desktop && 'Svg' in ui) {
     const { Svg } = ui
-    return <Svg key={key} source={actionIconSvg(icon, ACTION_ICON_SIZE)} alt="" width={ACTION_ICON_SIZE} height={ACTION_ICON_SIZE} />
+    return <Svg key={key} source={actionIconSvg(icon, ACTION_ICON_SIZE)} alt={alt} width={ACTION_ICON_SIZE} height={ACTION_ICON_SIZE} />
   }
   const { Text } = ui
   return <Text key={key}>{actionIconEmoji(icon)}</Text>
@@ -199,11 +203,13 @@ function iconNodeOf(ui: Ui, desktop: boolean, icon: ActionIconKey, key: string):
 
 // The words in the drawn tree: each word is its icon and its text, the words apart by the separator. `prefix` keeps the keys of the
 // two lines apart.
-function wordNodes(ui: Ui, desktop: boolean, words: readonly BandWord[], prefix: string): RenderElement[] {
+function wordNodes(ui: Ui, desktop: boolean, lang: Lang, words: readonly BandWord[], prefix: string): RenderElement[] {
   const { Box, Text } = ui
   return words.flatMap((item, index) => {
     const separator = index === 0 ? [] : [<Text key={`${prefix}-sep-${index}`}>{SEPARATOR}</Text>]
-    const icon = item.icon === null ? [] : [iconNodeOf(ui, desktop, item.icon, `${prefix}-icon-${index}`)]
+    const stateKey = item.text === '' && item.icon !== null ? STATE_KEYS[item.icon] : undefined
+    const alt = stateKey === undefined ? '' : t(lang, stateKey)
+    const icon = item.icon === null ? [] : [iconNodeOf(ui, desktop, item.icon, `${prefix}-icon-${index}`, alt)]
     // A state word is its icon alone (the pane's legend names it); other words keep their text.
     const text = item.text === '' ? [] : [<Text key={`${prefix}-text-${index}`}>{item.text}</Text>]
     return [
@@ -228,11 +234,11 @@ export function renderBand(ui: Ui, view: BandView, onOpen: () => void, held: Hel
       <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
         {renderKeepAwayMark(ui, desktop)}
         <Box flexDirection="row" flexWrap="wrap" alignItems="center">
-          {wordNodes(ui, desktop, bandStatusWords(view), 'status')}
+          {wordNodes(ui, desktop, view.lang, bandStatusWords(view), 'status')}
         </Box>
         {context !== null && (
           <Box flexDirection="row" flexWrap="wrap" alignItems="center">
-            {wordNodes(ui, desktop, [...context, ...bandErrorWords(view)], 'context')}
+            {wordNodes(ui, desktop, view.lang, [...context, ...bandErrorWords(view)], 'context')}
           </Box>
         )}
       </Box>

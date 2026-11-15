@@ -382,6 +382,28 @@ test('the KeepGlide mark sits immediately before the Open button on the desktop 
   expect(terminal.some(node => node.props.alt === KEEPGLIDE_ALT)).toBe(false)
 })
 
+const svgAltsOf = (drawn: unknown): string[] => drawnNodes(drawn).filter(node => node.tag === 'Svg').map(node => String(node.props.alt))
+
+// #17 (WCAG 1.1.1): an icon alone names its state in the window's language; an icon beside its text stays decorative.
+test('#17: the state icons read their state as alt text on the desktop, in en and pt-BR', () => {
+  const en = svgAltsOf(renderBand(DESKTOP, view({ surface: 'desktop' }), () => {}, heldButtons()))
+  expect(en).toContain('idle')
+  expect(svgAltsOf(renderBand(DESKTOP, view({ surface: 'desktop', turn: RUNNING }), () => {}, heldButtons()))).toContain('working')
+  expect(svgAltsOf(renderBand(DESKTOP, view({ surface: 'desktop', waiting: true }), () => {}, heldButtons()))).toContain('waiting for you')
+  const pt = view({ surface: 'desktop', lang: 'pt', turn: RUNNING, waiting: true })
+  const ptAlts = svgAltsOf(renderBand(DESKTOP, pt, () => {}, heldButtons()))
+  expect(ptAlts).toContain('trabalhando')
+  expect(ptAlts).toContain('esperando você')
+  expect(svgAltsOf(renderBand(DESKTOP, view({ surface: 'desktop', lang: 'pt' }), () => {}, heldButtons()))).toContain('ociosa')
+})
+
+test('#17: an icon beside its text keeps alt "" (the tool icon of a running turn)', () => {
+  const drawn = drawnNodes(renderBand(DESKTOP, view({ surface: 'desktop', turn: RUNNING }), () => {}, heldButtons()))
+  const shell = drawn.find(node => node.tag === 'Svg' && node.props.source === actionIconSvg('shell', ACTION_ICON_SIZE))
+  expect(shell?.props.alt).toBe('')
+  expect(svgAltsOf(renderBand(DESKTOP, view({ surface: 'desktop', turn: RUNNING }), () => {}, heldButtons()))).toContain('working')
+})
+
 test('R2-05: an agent still running after its turn ended counts the elapsed time from the turn start', () => {
   const turn = turnEnded(turnToolNamed(turnStarted(NOW - 3 * MINUTE), 'Bash'), NOW - MINUTE)
   const words = bandStatusWords(view({ turn, agents: 1, agentsSince: NOW - 2 * MINUTE }))
