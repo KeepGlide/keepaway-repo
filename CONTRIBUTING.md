@@ -23,6 +23,13 @@ bash plugins/keepaway-repo/scripts/keepaway-version-check.sh
 bash plugins/keepaway-repo/scripts/keepaway-version-selftest.sh
 ```
 
+The docs check fails, and names each place, when the Security and privacy sections of both READMEs and SECURITY.md leave out a binary the hooks run (parsed from their source) or a model call. Its self-check plants a new binary and removes a named one in copies and expects a failure:
+
+```bash
+bash plugins/keepaway-repo/scripts/keepaway-docs-check.sh
+bash plugins/keepaway-repo/scripts/keepaway-docs-selftest.sh
+```
+
 ## Layout
 
 | Path | Contents |

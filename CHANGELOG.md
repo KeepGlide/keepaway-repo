@@ -11,6 +11,7 @@ Commit hashes name the change in `git log`. Entries below the rename keep the na
 ### Added
 - **Reach every session**: a "+k more" button opens the rest of a long group, and a window with no issue gets a hint on how to set one.
 - **Version check**: a local release script names each place whose version differs from the plugin manifest, so mixed version strings cannot pass unnoticed.
+- **Docs check**: a local script checks that the privacy sections name every program the mod runs and every model call, so the docs cannot drift from the code unnoticed.
 
 ### Changed
 - **Briefs wait for the pane**: a long first prompt is condensed only while the pane is open, so a window that never opens it makes no model call.
