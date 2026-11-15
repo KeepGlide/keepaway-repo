@@ -2000,12 +2000,15 @@ function parsePullRequestPage(text: string, slug: string): PullRequestPage | nul
 // One GraphQL call for the view: the issue's fields and its newest ISSUE_COMMENTS_MAX comments. `gh issue view` cannot bound its comments,
 // so it is not used; the newest comment and the newest decision are among these (SPEC section 6).
 const ISSUE_COMMENTS_MAX = 30
+// The number may name an issue or a pull request, as `gh issue view` accepts both: the two fragments select the same fields.
+const VIEW_FIELDS = `number title url state
+      milestone { title }
+      comments(last: ${ISSUE_COMMENTS_MAX}) { nodes { createdAt body authorAssociation author { login } } }`
 const ISSUE_VIEW_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
-    issue(number: $number) {
-      number title url state
-      milestone { title }
-      comments(last: ${ISSUE_COMMENTS_MAX}) { nodes { createdAt body authorAssociation author { login } } }
+    issueOrPullRequest(number: $number) {
+      ... on Issue { ${VIEW_FIELDS} }
+      ... on PullRequest { ${VIEW_FIELDS} }
     }
   }
 }`
@@ -2037,7 +2040,7 @@ function commentOf(raw: unknown): IssueComment | null {
 }
 
 function issueViewOf(text: string): IssueView | null {
-  const raw = childOf(childOf(childOf(parseJsonText(text), 'data'), 'repository'), 'issue')
+  const raw = childOf(childOf(childOf(parseJsonText(text), 'data'), 'repository'), 'issueOrPullRequest')
   const number = numberOf(childOf(raw, 'number'))
   const title = textOf(childOf(raw, 'title'))
   const url = textOf(childOf(raw, 'url'))
@@ -2085,8 +2088,8 @@ function detailsOf(view: IssueView, facts: WindowFacts): IssueDetails {
 
 type WindowIssue = { details: IssueDetails | null; stale: boolean; errors: PaneError[] }
 
-// gh's answer for an issue number the repo does not have (a GraphQL "Could not resolve" answer, not a failure).
-const NO_SUCH_ISSUE = /Could not resolve to an Issue/
+// gh's answer for a number the repo has neither as an issue nor as a pull request (an answer, not a failure).
+const NO_SUCH_ISSUE = /Could not resolve to an issue or pull request/
 // How long a view of an issue outside the open list is kept, so a closed issue is not fetched on every poll.
 const UNLISTED_VIEW_MS = 300_000
 

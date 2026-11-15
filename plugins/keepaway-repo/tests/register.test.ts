@@ -50,9 +50,10 @@ const ISSUE_VIEW_JSON = JSON.stringify({
   milestone: { number: 23, title: 'Milestone B' },
   comments: [{ author: { login: 'dev-one' }, createdAt: '2026-10-20T16:00:00Z', body: 'a comment' }],
 })
-// The gh call that views one issue: the GraphQL issue(number) query of issueViewArgvOf in register.tsx, its number an integer argument.
+// The gh call that views one issue or pull request: the GraphQL issueOrPullRequest(number) query of issueViewArgvOf in register.tsx,
+// its number an integer argument.
 function isIssueView(argv: readonly string[]): boolean {
-  return argv[0] === 'gh' && argv.includes('graphql') && argv.some(arg => arg.startsWith('query=') && arg.includes('issue(number:'))
+  return argv[0] === 'gh' && argv.includes('graphql') && argv.some(arg => arg.startsWith('query=') && arg.includes('issueOrPullRequest(number:'))
 }
 function issueNumberOf(argv: readonly string[]): string | undefined {
   return argv.find(arg => arg.startsWith('number='))?.slice('number='.length)
@@ -60,7 +61,7 @@ function issueNumberOf(argv: readonly string[]): string | undefined {
 // The GraphQL answer of an issue view, from a view written as gh's JSON: its comments are the newest 30, as the query asks for.
 function issueViewAnswerOf(json: string): string {
   const issue = JSON.parse(json) as { comments: unknown[] } & Record<string, unknown>
-  return JSON.stringify({ data: { repository: { issue: { ...issue, comments: { nodes: issue.comments.slice(-30) } } } } })
+  return JSON.stringify({ data: { repository: { issueOrPullRequest: { ...issue, comments: { nodes: issue.comments.slice(-30) } } } } })
 }
 const SECRET_TITLE = 'Keep this secret title out of the log'
 // The Desktop config under HOME, read for its sidebar Groups.
@@ -2151,7 +2152,7 @@ test('F13: a gh timeout after a good poll keeps the last good issues and draws i
 const viewCalls = (host: Host): number => host.argvs.filter(argv => isIssueView(argv)).length
 
 test('#19: a number gh does not have is asked once across polls, with no error logged', async ($: Engine, on) => {
-  const host = stubHost(on, { issueViewStderr: 'GraphQL: Could not resolve to an Issue with the number of 999' })
+  const host = stubHost(on, { issueViewStderr: 'gh: Could not resolve to an issue or pull request with the number of 999.' })
   host.store.set(`override:${SESSION_ID}`, { issue: 999, ts: 0 })
   await $.session.start(SESSION)
   await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
@@ -2252,7 +2253,6 @@ const GH_FAILURE_KINDS: [string, GhMode][] = [
   ['connection cut', { exitCode: 1, stderr: 'Post "https://api.github.com/graphql": context deadline exceeded' }],
   ['HTTP 5xx', { exitCode: 1, stderr: 'HTTP 502: Bad Gateway (https://api.github.com/graphql)' }],
   ['GraphQL', { exitCode: 1, stderr: 'GraphQL: Something went wrong while executing your query.' }],
-  ['GraphQL', { exitCode: 1, stderr: 'GraphQL: Could not resolve to an Issue with the number of 99999. (repository.issue)' }],
   ['HTTP 4xx', { exitCode: 1, stderr: 'HTTP 404: Not Found (https://api.github.com/repos/o/r/milestones)' }],
   ['other', { exitCode: 1, stderr: 'synthetic failure' }],
   ['timeout', 'timeout'],
@@ -4311,6 +4311,34 @@ test('#30: the decision is drawn when it is among an issue\'s newest 30 comments
 test('#30: a decision older than the newest 30 comments is not drawn', async ($: Engine, on) => {
   const drawn = await decisionDrawnAt(5, $, on)
   expect(drawn).not.toContain('keep the newest thirty window')
+})
+
+// A window whose number is a pull request draws the pull request's details, as `gh issue view` did before the GraphQL view.
+test('a window whose issue number is a pull request draws its title and newest comment', async ($: Engine, on) => {
+  const pull = JSON.stringify({ ...JSON.parse(ISSUE_VIEW_JSON), number: 40, title: 'Synthetic pull request', state: 'MERGED', url: 'https://github.com/acme/app/pull/40' })
+  const host = stubHost(on, { issueView: pull })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'issue 40', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  // The pane draws the number, the state (a merged pull request reads as closed, as before) and the newest comment; not the title.
+  expect(drawn).toContain('🛠️ #40')
+  expect(drawn).toContain('issue closed')
+  expect(drawn).toContain('a comment')
+  expect(host.argvs.filter(argv => isIssueView(argv)).map(issueNumberOf)).toEqual(['40'])
+})
+
+test('a missing issue or pull request number is asked once across polls and draws the missing line, not an error', async ($: Engine, on) => {
+  const host = stubHost(on, { issueViewStderr: 'gh: Could not resolve to an issue or pull request with the number of 99999.' })
+  host.store.set(`override:${SESSION_ID}`, { issue: 99999, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  await host.clock.advance(POLL_MS)
+  await host.clock.advance(POLL_MS)
+  expect(viewCalls(host)).toBe(1)
+  expect(host.logs.some(line => line.includes('gh issue call failed'))).toBe(false)
 })
 
 // #33: a store that refuses the language setting does not stop a new session: it runs in the detected language and the pane still draws.

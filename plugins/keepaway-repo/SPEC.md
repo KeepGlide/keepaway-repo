@@ -124,7 +124,7 @@ gh calls (argv arrays, no shell; cwd is the repo root; timeout 15 s each):
 | 2 | `gh issue list --repo OWNER/NAME --state open --limit 501 --json number,title,milestone,labels,updatedAt,url` | every poll | open issues (the rows): gh is asked for `ISSUE_LIMIT + 1` (501) and the first 500 are kept; only a 501st issue sets `truncated`, so the truncation line shows only when more than 500 open issues exist. Each issue's milestone title comes from its own `milestone` field, so the issues of a closed milestone keep it (pm1-9) |
 | 3 | `gh api graphql -f query=<milestone query> -f o=OWNER -f r=NAME` | every poll | the exact issue counts of each open milestone: `issues(states: OPEN)` and `issues(states: CLOSED)` `totalCount`, issues only, no PR (pm1-8); the first 100 open milestones; a failed or unreadable answer keeps the REST counts, not exact (see below) |
 | 4 | `gh api graphql -f owner=OWNER -f name=NAME -f query=<PR query>` (`-f` for all of them: `-F` would turn a digit name into a number) | every poll | open PRs (`states: OPEN`, first 100, by update time) with `closingIssuesReferences` (first 50, and their `totalCount`), `reviewDecision`, last commit checks; more than 100 sets `truncated` |
-| 5 | `gh api graphql` with the `issue(number)` query (fields number, title, url, state, milestone, and the newest 30 comments: `comments(last: 30)`; `ISSUE_COMMENTS_MAX`) | only when this window maps to issue `<n>`, and not again while the issue's `updatedAt` in the issue list is unchanged (the last view is reused); an issue outside the open list is kept for 5 minutes, and a number gh says does not exist is kept until the window's number changes | the window's issue (section 6) |
+| 5 | `gh api graphql` with the `issueOrPullRequest(number)` query, two inline fragments (`... on Issue`, `... on PullRequest`) selecting the same fields: number, title, url, state, milestone, and the newest 30 comments: `comments(last: 30)`; `ISSUE_COMMENTS_MAX`. A number of a pull request draws that pull request's details, as `gh issue view` did before | only when this window maps to issue `<n>`, and not again while the issue's `updatedAt` in the issue list is unchanged (the last view is reused); an issue outside the open list is kept for 5 minutes, and a number gh says does not exist is kept until the window's number changes | the window's issue (section 6) |
 
 The PR query is GraphQL because gh 2.45 has no `closingIssuesReferences` JSON field.
 
@@ -185,7 +185,7 @@ When this window's node has an issue, one gh call (section 4, call 5) fills `Iss
 - `startedAt`: the record's `createdAt`.
 
 A failed call keeps no details (`thisIssue` null), sets `stale`, and adds the error line for its failure. A number gh answers as not
-resolvable (`Could not resolve to an Issue`) is a definite no: no details, no error line, no `stale`, and no call again for that number. No call, and no
+resolvable (`Could not resolve to an issue or pull request`, gh's answer for a number that is neither) is a definite no: no details, no error line, no `stale`, and no call again for that number. No call, and no
 details, when the window maps to no issue or the repo is not a GitHub one.
 
 ## 7. The Desktop record fields read
