@@ -104,7 +104,8 @@ export const AVATAR_SIZE_PX = 32
 export const GITHUB_AVATAR_HOST = 'avatars.githubusercontent.com'
 // The fetch: curl through base64, since process.run returns text. The URL is the script's one positional argument, never part of the
 // script. https only (--proto); redirects are not followed (no -L), so the URL fetched is the one checked. The same byte cap as a logo
-// file. The pipe's exit status is base64's, so an empty answer is what a failed fetch looks like. `-w0` is GNU base64.
+// file. The pipe's exit status is base64's, so an empty answer is what a failed fetch looks like. The output is plain `base64`, wrapped
+// over lines; decodedOf strips the whitespace before the decode, so the wrapping never reaches the decoder.
 export const AVATAR_FETCH_SCRIPT = `curl -fsS --proto =https --max-time 8 --max-filesize ${LOGO_MAX_BYTES} -- "$1" | base64`
 
 // The avatar URL a host's answer names, when it is an https URL on that host with no port and no credentials. The URL fetched is the
