@@ -84,6 +84,8 @@ type StubOptions = {
   milestones?: string
   // The answer of `gh issue view` (its comments included); absent: ISSUE_VIEW_JSON.
   issueView?: string
+  // The stderr of every `gh issue view` call, which then fails with exit 1 (an absent number, or a network failure).
+  issueViewStderr?: string
   // The issue counts GraphQL answers for the open milestones (issues only, no PRs); 'fail' is a refused query. Absent: no count answers,
   // so every milestone keeps its REST counts, not exact.
   milestoneCounts?: { number: number; open: number; closed: number }[] | 'fail'
@@ -100,6 +102,8 @@ type StubOptions = {
     closesOther?: number[]
     closesTotal?: number
     isCrossRepository?: boolean
+    // The head commit's checks: a state, 'none' for a head with no rollup, absent for a head the answer does not give (no commit node)
+    checks?: 'SUCCESS' | 'FAILURE' | 'PENDING' | 'ERROR' | 'EXPECTED' | 'none'
   }[]
   branches?: Record<string, string>
   // Git answers as git gives them: a tag named like a branch shortens it to heads/<name>; a detached or unborn HEAD by folder; log stdout.
@@ -168,6 +172,8 @@ type StubOptions = {
   glabAvatarUrl?: string
   // The transcripts of the Desktop, by path: `head -c N` answers their first N characters; a path not given is missing (exit 1).
   transcripts?: Record<string, string>
+  // The engine's stdout cap for `tail`: a longer answer is cut to it and flagged isStdoutTruncated (absent: no cap).
+  tailCap?: number
   // The head read of a transcript is refused (a timeout, the engine's rejection).
   transcriptRefuses?: boolean
 }
@@ -359,9 +365,10 @@ function stubHost(on: On, options: StubOptions = {}): Host {
     }
     if (argv[0] === 'tail') {
       const text = options.transcripts?.[argv[3] ?? '']
-      return text === undefined
-        ? valueOr(argv, processOutput('', 1, 'tail: cannot open the file'))
-        : valueOr(argv, processOutput(text.slice(Number((argv[2] ?? '+1').slice(1)) - 1)))
+      if (text === undefined) return valueOr(argv, processOutput('', 1, 'tail: cannot open the file'))
+      const rest = text.slice(Number((argv[2] ?? '+1').slice(1)) - 1)
+      if (options.tailCap === undefined) return valueOr(argv, processOutput(rest))
+      return valueOr(argv, { ...processOutput(rest.slice(0, options.tailCap)), isStdoutTruncated: rest.length > options.tailCap })
     }
     if (argv[0] === 'date') {
       if (options.dateMissing === true) return refuse('Executable not found in $PATH: "date"')
@@ -443,10 +450,11 @@ async function ghAnswerOf(argv: readonly string[], options: StubOptions): Promis
   if (options.viewGate !== undefined && argv.includes('view')) await options.viewGate
   if (typeof options.gh === 'object') return processOutput('', options.gh.exitCode, options.gh.stderr)
   if (options.gh === 'unreadable') return processOutput('<html>not JSON</html>')
+  if (argv.includes('view') && options.issueViewStderr !== undefined) return processOutput('', 1, options.issueViewStderr)
   if (argv.includes('view')) return processOutput(options.issueView ?? ISSUE_VIEW_JSON)
   if (argv.some(arg => arg.includes('milestones('))) return milestoneCountsOf(options)
   if (argv.includes('graphql')) {
-    const nodes = (options.openPrs ?? []).map(({ closes = [], closesOther = [], closesTotal, isCrossRepository = false, ...pr }) => ({
+    const nodes = (options.openPrs ?? []).map(({ closes = [], closesOther = [], closesTotal, isCrossRepository = false, checks, ...pr }) => ({
       ...pr,
       state: 'OPEN',
       url: `https://github.com/acme/app/pull/${pr.number}`,
@@ -460,7 +468,7 @@ async function ghAnswerOf(argv: readonly string[], options: StubOptions): Promis
           ...closesOther.map(number => ({ number, repository: { nameWithOwner: 'acme/other' } })),
         ],
       },
-      commits: { nodes: [] },
+      commits: { nodes: checks === undefined ? [] : [{ commit: { statusCheckRollup: checks === 'none' ? null : { state: checks } } }] },
     }))
     return processOutput(JSON.stringify({ data: { repository: { pullRequests: { totalCount: options.prTotal ?? nodes.length, nodes } } } }))
   }
@@ -2117,6 +2125,101 @@ test('F13: a gh timeout after a good poll keeps the last good issues and draws i
   expect(host.logs).toContain('keepaway: gh issue call failed (timeout)')
 })
 
+// #19: the window's issue view. A number gh does not have is asked once; a closed issue outside the open list is kept for five minutes;
+// a real failure stays stale and is asked again.
+const viewCalls = (host: Host): number => host.argvs.filter(argv => argv.includes('view')).length
+
+test('#19: a number gh does not have is asked once across polls, with no error logged', async ($: Engine, on) => {
+  const host = stubHost(on, { issueViewStderr: 'GraphQL: Could not resolve to an Issue with the number of 999' })
+  host.store.set(`override:${SESSION_ID}`, { issue: 999, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  await host.clock.advance(POLL_MS)
+  await host.clock.advance(POLL_MS)
+  expect(viewCalls(host)).toBe(1)
+  expect(host.logs.some(line => line.includes('gh issue call failed'))).toBe(false)
+})
+
+test('#19: a closed issue outside the open list is fetched once within its five-minute time-to-live', async ($: Engine, on) => {
+  const closed = JSON.stringify({ ...JSON.parse(ISSUE_VIEW_JSON), state: 'CLOSED' })
+  const host = stubHost(on, { issueView: closed })
+  host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  for (let poll = 0; poll < 4; poll++) await host.clock.advance(POLL_MS)
+  expect(viewCalls(host)).toBe(1)
+  await host.clock.advance(POLL_MS)
+  expect(viewCalls(host)).toBe(2)
+})
+
+test('#19: a real gh failure marks the window issue stale and is asked again on the next poll', async ($: Engine, on) => {
+  const host = stubHost(on, { issueViewStderr: 'error connecting to api.github.com\ncheck your internet connection' })
+  host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const first = viewCalls(host)
+  await host.clock.advance(POLL_MS)
+  expect(viewCalls(host)).toBeGreaterThan(first)
+  expect(host.logs.some(line => line.includes('gh issue call failed'))).toBe(true)
+})
+
+// #21: the window's Checks line shows the PR's head checks state; no PR or an unknown rollup draws no Checks line.
+type GhChecks = 'SUCCESS' | 'FAILURE' | 'PENDING' | 'ERROR' | 'EXPECTED' | 'none'
+const CHECKS_WORDS: [GhChecks, string, string][] = [
+  ['SUCCESS', 'passing', 'passando'],
+  ['FAILURE', 'failing', 'falhando'],
+  ['PENDING', 'running', 'em andamento'],
+]
+
+for (const [checks, en, pt] of CHECKS_WORDS) {
+  test(`#21: a window PR whose checks are ${checks} draws "${en}" in English and "${pt}" in pt-BR`, async ($: Engine, on) => {
+    const host = stubHost(on, { openPrs: [{ number: 40, title: 'Fix', headRefName: 'feature/disk', checks }] })
+    host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
+    await $.session.start(SESSION)
+    await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+    await host.clock.settle()
+    const english = await drawnPane($)
+    expect(english).toContain('"Checks:"')
+    expect(english).toContain(`"${en}"`)
+    await $.command.run({ command: 'keepaway', args: 'lang pt-BR', ...COMMAND_CONTEXT })
+    const portuguese = await drawnPane($)
+    expect(portuguese).toContain('"Checks:"')
+    expect(portuguese).toContain(`"${pt}"`)
+  })
+}
+
+test('#21: a window PR with an empty rollup draws "no CI"', async ($: Engine, on) => {
+  const host = stubHost(on, { openPrs: [{ number: 40, title: 'Fix', headRefName: 'feature/disk', checks: 'none' }] })
+  host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain('"Checks:"')
+  expect(drawn).toContain('"no CI"')
+})
+
+test('#21: a window with no PR draws no Checks line', async ($: Engine, on) => {
+  const host = stubHost(on)
+  host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(await drawnPane($)).not.toContain('Checks')
+})
+
+test('#21: a window PR whose head commit the answer does not give draws no Checks line', async ($: Engine, on) => {
+  const host = stubHost(on, { openPrs: [{ number: 40, title: 'Fix', headRefName: 'feature/disk' }] })
+  host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(await drawnPane($)).not.toContain('Checks')
+})
+
 // The log names each gh failure's kind, and never its stderr (F03).
 const GH_FAILURE_KINDS: [string, GhMode][] = [
   ['network/DNS', { exitCode: 1, stderr: 'error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com' }],
@@ -3503,6 +3606,41 @@ test('a session with no activity since its last read is not read again', async (
   await host.clock.advance(POLL_MS)
   await host.clock.settle()
   expect(tailCalls(host)).toHaveLength(first)
+})
+
+// #22: a first user line longer than the head cap settles as a session with no summary text, and its head is not read again.
+test('#22: a first user line longer than the head cap gives a final summary with no text, and its head is not read again', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine(`Pasted image ${'A'.repeat(300 * 1024)}`) } })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  const first = headCalls(host).length
+  expect(first).toBeGreaterThan(0)
+  await host.clock.advance(11 * 60_000)
+  await host.clock.settle()
+  expect(headCalls(host)).toHaveLength(first)
+  expect(await drawnPane($)).not.toContain('Pasted image')
+})
+
+// #23: a transcript line longer than the tail cap is skipped whole, so the steps after it still appear; the same bytes are not read again.
+test('#23: a transcript line longer than the read cap is skipped, and the steps after it appear on the following polls', async ($: Engine, on) => {
+  const cap = 1024
+  const oversized = JSON.stringify({ type: 'assistant', padding: 'x'.repeat(3 * cap) }) + '\n'
+  const transcript =
+    userLine('Fix the disk full error') +
+    oversized +
+    planLine('2026-11-02T10:19:00Z', [{ content: 'Later step', status: 'in_progress' }])
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: transcript }, tailCap: cap })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  for (let poll = 0; poll < 6; poll++) {
+    await host.clock.advance(POLL_MS)
+    await host.clock.settle()
+  }
+  expect(await drawnPane($)).toContain('Later step')
+  const offsets = tailCalls(host).map(argv => argv[2])
+  expect(new Set(offsets).size).toBe(offsets.length)
 })
 
 test('a transcript whose last line has no newline yet keeps that line for the next read', async ($: Engine, on) => {

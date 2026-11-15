@@ -43,7 +43,7 @@ const ISSUE_NUMBER_MAX = 999_999
 const URL_REMOTE = /^(?:https|ssh):\/\/(?:[^@/\s]+@)?([A-Za-z0-9.-]+)(?::\d{1,5})?\/([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})\/?/
 const SCP_REMOTE = /^(?:[^@/:\s]+@)?([A-Za-z0-9._-]+):([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})\/?/
 const SESSION_LINK_ID = /^local_[A-Za-z0-9_-]{1,128}/
-const BRANCH_NUMBER_PREFIX = /^(?:[\w.-]+\/)?(?!\d{4}-\d{2}-\d{2}-)(\d{1,5})-/g
+const BRANCH_NUMBER_PREFIX = /^(?:[\w.-]+\/)?(?!\d{4}-\d{2}-(?:\d{2}-)?)(\d{1,5})-/g
 const BRANCH_ISSUE_WORD = /\bissue-(\d{1,6})\b/gi
 const TITLE_NUMBER = /#(\d{1,6})\b/g
 
@@ -201,8 +201,8 @@ function firstIssueOf(text: string, pattern: RegExp): number | null {
 }
 
 // The issue a branch names (repo-work-pane-design-spec.md D1, step 3): a leading number after an optional prefix first, as gh's
-// <n>-<slug> names it, so an issue-<n> word in the slug does not win; a leading date such as 2026-10-22- is skipped, and a number of
-// more than 5 digits names no issue. Else an
+// <n>-<slug> names it, so an issue-<n> word in the slug does not win; a leading date such as 2026-10-22- or month such as 2026-11- is skipped, and a number of
+// more than 5 digits names no issue. A leading YYYY-MM- (a month, such as 2026-11-timeline) is skipped the same way. Else an
 // issue-<n> word.
 export function issueFromBranch(branch: string): number | null {
   return firstIssueOf(branch, BRANCH_NUMBER_PREFIX) ?? firstIssueOf(branch, BRANCH_ISSUE_WORD)

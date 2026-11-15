@@ -14,6 +14,7 @@ import {
   SUMMARY_KEEP_MAX,
   SUMMARY_RETRY_MS,
   TRANSCRIPT_HEAD_BYTES,
+  headIsCutOf,
   briefOfReply,
   briefRequestOf,
   hasUserLine,
@@ -200,7 +201,7 @@ type Cached<T> = { size: number; mtimeMs: number; value: T }
 type Timer = ReturnType<EngineInterface['clock']['every']>
 type Commit = { at: number; subject: string; sha: string | null; detail: string | null }
 type IssueComment = { author: string; association: string; at: number; body: string }
-type GhOutcome = { ok: true; stdout: string; oversized: boolean } | { ok: false; error: PaneError; kind: string }
+type GhOutcome = { ok: true; stdout: string; oversized: boolean } | { ok: false; error: PaneError; kind: string; missing: boolean }
 type GithubMemory = {
   key: string
   milestones: Milestone[]
@@ -1007,14 +1008,16 @@ async function transcriptHeadOf($: EngineInterface, record: ProjectedRecord): Pr
 }
 
 // A session's summary from its transcript, and whether it is final: the first prompt, cut, or no text when the transcript has a user line
-// with none, which is final. A missing or refused transcript, or one with no user line yet (a session that has just started), is not:
-// it is read again after SUMMARY_RETRY_MS.
+// with none, which is final. A head that reached its cap with no complete user line (a first line longer than the cap) is final with no
+// text too: the line is never read whole. A missing or refused transcript, or one with no user line yet (a session that has just
+// started), is not: it is read again after SUMMARY_RETRY_MS.
 async function readSummaryOf($: EngineInterface, record: ProjectedRecord): Promise<{ summary: SessionSummary; final: boolean; longPrompt: string | null }> {
   const head = await transcriptHeadOf($, record)
   if (head === null) return { summary: { text: null }, final: false, longPrompt: null }
   const prompt = promptOfTranscript(head)
   const text = prompt === null ? null : shownPromptOf(prompt)
-  return { summary: { text }, final: text !== null || hasUserLine(head), longPrompt: prompt !== null && needsBrief(prompt) ? prompt : null }
+  const final = text !== null || hasUserLine(head) || headIsCutOf(head)
+  return { summary: { text }, final, longPrompt: prompt !== null && needsBrief(prompt) ? prompt : null }
 }
 
 // The stored condensed lines, by session id; anything malformed is left out.
@@ -1163,13 +1166,18 @@ function completeLinesOf(text: string): { lines: string[]; bytes: number } {
   return { lines: whole.split('\n').slice(0, -1), bytes: new TextEncoder().encode(whole).length }
 }
 
-// The bytes of a session's transcript after an offset, read with tail; null when the session has no transcript path, or the read fails.
-async function transcriptTailOf($: EngineInterface, record: ProjectedRecord, offset: number): Promise<string | null> {
+// The bytes of a session's transcript after an offset, read with tail, and whether the engine cut them at its stdout cap (truncated);
+// null when the session has no transcript path, or the read fails.
+async function transcriptTailOf(
+  $: EngineInterface,
+  record: ProjectedRecord,
+  offset: number,
+): Promise<{ text: string; truncated: boolean } | null> {
   const home = await $.env.get('HOME')
   if (!home || record.cwd === null || !TRANSCRIPT_ID.test(record.cliSessionId)) return null
   const path = `${home}/.claude/projects/${transcriptFolderOf(record.cwd)}/${record.cliSessionId}.jsonl`
   const run = await $.process.run(['tail', '-c', `+${offset + 1}`, path], { timeoutMs: TRANSCRIPT_TIMEOUT_MS })
-  return run.exitCode === 0 ? run.stdout : null
+  return run.exitCode === 0 ? { text: run.stdout, truncated: run.isStdoutTruncated } : null
 }
 
 // Keeps one session's step memory; past STEP_SESSIONS_MAX the least recently read session goes.
@@ -1191,17 +1199,21 @@ async function stepsOfSessions($: EngineInterface, records: readonly ProjectedRe
     if (reads < STEP_READS_PER_POLL && (known === undefined || record.lastActivityAt > known.activityAt)) {
       reads += 1
       const offset = known?.offset ?? 0
-      const text = await transcriptTailOf($, record, offset).catch((error: unknown) => {
+      const tail = await transcriptTailOf($, record, offset).catch((error: unknown) => {
         logStepsFailureOnce($, error)
         return null
       })
-      if (text !== null) {
-        const read = completeLinesOf(text)
+      if (tail !== null) {
+        const read = completeLinesOf(tail.text)
+        const size = new TextEncoder().encode(tail.text).length
+        // A read the engine cut at its cap with no newline in it is one line longer than the cap: that part is skipped whole, so the
+        // next read starts past it instead of reading the same bytes again.
+        const bytes = read.bytes === 0 && tail.truncated ? size : read.bytes
         memory = {
-          offset: offset + read.bytes,
+          offset: offset + bytes,
           cursor: stepsAfter(known?.cursor ?? EMPTY_CURSOR, read.lines),
-          // A read that left a partial line (half-written, or past the engine's cut) is read again on the next poll.
-          activityAt: read.bytes === new TextEncoder().encode(text).length ? record.lastActivityAt : Number.NEGATIVE_INFINITY,
+          // A read that left a partial line (half-written) or stopped at the cap is read again on the next poll.
+          activityAt: bytes === size && !tail.truncated ? record.lastActivityAt : Number.NEGATIVE_INFINITY,
         }
         rememberSteps(record.sessionId, memory)
       }
@@ -1407,7 +1419,9 @@ const logoCache = new Map<string, StoredLogo>()
 // The store operations this window has logged a failure of, once each (the error's name only).
 const loggedLogoFailures = new Set<string>()
 // This window's last issue view and the updatedAt it was read at: the same updatedAt means the same issue, so the call is not repeated.
-let windowIssueMemory: { key: string; updatedAt: string; view: IssueView } | undefined
+// The window's issue view, kept for its key: while the issue is in the open list it lasts until its updatedAt moves; an issue outside
+// the list is kept for UNLISTED_VIEW_MS, and a number gh says does not exist (view null) until the key changes.
+let windowIssueMemory: { key: string; updatedAt: string | undefined; view: IssueView | null; until: number } | undefined
 // Whether glab runs on this host, once a definite answer is in (a timeout is asked again).
 let glabFound: boolean | undefined
 // The host of gh's own GitHub: gh is asked only for it (an enterprise or alias host has no --hostname here).
@@ -1749,13 +1763,13 @@ async function runGh($: EngineInterface, argv: readonly string[], cwd: string): 
     const run = await $.process.run(['gh', ...argv], { cwd, timeoutMs: GH_TIMEOUT_MS })
     if (run.exitCode !== 0) {
       const error = ghExitError(run.stderr)
-      return { ok: false, error, kind: ghFailureKind(error, run.stderr) }
+      return { ok: false, error, kind: ghFailureKind(error, run.stderr), missing: NO_SUCH_ISSUE.test(run.stderr) }
     }
     const oversized = run.isStdoutTruncated || new TextEncoder().encode(run.stdout).byteLength > GH_OUTPUT_MAX_BYTES
     return { ok: true, stdout: run.stdout, oversized }
   } catch (error) {
     const paneError = ghStartError(error)
-    return { ok: false, error: paneError, kind: ghFailureKind(paneError) }
+    return { ok: false, error: paneError, kind: ghFailureKind(paneError), missing: false }
   }
 }
 
@@ -1880,9 +1894,15 @@ function closingIssuesOf(references: unknown, slug: string): number[] {
   })
 }
 
+// The head commit's checks: 'none' when the head has no rollup (GitHub's null, no checks ran), its rollup state, or null when the head
+// or its answer is missing.
 function checksOf(commits: unknown): PullRequest['checks'] {
   const [head] = asArray(childOf(commits, 'nodes'))
-  return oneOf(childOf(childOf(childOf(head, 'commit'), 'statusCheckRollup'), 'state'), CHECK_STATES)
+  const commit = childOf(head, 'commit')
+  if (commit === undefined || commit === null) return null
+  const rollup = childOf(commit, 'statusCheckRollup')
+  if (rollup === null) return 'none'
+  return oneOf(childOf(rollup, 'state'), CHECK_STATES)
 }
 
 function pullRequestOf(raw: unknown, slug: string): PullRequest | null {
@@ -1989,7 +2009,7 @@ function detailsOf(view: IssueView, facts: WindowFacts): IssueDetails {
         ? null
         : { number: pr.number, title: pr.title, state: pr.state, reviewDecision: pr.reviewDecision, url: pr.url },
     lastCommit: facts.lastCommit,
-    checks: null,
+    checks: pr?.checks ?? null,
     lastComment: view.lastComment,
     decision: view.decision,
     startedAt: facts.node.createdAt,
@@ -1997,6 +2017,11 @@ function detailsOf(view: IssueView, facts: WindowFacts): IssueDetails {
 }
 
 type WindowIssue = { details: IssueDetails | null; stale: boolean; errors: PaneError[] }
+
+// gh's answer for an issue number the repo does not have (a GraphQL "Could not resolve" answer, not a failure).
+const NO_SUCH_ISSUE = /Could not resolve to an Issue/
+// How long a view of an issue outside the open list is kept, so a closed issue is not fetched on every poll.
+const UNLISTED_VIEW_MS = 300_000
 
 const NO_WINDOW_ISSUE: WindowIssue = { details: null, stale: false, errors: [] }
 
@@ -2013,13 +2038,15 @@ async function windowIssueOf(
   if (issue === null) return NO_WINDOW_ISSUE
   const errors = new Set<PaneError>()
   const view = await windowViewOf($, root, repo, issue.number, updatedAt, errors)
+  if (view === null) return NO_WINDOW_ISSUE
   return view === undefined
     ? { details: null, stale: true, errors: [...errors] }
     : { details: detailsOf(view, facts), stale: false, errors: [] }
 }
 
-// The issue view of this window's issue. The last one is reused while the issue's updatedAt has not changed (a comment or an edit moves
-// it), so a poll that finds no change makes no call; an issue the open list does not hold (no updatedAt) is always asked.
+// The issue view of this window's issue, or null for a number gh does not have, or undefined when the call failed. The last one is
+// reused while the issue's updatedAt has not changed (a comment or an edit moves it), so a poll that finds no change makes no call; an
+// issue the open list does not hold is kept for UNLISTED_VIEW_MS, and a missing number until the key changes.
 async function windowViewOf(
   $: EngineInterface,
   root: string,
@@ -2027,13 +2054,34 @@ async function windowViewOf(
   number: number,
   updatedAt: string | undefined,
   errors: Set<PaneError>,
-): Promise<IssueView | undefined> {
+): Promise<IssueView | null | undefined> {
   const key = `${slugOf(repo).toLowerCase()}#${number}`
+  const now = await $.clock.now()
   const last = windowIssueMemory
-  if (updatedAt !== undefined && last?.key === key && last.updatedAt === updatedAt) return last.view
+  if (last?.key === key && last.updatedAt === updatedAt && (updatedAt !== undefined || now < last.until)) return last.view
   const argv = ['issue', 'view', String(number), '--repo', slugOf(repo), '--json', ISSUE_VIEW_FIELDS]
-  const view = await fetchPart($, argv, root, issueViewOf, errors)
-  if (view !== undefined && updatedAt !== undefined) windowIssueMemory = { key, updatedAt, view }
+  const outcome = await runGh($, argv, root)
+  if (!outcome.ok && outcome.missing) {
+    windowIssueMemory = { key, updatedAt, view: null, until: Number.POSITIVE_INFINITY }
+    return null
+  }
+  if (!outcome.ok) {
+    errors.add(outcome.error)
+    logLine($, `gh issue call failed (${outcome.kind})`)
+    return undefined
+  }
+  const view = outcome.oversized ? null : issueViewOf(outcome.stdout)
+  if (view === null) {
+    errors.add('gh-failed')
+    logLine($, 'gh issue answer not readable')
+    return undefined
+  }
+  windowIssueMemory = {
+    key,
+    updatedAt,
+    view,
+    until: updatedAt === undefined ? now + UNLISTED_VIEW_MS : Number.POSITIVE_INFINITY,
+  }
   return view
 }
 
