@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-check of the look gate (scripts/keepaway-look-check.sh): the real tree passes; an emoji in a drawn module fails; an emoji in
 # action-icons.ts, the one module that holds every emoji, passes; a hex colour in that module still fails. It works on a copy in a
-# temp folder, so the plugin tree is never edited. Exit 0 when every case behaves as stated, 1 otherwise.
+# temp folder, so the plugin tree is never edited. It also checks that a quoted 3, 6 or 8 digit hash fails, and an issue number in a comment passes. Exit 0 when every case behaves as stated, 1 otherwise.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -45,5 +45,17 @@ expect "an emoji in action-icons.ts passes (the one icon module)" pass
 fresh_copy
 printf "export const TINT = '#a1b2c3'\n" >> "$work/hooks/action-icons.ts"
 expect "a hex colour in action-icons.ts still fails" fail
+
+fresh_copy
+printf "export const BLACK = '#000'\n" >> "$work/hooks/pane.tsx"
+expect "a quoted 3-digit hex colour with no letter fails" fail
+
+fresh_copy
+printf "export const GREY = \"#333333\"\n" >> "$work/hooks/pane.tsx"
+expect "a quoted 6-digit hex colour with no letter fails" fail
+
+fresh_copy
+printf "// the issue is #106, not a colour\n" >> "$work/hooks/pane.tsx"
+expect "an unquoted issue number in a comment passes" pass
 
 exit "$failed"

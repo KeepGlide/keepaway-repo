@@ -42,7 +42,6 @@ const BAND_TICK_MS = 30_000
 const ISSUE = 106
 // How many of the first git remote reads of the failing common dir fail (the membership read and the candidate read of one poll).
 const FIRST_READS_FAILING = 2
-const ISSUE_VIEW_ARGV = ['gh', 'issue', 'view', String(ISSUE), '--repo', 'acme/app', '--json', 'number,title,url,state,milestone,comments']
 const ISSUE_VIEW_JSON = JSON.stringify({
   number: ISSUE,
   title: 'Synthetic issue',
@@ -51,6 +50,19 @@ const ISSUE_VIEW_JSON = JSON.stringify({
   milestone: { number: 23, title: 'Milestone B' },
   comments: [{ author: { login: 'dev-one' }, createdAt: '2026-10-20T16:00:00Z', body: 'a comment' }],
 })
+// The gh call that views one issue or pull request: the GraphQL issueOrPullRequest(number) query of issueViewArgvOf in register.tsx,
+// its number an integer argument.
+function isIssueView(argv: readonly string[]): boolean {
+  return argv[0] === 'gh' && argv.includes('graphql') && argv.some(arg => arg.startsWith('query=') && arg.includes('issueOrPullRequest(number:'))
+}
+function issueNumberOf(argv: readonly string[]): string | undefined {
+  return argv.find(arg => arg.startsWith('number='))?.slice('number='.length)
+}
+// The GraphQL answer of an issue view, from a view written as gh's JSON: its comments are the newest 30, as the query asks for.
+function issueViewAnswerOf(json: string): string {
+  const issue = JSON.parse(json) as { comments: unknown[] } & Record<string, unknown>
+  return JSON.stringify({ data: { repository: { issueOrPullRequest: { ...issue, comments: { nodes: issue.comments.slice(-30) } } } } })
+}
 const SECRET_TITLE = 'Keep this secret title out of the log'
 // The Desktop config under HOME, read for its sidebar Groups.
 const DESKTOP_CONFIG_DIR = `${HOME}/.config/Claude`
@@ -163,6 +175,8 @@ type StubOptions = {
   // The store refuses every read, write and delete of a logo key (logo:, logo-lock:): the pane must go on.
   logoStoreRefuses?: boolean
   // The store refuses every read, write and delete of the legend's open state (legendOpen): the pane draws the legend closed and goes on.
+  // The store refuses every read of the language setting (lang): a new session starts in the detected language.
+  langStoreRefuses?: boolean
   legendStoreRefuses?: boolean
   // `glab --version` times out (the engine's process timeout): the answer is asked again, not kept.
   glabTimesOut?: boolean
@@ -179,6 +193,8 @@ type StubOptions = {
 }
 type Host = {
   argvs: string[][]
+  // The gh and glab calls with the directory each ran from (the engine's process.run cwd).
+  remoteCalls: { argv: string[]; cwd: string | undefined }[]
   toasts: string[]
   logs: string[]
   store: Map<string, unknown>
@@ -220,6 +236,7 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   const records = options.records ?? [OWN_RECORD]
   const host: Host = {
     argvs: [],
+    remoteCalls: [],
     toasts: [],
     logs: [],
     store: new Map(),
@@ -267,7 +284,9 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   const seededLogo = { source: null, at: Number.MAX_SAFE_INTEGER, failed: false }
   // The logo keys (logo: and logo-lock:) are refused when the test says so; every other key is kept as before.
   const refusesKey = (key: string): boolean =>
-    (options.logoStoreRefuses === true && key.startsWith('logo')) || (options.legendStoreRefuses === true && key === 'legendOpen')
+    (options.logoStoreRefuses === true && key.startsWith('logo')) ||
+    (options.legendStoreRefuses === true && key === 'legendOpen') ||
+    (options.langStoreRefuses === true && key === 'lang')
   on('store.get', (_$, event) => {
     if (refusesKey(event.key)) return refuse('logo store unavailable')
     return {
@@ -356,6 +375,7 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   on('process.run', async (_$, event) => {
     const argv = [...event.argv]
     host.argvs.push(argv)
+    if (argv[0] === 'gh' || argv[0] === 'glab') host.remoteCalls.push({ argv, cwd: (event as { init?: { cwd?: string } }).init?.cwd })
     if (argv[0] === 'head') {
       if (options.transcriptRefuses === true) return refuse(REJECTION_OF.timeout)
       const text = options.transcripts?.[argv[3] ?? '']
@@ -447,11 +467,11 @@ function milestoneCountsOf(options: StubOptions): ProcessOutput {
 // The result of a gh call under the mode the test chose; undefined for a call no test expects. `gh api` answers the milestones.
 async function ghAnswerOf(argv: readonly string[], options: StubOptions): Promise<ProcessOutput | undefined> {
   if (options.gate !== undefined) await options.gate
-  if (options.viewGate !== undefined && argv.includes('view')) await options.viewGate
+  if (options.viewGate !== undefined && isIssueView(argv)) await options.viewGate
   if (typeof options.gh === 'object') return processOutput('', options.gh.exitCode, options.gh.stderr)
   if (options.gh === 'unreadable') return processOutput('<html>not JSON</html>')
-  if (argv.includes('view') && options.issueViewStderr !== undefined) return processOutput('', 1, options.issueViewStderr)
-  if (argv.includes('view')) return processOutput(options.issueView ?? ISSUE_VIEW_JSON)
+  if (isIssueView(argv) && options.issueViewStderr !== undefined) return processOutput('', 1, options.issueViewStderr)
+  if (isIssueView(argv)) return processOutput(issueViewAnswerOf(options.issueView ?? ISSUE_VIEW_JSON))
   if (argv.some(arg => arg.includes('milestones('))) return milestoneCountsOf(options)
   if (argv.includes('graphql')) {
     const nodes = (options.openPrs ?? []).map(({ closes = [], closesOther = [], closesTotal, isCrossRepository = false, checks, ...pr }) => ({
@@ -492,9 +512,11 @@ function contentsAnswerOf(path: string, options: StubOptions) {
 }
 
 // The owner's account answer: its type for `--jq .type`, its avatar URL for `--jq .avatar_url`.
-function ownerAnswerOf(argv: readonly string[], options: StubOptions) {
-  if (argv.includes('.type')) return processOutput(`${options.ownerType ?? 'User'}\n`)
-  return processOutput(`${options.ownerAvatarUrl ?? 'https://avatars.githubusercontent.com/u/1?v=4'}\n`)
+// The account answer of `gh api users/<owner>`: one JSON object with its type and its avatar URL.
+function ownerAnswerOf(_argv: readonly string[], options: StubOptions) {
+  return processOutput(
+    JSON.stringify({ type: options.ownerType ?? 'User', avatar_url: options.ownerAvatarUrl ?? 'https://avatars.githubusercontent.com/u/1?v=4' }),
+  )
 }
 
 // The stdout of a git call the module makes, for the argv of that call.
@@ -663,7 +685,7 @@ test('#18: /keepaway issue 12 with the pane closed stores the override, toasts i
   expect(host.store.get(`override:${SESSION_ID}`)).toMatchObject({ issue: 12 })
   expect(host.toasts).toEqual(['Issue set to #12'])
   await host.clock.settle()
-  const viewed = host.argvs.filter(argv => argv.includes('view')).map(argv => argv[3])
+  const viewed = host.argvs.filter(argv => isIssueView(argv)).map(issueNumberOf)
   expect(viewed.length).toBeGreaterThan(0)
   expect(new Set(viewed)).toEqual(new Set(['12']))
 })
@@ -722,7 +744,7 @@ test('a window that maps to an issue asks gh for it in a fifth call', async ($: 
   await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(ghCalls(host)).toBe(5)
-  expect(host.argvs.filter(argv => argv.includes('view'))).toEqual([ISSUE_VIEW_ARGV])
+  expect(host.argvs.filter(argv => isIssueView(argv)).map(issueNumberOf)).toEqual([String(ISSUE)])
 })
 
 test('a window that maps to no issue makes no fifth gh call', async ($: Engine, on) => {
@@ -731,7 +753,7 @@ test('a window that maps to no issue makes no fifth gh call', async ($: Engine, 
   await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
-  expect(host.argvs.some(argv => argv.includes('view'))).toBe(false)
+  expect(host.argvs.some(argv => isIssueView(argv))).toBe(false)
 })
 
 test('pm1-8: a milestone counts its issues from GraphQL, not from REST, which counts the PRs too', async ($: Engine, on) => {
@@ -799,7 +821,7 @@ test('gh3-5: a PR that closes an issue of another repo maps no issue here: no vi
   await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
   expect(ghCalls(host)).toBe(4)
-  expect(host.argvs.some(argv => argv.includes('view'))).toBe(false)
+  expect(host.argvs.some(argv => isIssueView(argv))).toBe(false)
 })
 
 test('the closed pane polls on the band cadence: once at session start, then every 5 minutes, never each minute', async ($: Engine, on) => {
@@ -2127,10 +2149,10 @@ test('F13: a gh timeout after a good poll keeps the last good issues and draws i
 
 // #19: the window's issue view. A number gh does not have is asked once; a closed issue outside the open list is kept for five minutes;
 // a real failure stays stale and is asked again.
-const viewCalls = (host: Host): number => host.argvs.filter(argv => argv.includes('view')).length
+const viewCalls = (host: Host): number => host.argvs.filter(argv => isIssueView(argv)).length
 
 test('#19: a number gh does not have is asked once across polls, with no error logged', async ($: Engine, on) => {
-  const host = stubHost(on, { issueViewStderr: 'GraphQL: Could not resolve to an Issue with the number of 999' })
+  const host = stubHost(on, { issueViewStderr: 'gh: Could not resolve to an issue or pull request with the number of 999.' })
   host.store.set(`override:${SESSION_ID}`, { issue: 999, ts: 0 })
   await $.session.start(SESSION)
   await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
@@ -2231,7 +2253,6 @@ const GH_FAILURE_KINDS: [string, GhMode][] = [
   ['connection cut', { exitCode: 1, stderr: 'Post "https://api.github.com/graphql": context deadline exceeded' }],
   ['HTTP 5xx', { exitCode: 1, stderr: 'HTTP 502: Bad Gateway (https://api.github.com/graphql)' }],
   ['GraphQL', { exitCode: 1, stderr: 'GraphQL: Something went wrong while executing your query.' }],
-  ['GraphQL', { exitCode: 1, stderr: 'GraphQL: Could not resolve to an Issue with the number of 99999. (repository.issue)' }],
   ['HTTP 4xx', { exitCode: 1, stderr: 'HTTP 404: Not Found (https://api.github.com/repos/o/r/milestones)' }],
   ['other', { exitCode: 1, stderr: 'synthetic failure' }],
   ['timeout', 'timeout'],
@@ -2592,7 +2613,7 @@ test('DL8: an override past its 30-day TTL is not used when the scan failed', as
   await $.session.start(SESSION)
   await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  expect(host.argvs.some(argv => argv.includes('view') && argv.includes(String(ISSUE)))).toBe(false)
+  expect(host.argvs.some(argv => isIssueView(argv) && issueNumberOf(argv) === String(ISSUE))).toBe(false)
 })
 
 test('DL10: exactly 500 open issues draw no partial-list line, since gh is asked for one more', async ($: Engine, on) => {
@@ -2786,7 +2807,7 @@ const MALFORMED_ISSUE = { number: 8, title: 'Issue with no url', updatedAt: '202
 const prQueryOf = (host: Host): string =>
   host.argvs.find(argv => argv.includes('graphql'))?.find(arg => arg.startsWith('query=')) ?? ''
 // The issue numbers the poll asked gh to view, in order.
-const viewedIssues = (host: Host): string[] => host.argvs.filter(argv => argv.includes('view')).map(argv => argv[3] ?? '')
+const viewedIssues = (host: Host): string[] => host.argvs.filter(argv => isIssueView(argv)).map(argv => issueNumberOf(argv) ?? '')
 
 test('DL9: a PR closing more issues than the page holds links no issue, since its lowest is not known', async ($: Engine, on) => {
   // The page holds 50 references, 17 the lowest of them; GitHub holds 60, so a lower one may sit past the page.
@@ -3196,7 +3217,7 @@ test('this window\'s issue view is reused while its updatedAt is unchanged, and 
   await $.command.run({ command: 'keepaway', args: 'issue 106', ...COMMAND_CONTEXT })
   await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
   await host.clock.settle()
-  const viewCalls = (): number => host.argvs.filter(argv => argv[0] === 'gh' && argv.includes('view')).length
+  const viewCalls = (): number => host.argvs.filter(argv => argv[0] === 'gh' && isIssueView(argv)).length
   expect(viewCalls()).toBe(1)
   await host.clock.advance(POLL_MS)
   await host.clock.settle()
@@ -3438,7 +3459,7 @@ test('a user owner draws no avatar: only the account type is asked, and no fetch
   await openPane($)
   await host.clock.settle()
   const accountCalls = host.argvs.filter(argv => argv[0] === 'gh' && (argv[2] ?? '').startsWith('users/')).map(argv => argv.at(-1))
-  expect(accountCalls).toEqual(['.type'])
+  expect(accountCalls).toEqual(['users/acme'])
   expect(avatarCalls(host)).toEqual([])
   expect(repoLogoOf(await drawnTree($, 'desktop'))).toEqual([])
   expect(host.store.get(LOGO_STORE_KEY)).toMatchObject({ source: null, failed: false })
@@ -4244,4 +4265,88 @@ test('#25: a failed model call releases its lock, and the next attempt after the
   await host.clock.advance(SUMMARY_RETRY_MS)
   await host.clock.settle()
   expect(calls).toHaveLength(2)
+})
+
+// #30: the gh call economy. One users call per lookup; the logo gh calls run from the window's root; the issue view reads the newest 30.
+test('#30: an organization owner\'s avatar lookup makes one users call, and every logo gh call runs from the window root', async ($: Engine, on) => {
+  const host = stubHost(on, {
+    lookLogos: true,
+    ownerType: 'Organization',
+    ownerAvatarUrl: ORG_AVATAR,
+    avatarBase64: TINY_PNG,
+    records: [recordOf(SESSION_ID, { cwd: `${REPO_ROOT}/tree`, cliSessionId: SELF })],
+  })
+  await openPane($)
+  await host.clock.settle()
+  const users = host.argvs.filter(argv => argv[0] === 'gh' && (argv[2] ?? '').startsWith('users/'))
+  expect(users).toHaveLength(1)
+  const logoCalls = host.remoteCalls.filter(call => (call.argv[2] ?? '').startsWith('users/') || (call.argv[2] ?? '').startsWith('repos/acme/app/contents/'))
+  expect(logoCalls.length).toBeGreaterThan(0)
+  expect(logoCalls.map(call => call.cwd)).toEqual(logoCalls.map(() => REPO_ROOT))
+  expect(logoCalls.some(call => (call.argv[2] ?? '').startsWith('repos/acme/app/contents/'))).toBe(true)
+})
+
+// The decision of an issue is drawn when it is one of its newest 30 comments; the decision's text is the part after its prefix.
+async function decisionDrawnAt(index: number, $: Engine, on: On): Promise<string> {
+  const comments = Array.from({ length: 40 }, (_, position) => ({
+    author: { login: 'dev-one' },
+    authorAssociation: 'OWNER',
+    createdAt: new Date(Date.UTC(2026, 9, 1) + position * 3_600_000).toISOString(),
+    body: position === index ? 'Decision: keep the newest thirty window' : `comment ${position}`,
+  }))
+  const host = stubHost(on, { issueView: JSON.stringify({ ...JSON.parse(ISSUE_VIEW_JSON), comments }) })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'issue 106', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  return await drawnPane($)
+}
+
+test('#30: the decision is drawn when it is among an issue\'s newest 30 comments', async ($: Engine, on) => {
+  const drawn = await decisionDrawnAt(35, $, on)
+  expect(drawn).toContain('"Decided:"')
+  expect(drawn).toContain('keep the newest thirty window')
+})
+
+test('#30: a decision older than the newest 30 comments is not drawn', async ($: Engine, on) => {
+  const drawn = await decisionDrawnAt(5, $, on)
+  expect(drawn).not.toContain('keep the newest thirty window')
+})
+
+// A window whose number is a pull request draws the pull request's details, as `gh issue view` did before the GraphQL view.
+test('a window whose issue number is a pull request draws its title and newest comment', async ($: Engine, on) => {
+  const pull = JSON.stringify({ ...JSON.parse(ISSUE_VIEW_JSON), number: 40, title: 'Synthetic pull request', state: 'MERGED', url: 'https://github.com/acme/app/pull/40' })
+  const host = stubHost(on, { issueView: pull })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'issue 40', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  // The pane draws the number, the state (a merged pull request reads as closed, as before) and the newest comment; not the title.
+  expect(drawn).toContain('🛠️ #40')
+  expect(drawn).toContain('issue closed')
+  expect(drawn).toContain('a comment')
+  expect(host.argvs.filter(argv => isIssueView(argv)).map(issueNumberOf)).toEqual(['40'])
+})
+
+test('a missing issue or pull request number is asked once across polls and draws the missing line, not an error', async ($: Engine, on) => {
+  const host = stubHost(on, { issueViewStderr: 'gh: Could not resolve to an issue or pull request with the number of 99999.' })
+  host.store.set(`override:${SESSION_ID}`, { issue: 99999, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  await host.clock.advance(POLL_MS)
+  await host.clock.advance(POLL_MS)
+  expect(viewCalls(host)).toBe(1)
+  expect(host.logs.some(line => line.includes('gh issue call failed'))).toBe(false)
+})
+
+// #33: a store that refuses the language setting does not stop a new session: it runs in the detected language and the pane still draws.
+test('#33: a store that refuses the language setting does not stop session.start, and the pane still draws', async ($: Engine, on) => {
+  const host = stubHost(on, { langStoreRefuses: true })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(host.logs.some(line => line.startsWith('keepaway: language setting not read'))).toBe(true)
+  expect(await drawnPane($)).toContain('Updated')
 })

@@ -157,8 +157,16 @@ test('an avatar URL is https on its host only, with no port or credentials; the 
   expect(avatarUrlOf(undefined, host)).toBeNull()
 })
 
+test('the fetch script uses plain base64 (no GNU -w0 flag), and a base64 answer wrapped over lines still decodes', () => {
+  expect(AVATAR_FETCH_SCRIPT.endsWith('| base64')).toBe(true)
+  expect(AVATAR_FETCH_SCRIPT).not.toContain('-w0')
+  const wrapped = pngBase64.replace(/(.{8})/g, '$1\n')
+  expect(pictureDocumentOf(wrapped)).toBe(pictureDocumentOf(pngBase64))
+  expect(pictureDocumentOf(wrapped)).not.toBeNull()
+})
+
 test('the fetch script is pinned: https only, no redirects followed, the byte cap, the URL as the one argument', () => {
-  expect(AVATAR_FETCH_SCRIPT).toBe(`curl -fsS --proto =https --max-time 8 --max-filesize ${LOGO_MAX_BYTES} -- "$1" | base64 -w0`)
+  expect(AVATAR_FETCH_SCRIPT).toBe(`curl -fsS --proto =https --max-time 8 --max-filesize ${LOGO_MAX_BYTES} -- "$1" | base64`)
   expect(AVATAR_FETCH_SCRIPT.split(' ')).not.toContain('-L')
 })
 

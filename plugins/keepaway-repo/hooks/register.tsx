@@ -899,7 +899,7 @@ async function sessionsOf(
   if (scan.complete && isNewest(seq)) await pruneOverrides($, new Set(scan.records.map(record => record.sessionId)))
   const members = await memberRecordsOf($, scan.records, context, thisId)
   const candidates = admittedOf(await withBranches($, members.records), new Set(github.prs.map(pr => pr.headRefName)), thisId)
-  await requestRepoLogos($, candidates)
+  await requestRepoLogos($, candidates, context.root)
   const ownWaiting = (await read($, pendingAsksAtom)).length > 0
   const inputs: TreeInputs = {
     now,
@@ -1490,7 +1490,7 @@ export function resetLogoMemory(): void {
 }
 
 // What one lookup reads: the repo's key, its remote (the host, and the gh slug) and the session's folder (the checkout).
-type LogoTarget = { key: string; repo: Repo; cwd: string }
+type LogoTarget = { key: string; repo: Repo; cwd: string; root: string }
 // The drawable SVG a lookup found (null for none) and the failure it hit (null when it got an answer).
 type LogoFound = { source: string | null; failure: string | null }
 const NO_LOGO: LogoFound = { source: null, failure: null }
@@ -1567,7 +1567,7 @@ async function deleteLockOf($: EngineInterface, key: string): Promise<void> {
 
 // Starts a lookup for each repo of the admitted sessions whose stored logo is missing or stale, then prunes the stored logos of the
 // repos this window does not show. It never waits for a lookup.
-async function requestRepoLogos($: EngineInterface, candidates: readonly Candidate[]): Promise<void> {
+async function requestRepoLogos($: EngineInterface, candidates: readonly Candidate[], root: string | null): Promise<void> {
   const now = await $.clock.now()
   const shown = new Set<string>()
   for (const { record, remote } of candidates) {
@@ -1578,7 +1578,10 @@ async function requestRepoLogos($: EngineInterface, candidates: readonly Candida
     shown.add(storeKey)
     const stored = await storedLogoOf($, storeKey)
     if (stored !== undefined && isLogoFresh(stored, now)) continue
-    if (remote !== null && record.cwd !== null) startLogoLookup($, storeKey, { key, repo: remote, cwd: record.cwd })
+    // The gh and glab calls run from the window's root; the local logo folders are the session's own checkout.
+    if (remote !== null && record.cwd !== null && root !== null) {
+      startLogoLookup($, storeKey, { key, repo: remote, cwd: record.cwd, root })
+    }
   }
   await pruneLogos($, shown, now)
 }
@@ -1647,7 +1650,7 @@ async function githubLogoOf($: EngineInterface, target: LogoTarget): Promise<Log
 // is the next one; any other failure ends the lookup as a failure.
 async function githubContentsLogoOf($: EngineInterface, target: LogoTarget): Promise<LogoFound> {
   for (const path of LOGO_PATHS.slice(0, GITHUB_LOGO_CALLS)) {
-    const outcome = await runGh($, ['api', `repos/${slugOf(target.repo)}/contents/${path}`], target.cwd)
+    const outcome = await runGh($, ['api', `repos/${slugOf(target.repo)}/contents/${path}`], target.root)
     if (!outcome.ok) {
       if (outcome.kind !== 'HTTP 4xx') return failedLookupOf(outcome)
       continue
@@ -1663,16 +1666,14 @@ function failedLookupOf(outcome: { kind: string }): LogoFound {
   return outcome.kind === 'HTTP 4xx' ? NO_LOGO : { source: null, failure: outcome.kind }
 }
 
-// The owner's avatar of a GitHub repo, when the owner is an organization (`gh api users/<owner>`: its type, then its avatar URL). A user's
-// avatar is not drawn. The avatar is asked at AVATAR_SIZE_PX.
+// The owner's avatar of a GitHub repo, when the owner is an organization (`gh api users/<owner>`, one call for its type and its avatar
+// URL). A user's avatar is not drawn. The avatar is asked at AVATAR_SIZE_PX.
 async function ownerAvatarOf($: EngineInterface, target: LogoTarget): Promise<LogoFound> {
-  const account = `users/${target.repo.owner}`
-  const type = await runGh($, ['api', account, '--jq', '.type'], target.cwd)
-  if (!type.ok) return failedLookupOf(type)
-  if (type.stdout.trim() !== 'Organization') return NO_LOGO
-  const avatar = await runGh($, ['api', account, '--jq', '.avatar_url'], target.cwd)
-  if (!avatar.ok) return failedLookupOf(avatar)
-  const url = avatarUrlOf(avatar.stdout.trim(), GITHUB_AVATAR_HOST, AVATAR_SIZE_PX)
+  const account = await runGh($, ['api', `users/${target.repo.owner}`], target.root)
+  if (!account.ok) return failedLookupOf(account)
+  const user = parseJsonText(account.stdout)
+  if (textOf(childOf(user, 'type')) !== 'Organization') return NO_LOGO
+  const url = avatarUrlOf(textOf(childOf(user, 'avatar_url')) ?? '', GITHUB_AVATAR_HOST, AVATAR_SIZE_PX)
   return url === null ? NO_LOGO : avatarLogoOf($, url)
 }
 
@@ -1685,7 +1686,7 @@ async function gitlabAvatarOf($: EngineInterface, target: LogoTarget): Promise<L
   const project = encodeURIComponent(slugOf(target.repo))
   try {
     const run = await $.process.run(['glab', 'api', `projects/${project}`, '--hostname', target.repo.host], {
-      cwd: target.cwd,
+      cwd: target.root,
       timeoutMs: GH_TIMEOUT_MS,
     })
     if (run.exitCode !== 0) return { source: null, failure: 'glab' }
@@ -1996,7 +1997,26 @@ function parsePullRequestPage(text: string, slug: string): PullRequestPage | nul
 
 // ---- gh: this window's issue (repo-work-pane-design-spec.md D5) ----
 
-const ISSUE_VIEW_FIELDS = 'number,title,url,state,milestone,comments'
+// One GraphQL call for the view: the issue's fields and its newest ISSUE_COMMENTS_MAX comments. `gh issue view` cannot bound its comments,
+// so it is not used; the newest comment and the newest decision are among these (SPEC section 6).
+const ISSUE_COMMENTS_MAX = 30
+// The number may name an issue or a pull request, as `gh issue view` accepts both: the two fragments select the same fields.
+const VIEW_FIELDS = `number title url state
+      milestone { title }
+      comments(last: ${ISSUE_COMMENTS_MAX}) { nodes { createdAt body authorAssociation author { login } } }`
+const ISSUE_VIEW_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issueOrPullRequest(number: $number) {
+      ... on Issue { ${VIEW_FIELDS} }
+      ... on PullRequest { ${VIEW_FIELDS} }
+    }
+  }
+}`
+
+// The gh call of the view of one issue (`gh api graphql`, the repo's owner and name, and the number as an integer).
+function issueViewArgvOf(repo: Repo, number: number): string[] {
+  return ['api', 'graphql', '-f', `query=${ISSUE_VIEW_QUERY}`, '-F', `owner=${repo.owner}`, '-F', `name=${repo.name}`, '-F', `number=${number}`]
+}
 
 type IssueView = {
   number: number
@@ -2020,13 +2040,13 @@ function commentOf(raw: unknown): IssueComment | null {
 }
 
 function issueViewOf(text: string): IssueView | null {
-  const raw = parseJsonText(text)
+  const raw = childOf(childOf(childOf(parseJsonText(text), 'data'), 'repository'), 'issueOrPullRequest')
   const number = numberOf(childOf(raw, 'number'))
   const title = textOf(childOf(raw, 'title'))
   const url = textOf(childOf(raw, 'url'))
   const state = textOf(childOf(raw, 'state'))
   if (number === null || title === null || url === null || state === null) return null
-  const comments = asArray(childOf(raw, 'comments')).map(commentOf).filter(isPresent)
+  const comments = asArray(childOf(childOf(raw, 'comments'), 'nodes')).map(commentOf).filter(isPresent)
   return {
     number,
     title: plain(title, TEXT_MAX),
@@ -2068,8 +2088,8 @@ function detailsOf(view: IssueView, facts: WindowFacts): IssueDetails {
 
 type WindowIssue = { details: IssueDetails | null; stale: boolean; errors: PaneError[] }
 
-// gh's answer for an issue number the repo does not have (a GraphQL "Could not resolve" answer, not a failure).
-const NO_SUCH_ISSUE = /Could not resolve to an Issue/
+// gh's answer for a number the repo has neither as an issue nor as a pull request (an answer, not a failure).
+const NO_SUCH_ISSUE = /Could not resolve to an issue or pull request/
 // How long a view of an issue outside the open list is kept, so a closed issue is not fetched on every poll.
 const UNLISTED_VIEW_MS = 300_000
 
@@ -2109,7 +2129,7 @@ async function windowViewOf(
   const now = await $.clock.now()
   const last = windowIssueMemory
   if (last?.key === key && last.updatedAt === updatedAt && (updatedAt !== undefined || now < last.until)) return last.view
-  const argv = ['issue', 'view', String(number), '--repo', slugOf(repo), '--json', ISSUE_VIEW_FIELDS]
+  const argv = issueViewArgvOf(repo, number)
   const outcome = await runGh($, argv, root)
   if (!outcome.ok && outcome.missing) {
     windowIssueMemory = { key, updatedAt, view: null, until: Number.POSITIVE_INFINITY }
@@ -2767,7 +2787,11 @@ export const register: Register = on => {
   // A new session drops the old timer and registers the command in the session's language.
   on('session.start', async ($, e, next) => {
     sessionEpoch += 1
-    const lang = await currentLang($)
+    // A store that refuses the language setting falls back to the detected language, so the resets below still run.
+    const lang = await currentLang($).catch((error: unknown) => {
+      logLine($, `language setting not read (${failureNameOf(error)})`)
+      return detectedLang($)
+    })
     await update($, langAtom, () => lang)
     await registerCommand($, lang)
     stopTimer()
