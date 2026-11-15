@@ -196,7 +196,7 @@ Ground rules:
 
 - 🔑 **Secrets:** the agent never reads, types or prints a token or key. `gh` uses its own login; the human runs `gh auth login` if step 1 fails.
 - 🧑 **Human OK:** steps 3, 4 and the undo steps change Claude Code's configuration (marketplace, plugin install and removal). Ask the human first.
-- 💸 **Cost:** the steps below make no paid call of their own. The mod makes paid model calls while session summaries are on (see [Security and privacy](#-security-and-privacy)).
+- 💸 **Cost:** the steps below make no paid call of their own. The mod makes paid model calls while the pane is open and session summaries are on (see [Security and privacy](#-security-and-privacy)).
 - **Platforms:** Linux is ✅ (see [Prerequisites](#-prerequisites)); macOS and Windows are ⚠️, not tested. Steps 5 to 8 run in a Claude Code Desktop session, not a plain terminal.
 
 | # | Step | Run | Expect |
@@ -300,7 +300,7 @@ Fixed in the code, not configurable:
   - `gh` calls to GitHub: milestones, open issues, open pull requests, milestone totals, one issue's details, and a repo owner's type and avatar.
   - `glab` calls to GitLab, for a GitLab repo only: the project and its avatar.
   - `curl` downloads a repo's avatar over https, from the host that the answer names, and nowhere else.
-  - Paid model calls (`$.model.complete`, Haiku), on by default and stopped by `/keepaway summary off`: (1) for a session whose first prompt is over 300 characters, the first 8000 characters of that prompt, to write its one-line summary; (2) for a finished step, its title and up to 1200 characters of the assistant text around it, to write its explanation.
+  - Paid model calls (`$.model.complete`, Haiku), made only while the KeepAway pane is open, on by default, and stopped by `/keepaway summary off`: (1) for a session whose first prompt is over 300 characters, the first 8000 characters of that prompt, to write its one-line summary; (2) for a finished step, its title and up to 1200 characters of the assistant text around it, to write its explanation.
 - **What is read locally:**
   - The git remote, branch and log of the repository and of each listed session's folder, `ssh -G` for an SSH alias, and `date +%z` for the UTC offset.
   - The Desktop session records, and the Desktop config (its sidebar Groups only).
@@ -325,6 +325,8 @@ Fixed in the code, not configurable:
 | `git failed in this folder · sessions shown without branch` | `git` failed in a session's folder. | Check that the folder exists and that `git status` works there. |
 | `This window is not a Desktop session: nothing to set` | `/keepaway issue` ran in a window with no Desktop record. | Run it in a Desktop session window. |
 | The pane stays on `Loading the repo...` | The first poll has not settled, or was abandoned after 30 s. | Wait one poll. The mod logs `poll skipped` when two abandoned polls are still running, and then starts nothing until one ends. |
+| `Could not read the repo: state unknown. Check the remote with git remote -v, and gh with gh auth login.` | The repo's state could not be read. | Check the remote with `git remote -v`, then sign in with `gh auth login`. |
+| `gh is not signed in: run gh auth login` | `gh` is not signed in. | Run `gh auth login`. |
 
 ## 🐞 Known issues
 

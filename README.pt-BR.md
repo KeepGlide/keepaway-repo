@@ -196,7 +196,7 @@ Regras de base:
 
 - 🔑 **Segredos:** o agente nunca lê, digita nem imprime um token ou chave. O `gh` usa o próprio login; a pessoa roda `gh auth login` se o passo 1 falhar.
 - 🧑 **Com OK da pessoa:** os passos 3, 4 e os passos de desfazer mudam a configuração do Claude Code (marketplace, instalação e remoção do plugin). Pergunte antes.
-- 💸 **Custo:** os passos abaixo não fazem chamada paga por conta própria. O mod faz chamadas pagas ao modelo enquanto os resumos de sessão estão ligados (veja [Segurança e privacidade](#-segurança-e-privacidade)).
+- 💸 **Custo:** os passos abaixo não fazem chamada paga por conta própria. O mod faz chamadas pagas ao modelo enquanto o painel está aberto e os resumos de sessão estão ligados (veja [Segurança e privacidade](#-segurança-e-privacidade)).
 - **Plataformas:** Linux é ✅ (veja [Pré-requisitos](#-pré-requisitos)); macOS e Windows são ⚠️, não testados. Os passos 5 a 8 rodam em uma sessão do Claude Code Desktop, não em um terminal comum.
 
 | # | Passo | Rodar | Expect |
@@ -300,7 +300,7 @@ Fixo no código, não configurável:
   - Chamadas do `gh` ao GitHub: milestones, issues abertas, pull requests abertos, totais dos milestones, os detalhes de uma issue, e o tipo e o avatar do dono de um repositório.
   - Chamadas do `glab` ao GitLab, só para um repositório GitLab: o projeto e o avatar dele.
   - O `curl` baixa o avatar de um repositório por https, do host que a resposta indica, e de mais nenhum lugar.
-  - Chamadas pagas ao modelo (`$.model.complete`, Haiku), ligadas por padrão e paradas por `/keepaway summary off`: (1) para uma sessão cujo primeiro prompt tem mais de 300 caracteres, os primeiros 8000 caracteres desse prompt, para escrever o seu resumo de uma linha; (2) para um passo concluído, o título dele e até 1200 caracteres do texto do assistente em volta, para escrever a sua explicação.
+  - Chamadas pagas ao modelo (`$.model.complete`, Haiku), feitas só com o painel do KeepAway aberto, ligadas por padrão, e paradas por `/keepaway summary off`: (1) para uma sessão cujo primeiro prompt tem mais de 300 caracteres, os primeiros 8000 caracteres desse prompt, para escrever o seu resumo de uma linha; (2) para um passo concluído, o título dele e até 1200 caracteres do texto do assistente em volta, para escrever a sua explicação.
 - **O que é lido localmente:**
   - O remote, a branch e o log do git do repositório e da pasta de cada sessão listada, `ssh -G` para um alias de SSH, e `date +%z` para o deslocamento UTC.
   - Os registros de sessão do Desktop, e a config do Desktop (só os Grupos da barra lateral).
@@ -325,6 +325,8 @@ Fixo no código, não configurável:
 | `git failed in this folder · sessions shown without branch` (`git falhou nesta pasta · sessões sem branch`) | O `git` falhou na pasta de uma sessão. | Confira se a pasta existe e se `git status` funciona lá. |
 | `This window is not a Desktop session: nothing to set` (`Esta janela não é uma sessão do Desktop: nada a definir`) | `/keepaway issue` foi rodado em uma janela sem registro do Desktop. | Rode o comando em uma janela de sessão do Desktop. |
 | O painel fica em `Loading the repo...` (`Carregando o repo...`) | A primeira consulta não terminou, ou foi abandonada após 30 s. | Aguarde uma consulta. O mod registra `poll skipped` quando há duas consultas abandonadas ainda rodando, e então não inicia outra até uma terminar. |
+| `Não foi possível ler o repo: estado desconhecido. Confira o remote com git remote -v, e o gh com gh auth login.` | Não foi possível ler o estado do repo. | Confira o remote com `git remote -v`, depois entre no gh com `gh auth login`. |
+| `gh sem login: rode gh auth login` | O `gh` não está logado. | Rode `gh auth login`. |
 
 ## 🐞 Problemas conhecidos
 
