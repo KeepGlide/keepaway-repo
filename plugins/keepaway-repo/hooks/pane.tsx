@@ -744,7 +744,7 @@ function detailLinesOf(view: View, node: SessionNode, issue: IssueDetails): Deta
       value: commitTextOf(lang, issue.lastCommit, now),
       url: issue.lastCommit?.url ?? null,
     },
-    { key: 'checks', label: t(lang, 'detail.checks'), value: issue.checks ?? t(lang, 'detail.noCi') },
+    ...(issue.checks === null ? [] : [{ key: 'checks', label: t(lang, 'detail.checks'), value: t(lang, CHECKS_KEY[issue.checks]) }]),
     { key: 'comment', label: t(lang, 'detail.lastComment'), value: commentTextOf(lang, issue.lastComment, now) },
     { key: 'next', label: t(lang, 'detail.nextStep'), value: t(lang, 'detail.noNextStep') },
     {
@@ -767,6 +767,16 @@ function startedTextOf(lang: Lang, at: number, now: number, utcOffsetMinutes: nu
 function stateTextOf(lang: Lang, state: SessionNode['state'], issueState: IssueDetails['state']): string {
   const word = t(lang, STATE_KEY[state])
   return issueState === 'closed' ? `${word}${TITLE_SEPARATOR}${withIcon(statusIconEmoji('done'), t(lang, 'detail.issueClosed'))}` : word
+}
+
+// The Checks word of the window's PR: SUCCESS passes, FAILURE and ERROR fail, PENDING and EXPECTED run, none is a head with no checks.
+const CHECKS_KEY: Record<NonNullable<IssueDetails['checks']>, MessageKey> = {
+  SUCCESS: 'detail.checksPassing',
+  FAILURE: 'detail.checksFailing',
+  ERROR: 'detail.checksFailing',
+  PENDING: 'detail.checksRunning',
+  EXPECTED: 'detail.checksRunning',
+  none: 'detail.noCi',
 }
 
 function prTextOf(lang: Lang, pr: IssueDetails['pr']): string {

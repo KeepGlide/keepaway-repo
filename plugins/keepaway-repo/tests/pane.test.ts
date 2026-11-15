@@ -6,7 +6,7 @@ import { TEXT_MAX, WORKING_WINDOW_MS, buildTree, groupIssues, type DesktopGroups
 import { t } from '../hooks/i18n'
 import { DETAILS_FILL, DISCLOSURE_CLOSED, DISCLOSURE_OPEN } from '../hooks/look'
 import { heldButtons } from '../hooks/held'
-import type { Issue, Milestone, PaneError, SessionInput, SessionNode, Snapshot, TimelineEvent } from '../types'
+import type { Issue, IssueDetails, Milestone, PaneError, SessionInput, SessionNode, Snapshot, TimelineEvent } from '../types'
 import {
   HOUR,
   MINUTE,
@@ -180,16 +180,54 @@ test('this window is the first session, in one highlighted block with its detail
   expect(blockTexts.some(text => /^\d{4}-\d\d-\d\d \d\d:\d\d · .+ ago$/.test(text))).toBe(true)
 })
 
+// #21: the Checks line shows the PR's checks word in the pane's language, and an empty rollup reads no CI.
+const CHECKS_PANE_CASES: [IssueDetails['checks'], string, string][] = [
+  ['SUCCESS', 'passing', 'passando'],
+  ['FAILURE', 'failing', 'falhando'],
+  ['ERROR', 'failing', 'falhando'],
+  ['PENDING', 'running', 'em andamento'],
+  ['EXPECTED', 'running', 'em andamento'],
+  ['none', 'no CI', 'sem CI'],
+]
+const withPr = (checks: IssueDetails['checks']): IssueDetails => ({
+  ...SAMPLE_THIS_ISSUE,
+  pr: { number: 40, title: 'Fix', state: 'OPEN', reviewDecision: null, url: 'https://github.com/acme/app/pull/40' },
+  checks,
+})
+
+test('#21: each checks state draws its word in English and pt-BR, on the Checks line', () => {
+  for (const [checks, en, pt] of CHECKS_PANE_CASES) {
+    const snapshot = snapshotWith({ thisIssue: withPr(checks) })
+    const englishBlock = nodesOf(drawDesktop({ snapshot })).find(node => node.props.backgroundColor === DETAILS_FILL)
+    const englishTexts = drawnTexts(englishBlock)
+    const englishAt = englishTexts.indexOf('Checks:')
+    expect(englishAt).toBeGreaterThan(-1)
+    expect(englishTexts[englishAt + 1]).toBe(en)
+    const portugueseBlock = nodesOf(drawDesktop({ snapshot, lang: 'pt' })).find(node => node.props.backgroundColor === DETAILS_FILL)
+    const portugueseTexts = drawnTexts(portugueseBlock)
+    const portugueseAt = portugueseTexts.indexOf('Checks:')
+    expect(portugueseAt).toBeGreaterThan(-1)
+    expect(portugueseTexts[portugueseAt + 1]).toBe(pt)
+  }
+})
+
+test('#21: a PR whose checks are unknown draws no Checks line', () => {
+  const snapshot = snapshotWith({ thisIssue: withPr(null) })
+  const block = nodesOf(drawDesktop({ snapshot })).find(node => node.props.backgroundColor === DETAILS_FILL)
+  expect(drawnTexts(block)).not.toContain('Checks:')
+})
+
 test('the details of this window follow the breadcrumb, in the order of the mock, then the timeline and the GitHub link', () => {
   const block = nodesOf(drawDesktop()).find(node => node.props.backgroundColor === DETAILS_FILL)
   const blockTexts = drawnTexts(block)
-  const labels = ['State:', 'Branch:', 'PR:', 'Last commit:', 'Checks:', 'Last comment:', 'Next step:', 'Started:']
+  const labels = ['State:', 'Branch:', 'PR:', 'Last commit:', 'Last comment:', 'Next step:', 'Started:']
   const positions = labels.map(label => blockTexts.indexOf(label))
   expect(positions.every(position => position > -1)).toBe(true)
   expect([...positions].sort((a, b) => a - b)).toEqual(positions)
   expect(blockTexts.indexOf('🛠️ #106 · Milestone B') < (positions[0] ?? -1)).toBe(true)
   expect(blockTexts).toContain('no PR')
-  expect(blockTexts).toContain('no CI')
+  // No PR: no Checks line (#21).
+  expect(blockTexts).not.toContain('Checks:')
   expect(blockTexts).toContain('no next step')
   expect(blockTexts.some(text => /^dev-one · .+ ago · keep \*this\* \[markup\]\(x\) as text$/.test(text))).toBe(true)
   expect(blockTexts.indexOf('▪ Open #106 on GitHub ↗')).toBe(blockTexts.length - 1)

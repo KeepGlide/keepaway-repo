@@ -102,6 +102,8 @@ type StubOptions = {
     closesOther?: number[]
     closesTotal?: number
     isCrossRepository?: boolean
+    // The head commit's checks: a state, 'none' for a head with no rollup, absent for a head the answer does not give (no commit node)
+    checks?: 'SUCCESS' | 'FAILURE' | 'PENDING' | 'ERROR' | 'EXPECTED' | 'none'
   }[]
   branches?: Record<string, string>
   // Git answers as git gives them: a tag named like a branch shortens it to heads/<name>; a detached or unborn HEAD by folder; log stdout.
@@ -449,7 +451,7 @@ async function ghAnswerOf(argv: readonly string[], options: StubOptions): Promis
   if (argv.includes('view')) return processOutput(options.issueView ?? ISSUE_VIEW_JSON)
   if (argv.some(arg => arg.includes('milestones('))) return milestoneCountsOf(options)
   if (argv.includes('graphql')) {
-    const nodes = (options.openPrs ?? []).map(({ closes = [], closesOther = [], closesTotal, isCrossRepository = false, ...pr }) => ({
+    const nodes = (options.openPrs ?? []).map(({ closes = [], closesOther = [], closesTotal, isCrossRepository = false, checks, ...pr }) => ({
       ...pr,
       state: 'OPEN',
       url: `https://github.com/acme/app/pull/${pr.number}`,
@@ -463,7 +465,7 @@ async function ghAnswerOf(argv: readonly string[], options: StubOptions): Promis
           ...closesOther.map(number => ({ number, repository: { nameWithOwner: 'acme/other' } })),
         ],
       },
-      commits: { nodes: [] },
+      commits: { nodes: checks === undefined ? [] : [{ commit: { statusCheckRollup: checks === 'none' ? null : { state: checks } } }] },
     }))
     return processOutput(JSON.stringify({ data: { repository: { pullRequests: { totalCount: options.prTotal ?? nodes.length, nodes } } } }))
   }
@@ -2159,6 +2161,60 @@ test('#19: a real gh failure marks the window issue stale and is asked again on 
   await host.clock.advance(POLL_MS)
   expect(viewCalls(host)).toBeGreaterThan(first)
   expect(host.logs.some(line => line.includes('gh issue call failed'))).toBe(true)
+})
+
+// #21: the window's Checks line shows the PR's head checks state; no PR or an unknown rollup draws no Checks line.
+type GhChecks = 'SUCCESS' | 'FAILURE' | 'PENDING' | 'ERROR' | 'EXPECTED' | 'none'
+const CHECKS_WORDS: [GhChecks, string, string][] = [
+  ['SUCCESS', 'passing', 'passando'],
+  ['FAILURE', 'failing', 'falhando'],
+  ['PENDING', 'running', 'em andamento'],
+]
+
+for (const [checks, en, pt] of CHECKS_WORDS) {
+  test(`#21: a window PR whose checks are ${checks} draws "${en}" in English and "${pt}" in pt-BR`, async ($: Engine, on) => {
+    const host = stubHost(on, { openPrs: [{ number: 40, title: 'Fix', headRefName: 'feature/disk', checks }] })
+    host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
+    await $.session.start(SESSION)
+    await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+    await host.clock.settle()
+    const english = await drawnPane($)
+    expect(english).toContain('"Checks:"')
+    expect(english).toContain(`"${en}"`)
+    await $.command.run({ command: 'keepaway', args: 'lang pt-BR', ...COMMAND_CONTEXT })
+    const portuguese = await drawnPane($)
+    expect(portuguese).toContain('"Checks:"')
+    expect(portuguese).toContain(`"${pt}"`)
+  })
+}
+
+test('#21: a window PR with an empty rollup draws "no CI"', async ($: Engine, on) => {
+  const host = stubHost(on, { openPrs: [{ number: 40, title: 'Fix', headRefName: 'feature/disk', checks: 'none' }] })
+  host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const drawn = await drawnPane($)
+  expect(drawn).toContain('"Checks:"')
+  expect(drawn).toContain('"no CI"')
+})
+
+test('#21: a window with no PR draws no Checks line', async ($: Engine, on) => {
+  const host = stubHost(on)
+  host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(await drawnPane($)).not.toContain('Checks')
+})
+
+test('#21: a window PR whose head commit the answer does not give draws no Checks line', async ($: Engine, on) => {
+  const host = stubHost(on, { openPrs: [{ number: 40, title: 'Fix', headRefName: 'feature/disk' }] })
+  host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(await drawnPane($)).not.toContain('Checks')
 })
 
 // The log names each gh failure's kind, and never its stderr (F03).

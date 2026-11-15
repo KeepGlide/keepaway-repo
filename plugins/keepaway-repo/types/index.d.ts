@@ -20,7 +20,8 @@ export type Priority = 'P0' | 'P1' | 'P2' | 'P3'
 export type PullRequest = {
   number: number; title: string; state: 'OPEN' | 'MERGED' | 'CLOSED'; headRefName: string; url: string; createdAt: string
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
-  closes: number[]; checks: 'SUCCESS' | 'FAILURE' | 'PENDING' | 'ERROR' | 'EXPECTED' | null
+  // checks: the head commit's rollup state; 'none' when the head has no rollup (no checks ran); null when GitHub did not say.
+  closes: number[]; checks: 'SUCCESS' | 'FAILURE' | 'PENDING' | 'ERROR' | 'EXPECTED' | 'none' | null
 }
 
 // The Desktop's post-turn summary of a record (Desktop-internal, undocumented; SPEC section 7): blocked when the session stopped for the
@@ -103,14 +104,14 @@ export type IssueGroup = {
 export type PaneError = 'gh-missing' | 'gh-auth' | 'gh-rate-limit' | 'gh-timeout' | 'gh-failed' | 'no-remote' | 'records-unreadable' | 'git-failed'
 
 // The details of this window's issue (repo-work-pane-design-spec.md D5, as built). Present only when this window's session maps to an issue.
-// `checks` is null in v1: GitHub Actions is off in the repos, so the pane draws "no CI".
+// `checks` is the window's PR checks state (PullRequest.checks): null with no PR or when GitHub did not say, so the pane draws no Checks line.
 export type IssueDetails = {
   number: number; title: string; url: string; state: 'open' | 'closed'; milestoneTitle: string | null
   branch: string | null
   pr: { number: number; title: string; state: 'OPEN' | 'MERGED' | 'CLOSED'; reviewDecision: PullRequest['reviewDecision']; url: string } | null
   // url: the commit's web page, null without a repo page (the line links to it on the desktop).
   lastCommit: { at: number; subject: string; url: string | null } | null
-  checks: string | null
+  checks: PullRequest['checks']
   lastComment: { author: string; at: number; body: string } | null
   // decision: the text of the newest comment by the owner, a member or a collaborator that starts with "Decisão:" or "Decision:" (bold or
   // not), plain, cut to DECISION_MAX; null when none (Mock S delta 8).

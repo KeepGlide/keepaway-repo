@@ -1882,9 +1882,15 @@ function closingIssuesOf(references: unknown, slug: string): number[] {
   })
 }
 
+// The head commit's checks: 'none' when the head has no rollup (GitHub's null, no checks ran), its rollup state, or null when the head
+// or its answer is missing.
 function checksOf(commits: unknown): PullRequest['checks'] {
   const [head] = asArray(childOf(commits, 'nodes'))
-  return oneOf(childOf(childOf(childOf(head, 'commit'), 'statusCheckRollup'), 'state'), CHECK_STATES)
+  const commit = childOf(head, 'commit')
+  if (commit === undefined || commit === null) return null
+  const rollup = childOf(commit, 'statusCheckRollup')
+  if (rollup === null) return 'none'
+  return oneOf(childOf(rollup, 'state'), CHECK_STATES)
 }
 
 function pullRequestOf(raw: unknown, slug: string): PullRequest | null {
@@ -1991,7 +1997,7 @@ function detailsOf(view: IssueView, facts: WindowFacts): IssueDetails {
         ? null
         : { number: pr.number, title: pr.title, state: pr.state, reviewDecision: pr.reviewDecision, url: pr.url },
     lastCommit: facts.lastCommit,
-    checks: null,
+    checks: pr?.checks ?? null,
     lastComment: view.lastComment,
     decision: view.decision,
     startedAt: facts.node.createdAt,
