@@ -125,6 +125,8 @@ export type Snapshot = {
   // thisIssueNumber: the window's issue number whenever the window maps to one, even when thisIssue is null (a failed view).
   thisIssue: IssueDetails | null; thisIssueNumber: number | null; unreadableCount: number
   errors: PaneError[]; stale: boolean; truncated: boolean
+  // When the gh reads last all answered (the pane's age in a GitHub error line); null until one did.
+  githubReadAt: number | null
   // The limit of each list that was cut, the issues first: 500 for issues, 100 for PRs; empty when none was (SP3-1).
   truncatedLimits: number[]
 }

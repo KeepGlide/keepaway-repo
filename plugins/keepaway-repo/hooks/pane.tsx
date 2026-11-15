@@ -180,6 +180,13 @@ const ERROR_KEY: Readonly<Record<PaneError, MessageKey>> = {
   'git-failed': 'error.git-failed',
 }
 
+// The GitHub errors' lines with the age of the last good read, used when one exists (SPEC, GitHub backoff).
+const AGED_ERROR_KEY: Partial<Readonly<Record<PaneError, MessageKey>>> = {
+  'gh-rate-limit': 'error.rateLimit.age',
+  'gh-timeout': 'error.timeout.age',
+  'gh-failed': 'error.ghFailed.age',
+}
+
 export function renderPane(elements: Ui, context: PaneContext): RenderElement {
   const { snapshot } = context
   const view: View = {
@@ -299,9 +306,15 @@ function renderSnapshot(view: View, snapshot: Snapshot): RenderElement[] {
 
 function renderErrors(view: View, snapshot: Snapshot): RenderElement[] {
   // The records line only when a record could not be read (N1): a folder that failed alone draws no count.
+  const { githubReadAt } = snapshot
   const lines = snapshot.errors
     .filter(error => error !== 'records-unreadable' || snapshot.unreadableCount > 0)
-    .map(error => t(view.lang, ERROR_KEY[error], error === 'records-unreadable' ? { count: snapshot.unreadableCount } : {}))
+    .map(error => {
+      // A GitHub error with a good read behind it names that read's age (the data shown is that old).
+      const agedKey = githubReadAt === null ? undefined : AGED_ERROR_KEY[error]
+      if (githubReadAt !== null && agedKey !== undefined) return t(view.lang, agedKey, { age: ageText(view.lang, githubReadAt, view.now) })
+      return t(view.lang, ERROR_KEY[error], error === 'records-unreadable' ? { count: snapshot.unreadableCount } : {})
+    })
   for (const limit of snapshot.truncatedLimits) {
     lines.push(t(view.lang, TRUNCATED_KEY.get(limit) ?? 'error.truncated', { count: limit }))
   }

@@ -2398,8 +2398,52 @@ test('R2-04: a poll that misses its deadline writes its late result when no newe
   options.gh = { exitCode: 1, stderr: 'GraphQL: API rate limit already exceeded for user ID 1.' }
   await host.clock.advance(POLL_MS)
   const drawn = await drawnPane($)
-  expect(drawn).toContain('GitHub rate limit: showing the last data')
+  expect(drawn).toContain('GitHub rate limit: showing data last read')
   expect(drawn).toContain('Late issue')
+})
+
+const RATE_LIMITED: StubOptions['gh'] = { exitCode: 1, stderr: 'GraphQL: API rate limit already exceeded for user ID 1.' }
+
+test('#26: a rate limit stops GitHub reads until the retry time, the wait doubles, and a good read clears it', async ($: Engine, on) => {
+  const options: StubOptions = {}
+  const host = stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(ghCalls(host)).toBe(4)
+  options.gh = RATE_LIMITED
+  await host.clock.advance(POLL_MS) // +1 min: limited, wait 2 min
+  expect(ghCalls(host)).toBe(8)
+  expect(await drawnPane($)).toContain('GitHub rate limit: showing data last read')
+  await host.clock.advance(POLL_MS) // +2 min: before the retry time, no gh call
+  expect(ghCalls(host)).toBe(8)
+  await host.clock.advance(POLL_MS) // +3 min: retry, limited again, wait 4 min
+  expect(ghCalls(host)).toBe(12)
+  await host.clock.advance(3 * POLL_MS) // +4 to +6 min: no gh call
+  expect(ghCalls(host)).toBe(12)
+  await host.clock.advance(POLL_MS) // +7 min: retry
+  expect(ghCalls(host)).toBe(16)
+  options.gh = undefined
+  await host.clock.advance(7 * POLL_MS) // +8 to +14 min: the wait of 8 min from the limited retry at +7 holds
+  expect(ghCalls(host)).toBe(16)
+  await host.clock.advance(POLL_MS) // +15 min: retry, a good read, the wait is cleared
+  expect(ghCalls(host)).toBe(20)
+  await host.clock.advance(POLL_MS) // +16 min: every minute again
+  expect(ghCalls(host)).toBe(24)
+})
+
+test('#26: a GitHub error line names the age of the last good read, in en and pt-BR', async ($: Engine, on) => {
+  const options: StubOptions = {}
+  const host = stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  options.gh = { exitCode: 1, stderr: 'something unexpected' }
+  await host.clock.advance(12 * POLL_MS)
+  expect(await drawnPane($)).toContain('GitHub did not answer as expected: showing data last read 12 min ago')
+  await $.command.run({ command: 'keepaway', args: 'lang pt-BR', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(await drawnPane($)).toContain('o GitHub não respondeu como esperado: mostrando dados lidos há 12 min')
 })
 
 const NEWER_ISSUE = {

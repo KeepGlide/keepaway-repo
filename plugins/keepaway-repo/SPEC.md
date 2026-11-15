@@ -144,6 +144,8 @@ Budget: four gh calls per minute while the pane is open, plus the fifth call (`g
 is closed: four gh calls every 5 minutes (`KEEPAWAY_BAND_POLL_MS`), plus the fifth call when mapped, so at most 5 gh calls per 5
 minutes per window, and one poll at session start (and one more when a session.start or a `/keepaway issue` landed during a poll in flight, or while abandoned polls filled every slot). Git is local.
 
+GitHub backoff: a poll in which gh reports the API rate limit starts a wait before the next GitHub read. The first wait is 2 min; each further limited poll doubles it, up to a 15 min ceiling (`RATE_LIMIT_WAIT_MS`, `RATE_LIMIT_WAIT_MAX_MS`). Until the retry time no poll calls gh: the four reads are skipped and the last good data is drawn with the `gh-rate-limit` line. Both the window's timer and a pane open wait for the retry time, so no path waits longer than the ceiling. A poll whose four reads all answer clears the wait. The wait lives in module memory only (no store key). The sessions and the local data keep refreshing during the wait.
+
 Logo lookups (section 11) are not poll calls: a repo's logo is looked up once per repo per TTL (24 h for a logo or none, 1 h after a failed lookup), never on each poll, and a lookup on github.com makes at most three `gh api repos/OWNER/NAME/contents/<path>` calls (`GITHUB_LOGO_CALLS`: the root's `logo.png`, `logo.jpg`, `logo.jpeg`), stopping at the first logo; with no logo found, a GitHub repo's lookup asks `gh api users/<owner>` for the type (and, for an organization, for its avatar URL once more), and its avatar fetch is one curl call (section 11), not a gh call. The checkout's logo folders are listed locally, at no gh cost.
 
 Host clock (`date +%z`, `readUtcOffset` in `hooks/register.tsx`): the host's UTC offset is read through the process API, `$.process.run(['date', '+%z'], { timeoutMs: 2000 })`, once at session.start and once per poll, before the poll's other calls. The answer is `±HHMM` and `parseUtcOffset` (`hooks/model.ts`) turns it into minutes east of UTC. The offset is written to the `utcOffset` atom, and the pane reads it with its other inputs. Any failure falls back to the runtime's own offset (`-new Date().getTimezoneOffset()`): no `date` binary (Windows), a timeout, a non-zero exit, or an answer that is not `±HHMM`. A DST change reaches the pane at the next poll. Besides gh and git, the host is asked one more thing: the ssh alias lookup of section 16 (`ssh -G`).
@@ -218,9 +220,12 @@ Each line is drawn above the groups, in the language of the pane. The sessions a
 |---|---|---|
 | `gh-missing` | gh not found: showing sessions only | gh cannot start (ENOENT) |
 | `gh-auth` | gh is not signed in: run gh auth login (pt-BR `gh sem login: rode gh auth login`) | gh exits non-zero with a login message |
-| `gh-rate-limit` | GitHub rate limit: showing the last data | gh reports the API rate limit; the previous data is kept, `stale` set |
-| `gh-timeout` | GitHub did not answer in time | the 15 s timeout |
-| `gh-failed` | GitHub did not answer as expected: showing the last data | a gh call failed with no mapped cause, or exited 0 with output that cannot be read (R2-02); the last data is kept and `stale` is set |
+| `gh-rate-limit` | GitHub rate limit: showing the last data (with a good read behind it: GitHub rate limit: showing data last read `{age}`) | gh reports the API rate limit; the previous data is kept, `stale` set, and the GitHub backoff starts |
+| `gh-timeout` | GitHub did not answer in time (with a good read behind it: `… showing data last read {age}`) | the 15 s timeout |
+| `gh-failed` | GitHub did not answer as expected: showing the last data (with a good read behind it: `… showing data last read {age}`) | a gh call failed with no mapped cause, or exited 0 with output that cannot be read (R2-02); the last data is kept and `stale` is set |
+
+The age is the time of the last poll in which all four GitHub reads answered (`githubReadAt` in the snapshot), shown with the same
+wording as the footer's age (`ageText`). Without such a read yet, the line has no age. pt-BR wording: `limite do GitHub: mostrando dados lidos há {n} min`.
 | `no-remote` | no GitHub remote for this repo | the repo has no GitHub origin; mode `no-github`, no issue groups |
 | `records-unreadable` | `{count}` session records could not be read (a count of 1: `1 session record could not be read`) | a record failed to parse; drawn only when `unreadableCount` is above 0 (N1). A folder that cannot be listed draws no line |
 | `git-failed` | git failed in this folder · sessions shown without branch | git could not answer for a candidate's folder (a timeout, or stderr other than not-a-repository; a folder git reports as not a repository is not a failure) |
