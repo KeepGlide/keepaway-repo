@@ -30,3 +30,10 @@ bash plugins/keepaway-repo/scripts/keepaway-look-check.sh
 - Code, identifiers, comments and file names are in English. The README has a pt-BR twin, and both change in the same commit.
 - Every user-facing change updates `CHANGELOG.md` under `[Unreleased]`, and the tests table in both READMEs.
 - GitHub Actions is off for this repository. Do not add `.github/workflows/`.
+
+## Changelog and release
+
+- Every `CHANGELOG.md` bullet opens with a bold feature name in plain words, for example `- **Timeline markers**: ...`.
+- The public text of a bullet has no `SPEC-` ids, no `#issue` numbers, no milestone names and no file paths. The keepglide.com feed takes plain text only: no backticks and no URLs.
+- Use one of the sections `Added`, `Changed`, `Fixed`, `Security`, `Performance` or `Documentation`.
+- Release step: after the release, run the site exporter, `scripts/publish-changelogs.mjs` in `sophia-phillipa/keepglide-web`. Nothing is published until the beta ships.
