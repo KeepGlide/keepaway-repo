@@ -670,6 +670,9 @@ const STATE_KEYS = { working: 'state.working', idle: 'state.idle', waiting: 'sta
 const STATE_EMOJI = { working: '🟢', idle: '💤', waiting: '⏳' } as const
 
 // The title of every session row, as drawn: the Markdown label on the desktop, the text on the terminal.
+const buttonLabelsOf = (tree: unknown): string[] =>
+  nodesOf(tree).filter(node => node.tag === 'Button').map(node => String(node.props.label))
+
 const titleRows = (tree: unknown): string[] =>
   nodesOf(tree)
     .filter(node => /^title-(?!block$)/.test(String(node.props.key)))
@@ -1780,11 +1783,43 @@ test('a group past 20 top-level sessions draws the first 20 and a "+k more" line
   // A row's title carries its state icon after the name, so the name is matched as a prefix.
   expect(titleRows(over).some(row => row.startsWith('Cap session 19 '))).toBe(true)
   expect(titleRows(over).some(row => row.startsWith('Cap session 20 '))).toBe(false)
-  expect(drawnTexts(over)).toContain('+5 more')
-  expect(drawnTexts(drawTerminal({ snapshot: snapshotWith({ sessions: sessionsOf(25) }), lang: 'pt' }))).toContain('+5 mais')
+  expect(buttonLabelsOf(over)).toContain('+5 more')
+  expect(buttonLabelsOf(drawTerminal({ snapshot: snapshotWith({ sessions: sessionsOf(25) }), lang: 'pt' }))).toContain('+5 mais')
   const exact = drawTerminal({ snapshot: snapshotWith({ sessions: sessionsOf(20) }) })
   expect(titleRows(exact)).toHaveLength(20)
-  expect(drawnTexts(exact).some(text => /^\+\d+ more$/.test(text))).toBe(false)
+  expect(buttonLabelsOf(exact).some(label => /^\+\d+ more$/.test(label))).toBe(false)
+})
+
+// #28: the "+k more" button lifts the cut for its group; a second press cuts it again, and the hint names the command for this window.
+test('#28: the "+k more" button lifts the cut for its group, and a second press cuts it again', () => {
+  const capped = buildTree(
+    Array.from({ length: 25 }, (_, index) =>
+      makeRecord({ sessionId: `local_e${String(index).padStart(7, '0')}`, title: `Lift session ${index}`, lastActivityAt: NOW - (index + 1) * MINUTE }),
+    ),
+    { now: NOW, cutoffMs: 24 * HOUR, thisCliSessionId: 'cli-this', issueFacts: SAMPLE_ISSUE_FACTS },
+  )
+  const pressed: string[] = []
+  const cut = drawTerminal({ snapshot: snapshotWith({ sessions: capped }), onTimelineToggle: id => pressed.push(id) })
+  expect(titleRows(cut)).toHaveLength(20)
+  const onPress = nodesOf(cut).find(node => node.tag === 'Button' && node.props.label === '+5 more')?.props.onPress
+  if (typeof onPress !== 'function') throw new Error('the +5 more button has no press handler')
+  onPress()
+  expect(pressed).toHaveLength(1)
+  const lifted = drawTerminal({ snapshot: snapshotWith({ sessions: capped }), timelineOpen: new Set(pressed) })
+  expect(titleRows(lifted)).toHaveLength(25)
+  expect(buttonLabelsOf(lifted)).toContain('Show fewer')
+  expect(buttonLabelsOf(lifted).some(label => /^\+\d+ more$/.test(label))).toBe(false)
+})
+
+test('#28: this window with no issue shows the hint under its crumb, and no other row does', () => {
+  const noIssue = buildTree(
+    sampleSessions().map(record => (record.sessionId === THIS_WINDOW ? { ...record, override: null } : record)),
+    { now: NOW, cutoffMs: 24 * HOUR, thisCliSessionId: 'cli-this', issueFacts: SAMPLE_ISSUE_FACTS },
+  )
+  const hint = 'set it with /keepaway issue <n>'
+  expect(drawnTexts(drawDesktop({ snapshot: snapshotWith({ sessions: noIssue, thisIssue: null }) })).filter(text => text === hint)).toHaveLength(1)
+  expect(drawnTexts(drawDesktop({ snapshot: snapshotWith({ sessions: noIssue, thisIssue: null }), lang: 'pt' }))).toContain('defina com /keepaway issue <n>')
+  expect(drawnTexts(drawDesktop({ snapshot: snapshotWith() })).filter(text => text === hint)).toHaveLength(0)
 })
 
 test('a session waiting for the person under the 21st top of a group is drawn: the top ranks with its waiting child (Mock S Q7)', () => {

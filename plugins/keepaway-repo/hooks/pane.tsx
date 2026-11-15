@@ -92,8 +92,8 @@ const MAX_INDENT_LEVELS = 2
 const BODY_INDENT = 4
 // The indent of a group's rows under its label.
 const GROUP_INDENT = 1
-// The most top-level sessions one group draws (Mock S Q7); the rest sit behind a "+k more" line. A group puts this window and the sessions
-// waiting for the person first, so the cut never hides them.
+// The most top-level sessions one group draws (Mock S Q7); the rest sit behind a "+k more" button that lifts the cut for that group. A group
+// puts this window and the sessions waiting for the person first, so the cut never hides them.
 const SESSION_LIST_MAX = 20
 const TITLE_SEPARATOR = ' · '
 const MINUTE_MS = 60_000
@@ -449,11 +449,15 @@ function groupsOf(tops: readonly SessionNode[]): GroupRun[] {
   return runs
 }
 
+// The key of a group's lifted cut in the store of open timelines (timelineOpen): the group's key with a prefix, so no session id matches it.
+const groupCutOf = (key: string): string => `group:${key}`
+
 // One group, drawn as a branch: the label in bold, then each top as a titled row with its children under it,
-// "├" and "└" on the last. Past SESSION_LIST_MAX tops, the group draws the first ones and a "+k more" line (Mock S Q7).
+// "├" and "└" on the last. Past SESSION_LIST_MAX tops, the group draws the first ones and a "+k more" button (Mock S Q7); a press lifts the cut.
 function renderGroup(view: View, run: GroupRun): RenderElement {
   const { group, tops } = run
-  const shown = tops.slice(0, SESSION_LIST_MAX)
+  const lifted = view.timelineOpen.has(groupCutOf(group.key))
+  const shown = lifted ? tops : tops.slice(0, SESSION_LIST_MAX)
   const hidden = tops.length - shown.length
   const lastIndex = shown.length - 1
   const { Box, Text } = view.ui
@@ -468,10 +472,18 @@ function renderGroup(view: View, run: GroupRun): RenderElement {
             level: 0,
           }),
         )}
-        {hidden > 0 && <Text key={`group-more-${group.key}`}>{t(view.lang, 'group.more', { count: hidden })}</Text>}
+        {tops.length > SESSION_LIST_MAX && renderGroupToggle(view, group, lifted, hidden)}
       </Box>
     </Box>
   )
+}
+
+// A group's "+k more" button, held like the Earlier buttons (held.ts): a press lifts the cut for that group, and a second press cuts it again.
+function renderGroupToggle(view: View, group: SessionGroup, lifted: boolean, hidden: number): RenderElement {
+  const { Button } = view.ui
+  const key = `group-more-${group.key}`
+  const label = lifted ? t(view.lang, 'group.less') : t(view.lang, 'group.more', { count: hidden })
+  return view.held.hold(key, label, () => view.onTimelineToggle(groupCutOf(group.key)), press => <Button key={key} label={label} onPress={press} />)
 }
 
 // The label line of a group: plain bold Text, a Desktop Group's name (the user's own text), else Recents in the pane's
@@ -550,10 +562,17 @@ function renderSessionHead(view: View, node: SessionNode, place: RowPlace): Rend
         {renderTitleLine(view, node, node.isThisWindow)}
         {renderSummaryLine(view, node)}
         {renderCrumb(view, node)}
+        {node.isThisWindow && node.issue === null && renderIssueHint(view)}
         {renderNeedsLine(view, node)}
       </Box>
     </Box>
   )
+}
+
+// This window with no issue: one muted line under its crumb names the command that sets the issue.
+function renderIssueHint(view: View): RenderElement {
+  const { Text } = view.ui
+  return <Text key="issue-hint" dimColor>{t(view.lang, 'hint.setIssue')}</Text>
 }
 
 // The summary line right under the title (Mock S delta 7, SPEC section 21): the session's first prompt, cut, as plain text with no label.
