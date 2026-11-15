@@ -14,6 +14,7 @@ Commit hashes name the change in `git log`. Entries below the rename keep the na
 - **Docs check**: a local script checks that the privacy sections name every program the mod runs and every model call, so the docs cannot drift from the code unnoticed.
 
 ### Changed
+- **README banner matches the brand kit**: the README banner now shows the brand kit's current cover drawing, and both header files take the kit's and site's names.
 - **Fewer GitHub calls per poll**: the owner avatar takes one account call, and the issue view is one request that keeps the newest 30 comments; a pull request number still shows its details.
 - **Backoff after a GitHub rate limit**: after GitHub's rate limit the pane waits before it reads GitHub again, up to 15 minutes, and its error line says how old the data on screen is.
 - **Briefs wait for the pane**: a long first prompt is condensed only while the pane is open, so a window that never opens it makes no model call.
