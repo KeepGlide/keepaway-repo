@@ -1166,13 +1166,18 @@ function completeLinesOf(text: string): { lines: string[]; bytes: number } {
   return { lines: whole.split('\n').slice(0, -1), bytes: new TextEncoder().encode(whole).length }
 }
 
-// The bytes of a session's transcript after an offset, read with tail; null when the session has no transcript path, or the read fails.
-async function transcriptTailOf($: EngineInterface, record: ProjectedRecord, offset: number): Promise<string | null> {
+// The bytes of a session's transcript after an offset, read with tail, and whether the engine cut them at its stdout cap (truncated);
+// null when the session has no transcript path, or the read fails.
+async function transcriptTailOf(
+  $: EngineInterface,
+  record: ProjectedRecord,
+  offset: number,
+): Promise<{ text: string; truncated: boolean } | null> {
   const home = await $.env.get('HOME')
   if (!home || record.cwd === null || !TRANSCRIPT_ID.test(record.cliSessionId)) return null
   const path = `${home}/.claude/projects/${transcriptFolderOf(record.cwd)}/${record.cliSessionId}.jsonl`
   const run = await $.process.run(['tail', '-c', `+${offset + 1}`, path], { timeoutMs: TRANSCRIPT_TIMEOUT_MS })
-  return run.exitCode === 0 ? run.stdout : null
+  return run.exitCode === 0 ? { text: run.stdout, truncated: run.isStdoutTruncated } : null
 }
 
 // Keeps one session's step memory; past STEP_SESSIONS_MAX the least recently read session goes.
@@ -1194,17 +1199,21 @@ async function stepsOfSessions($: EngineInterface, records: readonly ProjectedRe
     if (reads < STEP_READS_PER_POLL && (known === undefined || record.lastActivityAt > known.activityAt)) {
       reads += 1
       const offset = known?.offset ?? 0
-      const text = await transcriptTailOf($, record, offset).catch((error: unknown) => {
+      const tail = await transcriptTailOf($, record, offset).catch((error: unknown) => {
         logStepsFailureOnce($, error)
         return null
       })
-      if (text !== null) {
-        const read = completeLinesOf(text)
+      if (tail !== null) {
+        const read = completeLinesOf(tail.text)
+        const size = new TextEncoder().encode(tail.text).length
+        // A read the engine cut at its cap with no newline in it is one line longer than the cap: that part is skipped whole, so the
+        // next read starts past it instead of reading the same bytes again.
+        const bytes = read.bytes === 0 && tail.truncated ? size : read.bytes
         memory = {
-          offset: offset + read.bytes,
+          offset: offset + bytes,
           cursor: stepsAfter(known?.cursor ?? EMPTY_CURSOR, read.lines),
-          // A read that left a partial line (half-written, or past the engine's cut) is read again on the next poll.
-          activityAt: read.bytes === new TextEncoder().encode(text).length ? record.lastActivityAt : Number.NEGATIVE_INFINITY,
+          // A read that left a partial line (half-written) or stopped at the cap is read again on the next poll.
+          activityAt: bytes === size && !tail.truncated ? record.lastActivityAt : Number.NEGATIVE_INFINITY,
         }
         rememberSteps(record.sessionId, memory)
       }

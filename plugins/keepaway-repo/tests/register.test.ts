@@ -172,6 +172,8 @@ type StubOptions = {
   glabAvatarUrl?: string
   // The transcripts of the Desktop, by path: `head -c N` answers their first N characters; a path not given is missing (exit 1).
   transcripts?: Record<string, string>
+  // The engine's stdout cap for `tail`: a longer answer is cut to it and flagged isStdoutTruncated (absent: no cap).
+  tailCap?: number
   // The head read of a transcript is refused (a timeout, the engine's rejection).
   transcriptRefuses?: boolean
 }
@@ -363,9 +365,10 @@ function stubHost(on: On, options: StubOptions = {}): Host {
     }
     if (argv[0] === 'tail') {
       const text = options.transcripts?.[argv[3] ?? '']
-      return text === undefined
-        ? valueOr(argv, processOutput('', 1, 'tail: cannot open the file'))
-        : valueOr(argv, processOutput(text.slice(Number((argv[2] ?? '+1').slice(1)) - 1)))
+      if (text === undefined) return valueOr(argv, processOutput('', 1, 'tail: cannot open the file'))
+      const rest = text.slice(Number((argv[2] ?? '+1').slice(1)) - 1)
+      if (options.tailCap === undefined) return valueOr(argv, processOutput(rest))
+      return valueOr(argv, { ...processOutput(rest.slice(0, options.tailCap)), isStdoutTruncated: rest.length > options.tailCap })
     }
     if (argv[0] === 'date') {
       if (options.dateMissing === true) return refuse('Executable not found in $PATH: "date"')
@@ -3617,6 +3620,27 @@ test('#22: a first user line longer than the head cap gives a final summary with
   await host.clock.settle()
   expect(headCalls(host)).toHaveLength(first)
   expect(await drawnPane($)).not.toContain('Pasted image')
+})
+
+// #23: a transcript line longer than the tail cap is skipped whole, so the steps after it still appear; the same bytes are not read again.
+test('#23: a transcript line longer than the read cap is skipped, and the steps after it appear on the following polls', async ($: Engine, on) => {
+  const cap = 1024
+  const oversized = JSON.stringify({ type: 'assistant', padding: 'x'.repeat(3 * cap) }) + '\n'
+  const transcript =
+    userLine('Fix the disk full error') +
+    oversized +
+    planLine('2026-11-02T10:19:00Z', [{ content: 'Later step', status: 'in_progress' }])
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: transcript }, tailCap: cap })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  for (let poll = 0; poll < 6; poll++) {
+    await host.clock.advance(POLL_MS)
+    await host.clock.settle()
+  }
+  expect(await drawnPane($)).toContain('Later step')
+  const offsets = tailCalls(host).map(argv => argv[2])
+  expect(new Set(offsets).size).toBe(offsets.length)
 })
 
 test('a transcript whose last line has no newline yet keeps that line for the next read', async ($: Engine, on) => {
