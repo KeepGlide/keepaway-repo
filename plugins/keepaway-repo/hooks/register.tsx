@@ -644,12 +644,13 @@ async function branchOf($: EngineInterface, cwd: string): Promise<{ branch: stri
   return { branch: branch === '' ? null : branch, failed: false }
 }
 
-// The newest commits of a branch, none when it is the default branch or git cannot tell which that is (repo-work-pane-design-spec.md D6).
+// The newest commits of a branch that are its own (the range default..HEAD), none when it is the default branch or git cannot tell which
+// that is (repo-work-pane-design-spec.md D6).
 async function commitsOf($: EngineInterface, cwd: string, branch: string): Promise<Commit[]> {
   const origin = await gitOut($, ['-C', cwd, 'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
   if (origin === null || origin.replace(/^origin\//, '') === branch) return []
   // Not trimmed: a commit with an empty subject ends in its tab, and trimming would drop it (parseCommits needs the tab).
-  const run = await gitRun($, ['-C', cwd, 'log', `-${COMMIT_LIMIT}`, `--format=${COMMIT_FORMAT}`])
+  const run = await gitRun($, ['-C', cwd, 'log', `-${COMMIT_LIMIT}`, `--format=${COMMIT_FORMAT}`, `${origin}..HEAD`])
   return run !== null && run.exitCode === 0 ? parseCommits(run.stdout) : []
 }
 

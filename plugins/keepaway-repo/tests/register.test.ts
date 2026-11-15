@@ -2384,6 +2384,24 @@ test('DL11: a detached HEAD is no branch and no git failure', async ($: Engine, 
   expect(await drawnPane($)).not.toContain('git failed')
 })
 
+test('a branch\'s commits are read as its own range over the default branch: origin/main..HEAD', async ($: Engine, on) => {
+  const host = stubHost(on, { log: `${COMMIT_SHA}\t1700000000\tfix the thing` })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const logs = host.argvs.filter(argv => argv.includes('log'))
+  expect(logs.some(argv => argv.at(-1) === 'origin/main..HEAD')).toBe(true)
+  expect(logs.some(argv => argv.at(-1) === 'HEAD' && !argv.includes('origin/main..HEAD'))).toBe(false)
+})
+
+test('a branch with no commit of its own reads none, even when its log answer is empty', async ($: Engine, on) => {
+  const host = stubHost(on, { log: '' })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(await drawnPane($)).not.toContain(COMMIT_SHA)
+})
+
 test('DL13: a last commit with an empty subject is still a commit', async ($: Engine, on) => {
   const host = stubHost(on, { log: `${'a'.repeat(40)}\t1700000000\t` })
   await $.session.start(SESSION)

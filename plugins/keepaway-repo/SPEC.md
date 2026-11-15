@@ -105,8 +105,8 @@ where it differs from that record (section 9).
         its own row), with its derived rows nested under it, at the 1/3/5 indent in every group, Recents included (W1,
         section 9). An ended root is not drawn: its live derived sessions are tops of their group (Recents when unfiled),
         ordered like any other top, and their timeline names it (`forked from <title>`, `spawned from <title>`).
-   9. Commits of each kept session: `git symbolic-ref --quiet --short refs/remotes/origin/HEAD` (no network), then `git log -5` on its
-      branch unless the branch is the default branch.
+   9. Commits of each kept session: `git symbolic-ref --quiet --short refs/remotes/origin/HEAD` (no network), then `git log -5 <default>..HEAD` on its
+      branch (the commits the branch has of its own) unless the branch is the default branch.
    10. This window's issue (section 6): one `gh issue view` call when the window maps to an issue.
    11. Snapshot: sessions, milestones, issue groups (issues no session shows), counters, `thisIssue`, `unreadableCount`,
       errors, `stale`, `truncated`, `truncatedLimits` (section 8).
@@ -137,7 +137,7 @@ is read, so a tag with the branch's name no longer yields `heads/<name>`; an unb
 stderr) yields no branch and is not a failure; `rev-parse --path-format=absolute --git-common-dir` per cwd of a record
 without `gitAnchors` and for the root when there is no GitHub remote (cached per cwd); `remote get-url origin` per distinct
 common dir (cached per common dir; a not-a-repository answer is cached as no remote), and when origin is absent `remote` then `remote get-url <first>` (the same cache); the root
-without an engine origin asks the same way on each poll. `symbolic-ref --quiet --short refs/remotes/origin/HEAD` and `log -5 --format=%H%x09%ct%x09%s%x1f%b%x1e` per
+without an engine origin asks the same way on each poll. `symbolic-ref --quiet --short refs/remotes/origin/HEAD` and `log -5 --format=%H%x09%ct%x09%s%x1f%b%x1e <default>..HEAD` per
 kept session with a branch; the log is parsed from git's output as it comes, not trimmed, so a commit with an empty subject still counts. Records end with `\x1e` and the body follows `\x1f` (section 24); output with no `\x1e` is read one commit per line, with no body.
 
 Budget: four gh calls per minute while the pane is open, plus the fifth call (`gh issue view`) while this window maps to an issue. While the pane
@@ -285,7 +285,7 @@ A poll never throws into the engine: a failed job is logged by its error name on
   ` · `.
 - Timeline: the session's events, newest first, up to 30 (`TIMELINE_LIMIT`). The 7 newest are always drawn; the rest sit behind the session's `Earlier (N)` button (section 22). A `Now: <task>` line comes first when the session has a current task (section 22). The desktop draws the same events on a vertical line instead, with markers for icons (section 24); what follows is the terminal's list. The timeline has no heading, in this window's block or in any other session's: its events are drawn as they are, each with its icon. Kinds, each with its icon: commit (`📝`, subject as plain text),
   plan step (no icon, the step's text, section 22), PR (`🔀`, `PR #n opened: <title>`, from the PR's `createdAt`), session (`🚀`, `started`, `forked from <title>`, or
-  `spawned from <title>`, the title of the session's own parent, an ended one included). Commits are the branch's own last 5, newest first, empty on the default branch. On the desktop a commit event links to its commit page (GitHub `/commit/<sha>`, GitLab `/-/commit/<sha>`, the id read with `%H` from `git log`, which must be a full hash per `COMMIT_SHA`, 40 hex digits or 64 in a SHA-256 repo; an abbreviated id gets no link) and a PR event to its PR page; each link passes `PAGE_URL` (model.ts).
+  `spawned from <title>`, the title of the session's own parent, an ended one included). Commits are the branch's own last 5 (the range `<default>..HEAD`, so the default branch's commits are never listed), newest first, empty on the default branch. On the desktop a commit event links to its commit page (GitHub `/commit/<sha>`, GitLab `/-/commit/<sha>`, the id read with `%H` from `git log`, which must be a full hash per `COMMIT_SHA`, 40 hex digits or 64 in a SHA-256 repo; an abbreviated id gets no link) and a PR event to its PR page; each link passes `PAGE_URL` (model.ts).
 
 ## 11. This window's block
 
