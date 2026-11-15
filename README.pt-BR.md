@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/keepaway-cover-1600x400.png" alt="KeepAway Repo: o trabalho do seu repositório, ao lado do chat." width="100%" />
+<img src="assets/keepaway-repo-cover-1600x400.png" alt="KeepAway Repo: o trabalho do seu repositório, ao lado do chat." width="100%" />
 
-<img src="assets/keepaway-icon.svg" alt="Marca do KeepAway Repo: um anel de milestone cruzado por uma pipa, com um ponto de progresso" width="96" />
+<img src="assets/keepaway-repo-icon.svg" alt="Marca do KeepAway Repo: um anel de milestone cruzado por uma pipa, com um ponto de progresso" width="96" />
 
 # 🧭 KeepAway Repo
 
