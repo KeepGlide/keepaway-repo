@@ -21,13 +21,14 @@ import type {
 } from '../types'
 import { actionIconEmoji, priorityEmoji, statusIconEmoji, type ActionIconKey, type StatusIconKey } from './action-icons'
 import { t, type Lang, type MessageKey } from './i18n'
-import { PAGE_URL, RECENTS_GROUP, TEXT_MAX, TIMELINE_LIMIT, cutAtWord, isSessionLinkId, milestonePageOf, plain, priorityOf, repoPageOf } from './model'
+import { PAGE_URL, RECENTS_GROUP, TEXT_MAX, TIMELINE_LIMIT, isSessionLinkId, milestonePageOf, plain, priorityOf, repoPageOf } from './model'
 import { BAR_EMPTY, BAR_FILLED, BRANCH_GLYPH, DETAILS_FILL, DISCLOSURE_CLOSED, DISCLOSURE_OPEN, EMPHASISED_PRIORITIES, LINK_MARK } from './look'
 import { KEEPGLIDE_HEADER_SIZE, renderKeepGlide, renderKeepAwayLogo, renderRepoLogo } from './logo-element'
 import type { HeldButtons } from './held'
 import { repoLabelOf } from './repo-logo'
 import { HEADER_RULE_COLUMNS, HEADER_RULE_HEIGHT, HEADER_RULE_SVG } from './divider'
-import { MARK_ALT, TIMELINE_MARK_SIZE, timelineMarkSvg, type MarkKind } from './timeline-marks'
+import { TIMELINE_MARK_SIZE, timelineMarkSvg, type MarkKind } from './timeline-marks'
+import { headingTitleOf, titleLabel } from './milestone-title'
 
 type Ui = Elements[RenderSurface]
 // The desktop's table: the timeline's line draws Svg markers and Markdown titles, which only it has.
@@ -94,8 +95,6 @@ const GROUP_INDENT = 1
 // The most top-level sessions one group draws (Mock S Q7); the rest sit behind a "+k more" line. A group puts this window and the sessions
 // waiting for the person first, so the cut never hides them.
 const SESSION_LIST_MAX = 20
-// The longest milestone title on its heading, in characters, the ellipsis counted (Mock S delta 11, Q9, Q17).
-const MILESTONE_TITLE_MAX = 40
 const TITLE_SEPARATOR = ' · '
 const MINUTE_MS = 60_000
 // The date part of a GitHub due date (YYYY-MM-DD, then the time when GitHub sends one).
@@ -149,6 +148,16 @@ const REVIEW_KEY: Readonly<Record<NonNullable<PullRequest['reviewDecision']>, Me
   APPROVED: 'review.approved',
   CHANGES_REQUESTED: 'review.changes',
   REVIEW_REQUIRED: 'review.required',
+}
+// What each marker says to a reader that cannot see it: the legend's name for its kind.
+const MARK_NAME_KEY: Readonly<Record<MarkKind, MessageKey>> = {
+  now: 'legend.now.name',
+  release: 'legend.release.name',
+  commit: 'legend.commit.name',
+  test: 'legend.test.name',
+  pr: 'legend.pr.name',
+  session: 'legend.sessionEvent.name',
+  step: 'legend.step.name',
 }
 const SESSION_EVENT_KEY: Readonly<Record<SessionNode['kind'], MessageKey>> = {
   root: 'timeline.session.root',
@@ -879,7 +888,7 @@ function renderLineRow(view: View, node: SessionNode, row: LineRow, index: numbe
         {left ? text : null}
       </Box>
       <Box key="axis" width={LINE_AXIS_COLUMNS} flexDirection="column" alignItems="center">
-        <Svg key={`mark-${node.id}-${index}`} source={timelineMarkSvg(row.mark)} alt={MARK_ALT[row.mark]} width={TIMELINE_MARK_SIZE} height={TIMELINE_MARK_SIZE} />
+        <Svg key={`mark-${node.id}-${index}`} source={timelineMarkSvg(row.mark)} alt={t(view.lang, MARK_NAME_KEY[row.mark])} width={TIMELINE_MARK_SIZE} height={TIMELINE_MARK_SIZE} />
         {!last && <Box key="rule" width={LINE_RULE_WIDTH} flexGrow={1} backgroundColor="subtle" />}
       </Box>
       <Box key="right" width={LINE_SIDE_WIDTH} flexDirection="column" alignItems="flex-start" paddingLeft={1} paddingBottom={1}>
@@ -1027,17 +1036,6 @@ function overdueIconOf(view: View, milestone: Milestone): string {
   return overdue ? statusIconEmoji('overdue') : ''
 }
 
-// The milestone label: its title up to the first " · " (repo-work-pane-design-spec.md section 3.1).
-function titleLabel(title: string): string {
-  return title.split(TITLE_SEPARATOR)[0] ?? title
-}
-
-// A milestone's title on its heading: titleLabel, then cut at MILESTONE_TITLE_MAX characters, the ellipsis counted, at the last space before the
-// limit (Mock S delta 11, Q9, Q17).
-function headingTitleOf(title: string): string {
-  return cutAtWord(titleLabel(title), MILESTONE_TITLE_MAX)
-}
-
 // A milestone's label on its heading: the title first, then " ↗" when the heading links to the milestone's page (Mock S delta 10), then the
 // icons in order; an empty icon is left out.
 function milestoneLabelOf(view: View, number: number | null, title: string, icons: readonly string[]): string {
@@ -1164,7 +1162,7 @@ function renderLegendTable(view: View): RenderElement {
 // A marker row's picture: the line's own marker, at its size.
 function renderLegendMark(view: View, mark: MarkKind): RenderElement {
   const { Svg } = view.ui as DesktopUi
-  return <Svg key={`mark-legend-${mark}`} source={timelineMarkSvg(mark)} alt={MARK_ALT[mark]} width={TIMELINE_MARK_SIZE} height={TIMELINE_MARK_SIZE} />
+  return <Svg key={`mark-legend-${mark}`} source={timelineMarkSvg(mark)} alt={t(view.lang, MARK_NAME_KEY[mark])} width={TIMELINE_MARK_SIZE} height={TIMELINE_MARK_SIZE} />
 }
 
 // The note under the table, muted: what ↗, ~, #n and a missing priority icon mean, as text (Mock S delta 15). It is not an icon row.

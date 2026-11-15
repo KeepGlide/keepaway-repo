@@ -182,9 +182,12 @@ test('the repo context names the milestone with its progress and the issue', () 
   expect(bandContextWords(view({ repo: 'unknown' }))).toBeNull()
 })
 
-test('a long milestone title is cut to 24 characters in the band', () => {
-  const issue = { number: 7, milestoneTitle: LONG_TITLE, progress: { closed: 2, total: 5 } }
-  expect(lineOf(bandContextWords(view({ issue })))).toBe(`${LONG_TITLE.slice(0, 23)}… 2/5 · #7`)
+// #27: the band shows the pane's label: the title before " · ", cut at a word past 40 characters.
+test('#27: a milestone title reads as the pane shows it: before " · ", cut at a word past 40 characters', () => {
+  const issue = { number: 7, milestoneTitle: `${LONG_TITLE} · Phase 2`, progress: { closed: 2, total: 5 } }
+  expect(lineOf(bandContextWords(view({ issue })))).toBe('Sprint-with-a-very-long-milestone-title 2/5 · #7')
+  const long = { number: 7, milestoneTitle: 'Alpha beta gamma delta epsilon zeta eta theta iota', progress: null }
+  expect(lineOf(bandContextWords(view({ issue: long })))).toBe('Alpha beta gamma delta epsilon zeta… · #7')
 })
 
 for (const [surface, ui] of [['desktop', DESKTOP], ['terminal', TERMINAL]] as const) {
@@ -470,8 +473,8 @@ test('agents still running after the main turn ended: the working icon with thei
 })
 
 test('F19: a milestone title is cut by characters, so an emoji is never split in the band', () => {
-  const title = '🚀'.repeat(30)
-  expect(lineOf(bandContextWords(view({ issue: { number: 7, milestoneTitle: title, progress: null } })))).toBe(`${'🚀'.repeat(23)}… · #7`)
+  const title = '🚀'.repeat(50)
+  expect(lineOf(bandContextWords(view({ issue: { number: 7, milestoneTitle: title, progress: null } })))).toBe(`${'🚀'.repeat(39)}… · #7`)
 })
 
 test('F08: a window whose issue details are missing reads #<n> alone, never no issue', () => {

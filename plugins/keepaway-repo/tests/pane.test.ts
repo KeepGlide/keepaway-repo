@@ -240,7 +240,7 @@ test('a session event in the timeline is drawn with the diamond glyph on the ter
   expect(glyphs).toContain('🚀')
   expect(glyphs).not.toContain('▪')
   const marks = nodesOf(drawDesktop()).filter(node => node.tag === 'Svg' && String(node.props.key).startsWith('mark-local_'))
-  expect(marks.map(node => node.props.alt)).toContain('session')
+  expect(marks.map(node => node.props.alt)).toContain('session event')
   expect(nodesOf(drawDesktop()).some(node => node.props.key === 'glyph')).toBe(false)
 })
 
@@ -804,22 +804,22 @@ test('the legend is a Labels table: a bold heading, then one row per icon in gro
   ]
   // On the desktop the timeline's emoji rows (commit, open PR, session event) give way to the line's markers, in their place.
   const englishMarks = [
-    ['[in progress]', 'now', 'the step the session is doing now.'],
+    ['[now]', 'now', 'the step the session is doing now.'],
     ['[release]', 'release', 'a release: a version published or a release commit.'],
     ['[commit]', 'commit', "a commit made on the session's branch."],
     ['[test]', 'test', 'a step that ran or wrote tests.'],
-    ['[pull request]', 'open PR', "a pull request opened from the session's branch."],
-    ['[session]', 'session event', 'the session started, or was forked or spawned from another.'],
+    ['[open PR]', 'open PR', "a pull request opened from the session's branch."],
+    ['[session event]', 'session event', 'the session started, or was forked or spawned from another.'],
     ['[step]', 'step', "another step of the session's plan."],
   ]
   const portugueseMarks = [
-    ['[in progress]', 'agora', 'a etapa que a sessão está fazendo agora.'],
+    ['[agora]', 'agora', 'a etapa que a sessão está fazendo agora.'],
     ['[release]', 'release', 'um release: uma versão publicada ou um commit de release.'],
     ['[commit]', 'commit', 'um commit feito no branch da sessão.'],
-    ['[test]', 'teste', 'uma etapa que rodou ou escreveu testes.'],
-    ['[pull request]', 'PR aberto', 'um pull request aberto a partir do branch da sessão.'],
-    ['[session]', 'evento de sessão', 'a sessão começou ou foi derivada (fork ou spawn) de outra.'],
-    ['[step]', 'etapa', 'outra etapa do plano da sessão.'],
+    ['[teste]', 'teste', 'uma etapa que rodou ou escreveu testes.'],
+    ['[PR aberto]', 'PR aberto', 'um pull request aberto a partir do branch da sessão.'],
+    ['[evento de sessão]', 'evento de sessão', 'a sessão começou ou foi derivada (fork ou spawn) de outra.'],
+    ['[etapa]', 'etapa', 'outra etapa do plano da sessão.'],
   ]
   const onDesktop = (rows: string[][], marks: string[][]): string[][] => [...rows.slice(0, 7), ...marks, ...rows.slice(10)]
   for (const [tree, rows] of [
@@ -1541,6 +1541,15 @@ test('no open milestone, or a total of 0, reads the empty wording and the workin
   expect(heroTextsOf(zeroPt)).toEqual(['nenhum milestone aberto · 0 trabalhando'])
 })
 
+// #27: one issue left reads in the singular in pt-BR (falta 1), and the plural keeps faltam.
+test('one issue left reads falta 1 in pt-BR, and more than one keeps faltam', () => {
+  const one = drawDesktop({ snapshot: oneMilestone(milestoneOf({ openIssues: 1, closedIssues: 4 })), lang: 'pt' })
+  expect(heroTextsOf(one).join(' ')).toContain('falta 1')
+  expect(heroTextsOf(one).join(' ')).not.toContain('faltam 1')
+  const many = drawDesktop({ snapshot: oneMilestone(milestoneOf({ openIssues: 2, closedIssues: 4 })), lang: 'pt' })
+  expect(heroTextsOf(many).join(' ')).toContain('faltam 2')
+})
+
 test('inexact counts read the partial count, with no bar, no percentage and no "faltam"', () => {
   const texts = heroTextsOf(drawDesktop({ snapshot: oneMilestone(milestoneOf({ countsExact: false, openIssues: 4, closedIssues: 10 })) }))
   expect(texts).toEqual(['~10 of ~14 closed (partial count)', '0 working'])
@@ -1822,7 +1831,7 @@ test('the current task is drawn as Now: <task> in English and Agora: <task> in P
   // The desktop line draws it as its own top row, the time replaced by the word, with the green marker.
   const desktop = drawDesktop({ snapshot, lang: 'pt' })
   expect(lineRowsOf(desktop)[0]).toEqual(['Agora', 'Fix the pane'])
-  expect(keyed(desktop, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('in progress')
+  expect(keyed(desktop, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('agora')
   const none = drawnTexts(drawTerminal({ snapshot: withCurrentTask(snapshot, null) }))
   expect(none.some(text => text.startsWith('Now:'))).toBe(false)
 })
@@ -1901,7 +1910,7 @@ test('the desktop line alternates its rows left and right, marks each row by its
     expect(nodesOf(row).some(node => node.props.key === 'rule')).toBe(index < rows.length - 1)
   })
   const alts = rows.map((_, index) => keyed(tree, `mark-${THIS_WINDOW}-${index}`)?.props.alt)
-  expect(alts).toEqual(['commit', 'pull request', 'session', 'test', 'release'])
+  expect(alts).toEqual(['commit', 'open PR', 'session event', 'test', 'release'])
 })
 
 test('the step in progress is marked in progress, and a current task that is one of the steps adds no row of its own', () => {
@@ -1911,7 +1920,7 @@ test('the step in progress is marked in progress, and a current task that is one
   ]
   const tree = drawDesktop({ snapshot: withCurrentTask(withWindowTimeline(events), 'Fix the pane') })
   expect(lineTitlesOf(lineOf(tree))).toEqual(['Fix the pane', 'Read the spec'])
-  expect(keyed(tree, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('in progress')
+  expect(keyed(tree, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('now')
   expect(keyed(tree, `mark-${THIS_WINDOW}-1`)?.props.alt).toBe('step')
 })
 
@@ -1921,7 +1930,7 @@ test('a current task with no step of its own is the first row, read Now in Engli
   expect(lineTitlesOf(lineOf(tree))).toEqual(['Fix the pane', 'Step 1', 'Step 2', 'Step 3', 'Step 4', 'Step 5', 'Step 6', 'Step 7'])
   expect(keyed(tree, 'line-earlier')).toBeUndefined()
   expect(keyed(tree, `earlier-${THIS_WINDOW}`)?.props.label).toBe(`${DISCLOSURE_CLOSED} Earlier (3)`)
-  expect(keyed(tree, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('in progress')
+  expect(keyed(tree, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('now')
 })
 
 test('a row\'s time is bold and its title italic, linked when the event has a page; its detail is dim Text, and only when it has one', () => {

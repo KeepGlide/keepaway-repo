@@ -9,6 +9,7 @@ import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 import { ACTION_ICON_SIZE, actionIconEmoji, actionIconSvg, type ActionIconKey } from './action-icons'
 import type { HeldButtons } from './held'
 import { t, type Lang, type MessageKey } from './i18n'
+import { headingTitleOf } from './milestone-title'
 import { renderKeepGlide, renderKeepAwayMark } from './logo-element'
 import type { BandTurn } from './turn'
 
@@ -53,8 +54,6 @@ export type BandWord = { icon: ActionIconKey | null; text: string }
 // Another mod's band may take the digit 1, so this band takes 2; both can show above the same prompt.
 const BAND_HOTKEY = '2'
 const SEPARATOR = ' · '
-// A milestone title longer than this is cut in the band so the line keeps its place; the pane shows the whole title.
-const MILESTONE_TITLE_MAX = 24
 // The KeepGlide mark before the button: the band's height.
 const KEEPGLIDE_BAND_SIZE = 18
 const MCP_PREFIX = 'mcp__'
@@ -159,16 +158,11 @@ export function bandErrorWords(view: BandView): BandWord[] {
   return view.error === true ? [word(t(view.lang, 'band.error'), 'error')] : []
 }
 
-function shortTitleOf(title: string): string {
-  const characters = Array.from(title)
-  return characters.length <= MILESTONE_TITLE_MAX ? title : `${characters.slice(0, MILESTONE_TITLE_MAX - 1).join('')}…`
-}
-
 // The milestone of this window's issue, with its progress when the snapshot has it: "W16-hotfix 10/16". The issue's details are
 // known here, so a null title means the issue has no milestone: "no milestone" (ux-1).
 function milestoneWordOf(lang: Lang, issue: BandIssue): BandWord {
   if (issue.milestoneTitle === null) return word(t(lang, 'crumb.noMilestone'), 'noMilestone')
-  const title = shortTitleOf(issue.milestoneTitle)
+  const title = headingTitleOf(issue.milestoneTitle)
   return word(issue.progress === null ? title : `${title} ${issue.progress.closed}/${issue.progress.total}`, 'milestone')
 }
 

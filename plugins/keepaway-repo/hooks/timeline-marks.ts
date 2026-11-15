@@ -50,14 +50,3 @@ export function timelineMarkSvg(kind: MarkKind): string {
     `stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[kind]}</g>`
   return `${open}<circle cx="12" cy="12" r="11" fill="${KIND_FILL[kind]}" stroke="${ICON}" stroke-width="1"/>${icon}</svg>`
 }
-
-// What each marker says to a reader that cannot see it.
-export const MARK_ALT: Readonly<Record<MarkKind, string>> = {
-  now: 'in progress',
-  release: 'release',
-  commit: 'commit',
-  test: 'test',
-  pr: 'pull request',
-  session: 'session',
-  step: 'step',
-}
