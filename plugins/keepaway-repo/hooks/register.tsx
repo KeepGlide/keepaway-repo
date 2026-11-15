@@ -116,6 +116,9 @@ const PR_LIMIT = 100
 const CLOSING_LIMIT = 50
 // The largest gh answer parsed, in UTF-8 bytes: the engine's own stdout cut. An answer past it, or cut, is unreadable (SE3).
 const GH_OUTPUT_MAX_BYTES = 4 * 1024 * 1024
+// After a gh rate limit, GitHub reads wait: the first wait, doubled on each limited poll up to the ceiling (SPEC, GitHub backoff).
+const RATE_LIMIT_WAIT_MS = 120_000
+const RATE_LIMIT_WAIT_MAX_MS = 900_000
 const ISSUE_NUMBER_MAX = 999_999
 // The longest running tool name the band keeps (the main loop's tool, F11).
 export const TOOL_NAME_MAX = 64
@@ -209,6 +212,11 @@ type GithubMemory = {
   prs: PullRequest[]
   issuesTruncated: boolean
   prsTruncated: boolean
+  // When all four gh reads last answered (null until one did); the pane's age text.
+  readAt: number | null
+  // The rate-limit backoff: no GitHub read before retryAt; backoffMs is the current wait (0 when none is running).
+  retryAt: number
+  backoffMs: number
 }
 
 let polling = false
@@ -1054,22 +1062,55 @@ function logBriefFailureOnce($: EngineInterface, reason: string): void {
   logLine($, `session brief failed (${reason})`)
 }
 
+// The model lock of one condensed line or explanation (`model-lock:<id>`): a window holds it while its model call runs, so another
+// window asks nothing for the same line. Its lifetime is the logo lock's (LOGO_LOCK_MS), so an older marker is ignored.
+const modelLockKeyOf = (id: string): string => `model-lock:${id}`
+
+// Whether another window's model call for the line holds the lock. A refused read holds none, and the ask goes on.
+async function modelLockedOf($: EngineInterface, id: string, now: number): Promise<boolean> {
+  try {
+    return isLogoLockLive(await $.store.get(modelLockKeyOf(id)), now)
+  } catch {
+    return false
+  }
+}
+
+// Takes the model lock (`{ at }`), or releases it with null; a refused call is left out, and the ask goes on without the lock.
+async function setModelLockOf($: EngineInterface, id: string, at: number | null): Promise<void> {
+  try {
+    if (at === null) await $.store.delete(modelLockKeyOf(id))
+    else await $.store.set(modelLockKeyOf(id), { at })
+  } catch {
+    // no lock to keep: the ask goes on
+  }
+}
+
 // Asks the model for one session's condensed line, without waiting: the line is stored and remembered and the pane polls again, so it
-// is drawn. A failure keeps the cut prompt and is asked again after SUMMARY_RETRY_MS.
+// is drawn. A failure keeps the cut prompt and is asked again after SUMMARY_RETRY_MS. Under the model lock, and only when no other
+// window has stored a line for this poll since the poll began.
 function startBrief($: EngineInterface, sessionId: string, prompt: string, now: number): void {
   if (briefsInFlight.has(sessionId)) return
   briefsInFlight.add(sessionId)
+  const lockId = `brief:${sessionId}`
   const ask = async (): Promise<void> => {
-    const reply = await $.model.complete(briefRequestOf(prompt, await read($, langAtom)))
-    const text = reply.isAnswered ? briefOfReply(reply.text) : null
-    if (text === null) {
-      logBriefFailureOnce($, reply.isAnswered ? 'empty-reply' : reply.reason)
-      briefRetryAt.set(sessionId, now + SUMMARY_RETRY_MS)
-      return
+    if (await modelLockedOf($, lockId, await $.clock.now())) return
+    await setModelLockOf($, lockId, await $.clock.now())
+    try {
+      const stored = (await storedBriefsOf($))[sessionId]
+      if (stored !== undefined && stored.at >= now) return
+      const reply = await $.model.complete(briefRequestOf(prompt, await read($, langAtom)))
+      const text = reply.isAnswered ? briefOfReply(reply.text) : null
+      if (text === null) {
+        logBriefFailureOnce($, reply.isAnswered ? 'empty-reply' : reply.reason)
+        briefRetryAt.set(sessionId, now + SUMMARY_RETRY_MS)
+        return
+      }
+      await storeBriefOf($, sessionId, { text, at: await $.clock.now() })
+      rememberBriefOf(sessionId, text)
+      if (await read($, openAtom)) repollSoon($)
+    } finally {
+      await setModelLockOf($, lockId, null)
     }
-    await storeBriefOf($, sessionId, { text, at: await $.clock.now() })
-    rememberBriefOf(sessionId, text)
-    if (await read($, openAtom)) repollSoon($)
   }
   void ask()
     .catch((error: unknown) => {
@@ -1274,23 +1315,32 @@ function logExplainFailureOnce($: EngineInterface, reason: string): void {
 // would spend the gh budget). A failure leaves the title alone and pauses every explanation for SUMMARY_RETRY_MS.
 function startExplain($: EngineInterface, key: string, event: StepEvent, now: number): void {
   explainsInFlight.add(key)
+  const lockId = `explain:${key}`
   const ask = async (): Promise<void> => {
-    const reply = await $.model.complete(explainRequestOf(event.text, event.context, await read($, langAtom)))
-    const text = reply.isAnswered ? briefOfReply(reply.text) : null
-    if (text === null) {
-      logExplainFailureOnce($, reply.isAnswered ? 'empty-reply' : reply.reason)
-      explainPausedUntil = now + SUMMARY_RETRY_MS
-      return
+    if (await modelLockedOf($, lockId, await $.clock.now())) return
+    await setModelLockOf($, lockId, await $.clock.now())
+    try {
+      // Read again just before the call: another window may have stored this step's explanation since the poll read the store.
+      if ((await storedExplainsOf($))[key] !== undefined) return
+      const reply = await $.model.complete(explainRequestOf(event.text, event.context, await read($, langAtom)))
+      const text = reply.isAnswered ? briefOfReply(reply.text) : null
+      if (text === null) {
+        logExplainFailureOnce($, reply.isAnswered ? 'empty-reply' : reply.reason)
+        explainPausedUntil = now + SUMMARY_RETRY_MS
+        return
+      }
+      const at = await $.clock.now()
+      const write = explainWrites.then(async () => {
+        const kept = Object.entries({ ...(await storedExplainsOf($)), [key]: { text, at } })
+          .sort((a, b) => b[1].at - a[1].at)
+          .slice(0, EXPLAIN_KEEP_MAX)
+        await $.store.set(EXPLAINS_KEY, Object.fromEntries(kept))
+      })
+      explainWrites = write.catch(() => undefined)
+      await write
+    } finally {
+      await setModelLockOf($, lockId, null)
     }
-    const at = await $.clock.now()
-    const write = explainWrites.then(async () => {
-      const kept = Object.entries({ ...(await storedExplainsOf($)), [key]: { text, at } })
-        .sort((a, b) => b[1].at - a[1].at)
-        .slice(0, EXPLAIN_KEEP_MAX)
-      await $.store.set(EXPLAINS_KEY, Object.fromEntries(kept))
-    })
-    explainWrites = write.catch(() => undefined)
-    await write
   }
   void ask()
     .catch((error: unknown) => {
@@ -2109,16 +2159,52 @@ type GithubPart = {
   truncatedLimits: number[]
   stale: boolean
   errors: PaneError[]
+  readAt: number | null
 }
 
-const emptyGithub = (): GithubPart => ({ milestones: [], issues: [], prs: [], truncatedLimits: [], stale: false, errors: [] })
+const emptyGithub = (): GithubPart => ({ milestones: [], issues: [], prs: [], truncatedLimits: [], stale: false, errors: [], readAt: null })
 
 // The memory of the last good gh data for this repo; a new repo starts empty.
 function memoryFor(key: string): GithubMemory {
   if (githubMemory?.key !== key) {
-    githubMemory = { key, milestones: [], issues: [], prs: [], issuesTruncated: false, prsTruncated: false }
+    githubMemory = {
+      key,
+      milestones: [],
+      issues: [],
+      prs: [],
+      issuesTruncated: false,
+      prsTruncated: false,
+      readAt: null,
+      retryAt: 0,
+      backoffMs: 0,
+    }
   }
   return githubMemory
+}
+
+// The remembered gh data while GitHub is not read (the rate-limit backoff): stale, with the error that stopped the read.
+function githubFromMemory(memory: GithubMemory): GithubPart {
+  return {
+    milestones: memory.milestones,
+    issues: memory.issues,
+    prs: memory.prs,
+    truncatedLimits: truncatedLimitsOf(memory),
+    stale: true,
+    errors: ['gh-rate-limit'],
+    readAt: memory.readAt,
+  }
+}
+
+// Sets the wait after a limited poll (doubling, capped) or clears it after a poll that every gh read answered.
+function settleBackoff(memory: GithubMemory, errors: Set<PaneError>, now: number): void {
+  if (errors.has('gh-rate-limit')) {
+    memory.backoffMs = Math.min(memory.backoffMs === 0 ? RATE_LIMIT_WAIT_MS : memory.backoffMs * 2, RATE_LIMIT_WAIT_MAX_MS)
+    memory.retryAt = now + memory.backoffMs
+  } else if (errors.size === 0) {
+    memory.readAt = now
+    memory.backoffMs = 0
+    memory.retryAt = 0
+  }
 }
 
 // The milestones, the open issues and the open PRs (repo-work-pane-design-spec.md D4). A call that fails keeps the last good data of its part
@@ -2164,6 +2250,8 @@ async function githubOf($: EngineInterface, context: RepoContext, seq: number): 
   if (repo === null || root === null) return emptyGithub()
   const slug = slugOf(repo)
   const memory = memoryFor(slug)
+  const now = await $.clock.now()
+  if (memory.retryAt > now) return githubFromMemory(memory)
   const errors = new Set<PaneError>()
   const [milestones, issues, page, counts] = await Promise.all([
     // Every page of open milestones, which gh merges into one list (RB1-4); GH_OUTPUT_MAX_BYTES and the timeout bound it.
@@ -2196,7 +2284,10 @@ async function githubOf($: EngineInterface, context: RepoContext, seq: number): 
   // The count only: an item's text never reaches the log.
   if (issues !== undefined && issues.dropped > 0) logLine($, `gh issue items not readable (${issues.dropped})`)
   const counted = milestones === undefined ? undefined : milestonesCountedOf(milestones, counts)
-  if (isNewest(seq)) rememberGithub(memory, counted, issues, page)
+  if (isNewest(seq)) {
+    rememberGithub(memory, counted, issues, page)
+    settleBackoff(memory, errors, now)
+  }
   return {
     milestones: memory.milestones,
     issues: memory.issues,
@@ -2204,6 +2295,7 @@ async function githubOf($: EngineInterface, context: RepoContext, seq: number): 
     truncatedLimits: truncatedLimitsOf(memory),
     stale: milestones === undefined || issues === undefined || page === undefined,
     errors: [...errors],
+    readAt: memory.readAt,
   }
 }
 
@@ -2272,6 +2364,7 @@ async function buildSnapshot($: EngineInterface, seq: number, epoch: number): Pr
     thisIssueNumber: thisNode?.issue?.number ?? null,
     unreadableCount: sessions.unreadable,
     errors: [...new Set(errors)],
+    githubReadAt: github.readAt,
     stale: github.stale || windowIssue.stale,
     truncated: github.truncatedLimits.length > 0,
     truncatedLimits: github.truncatedLimits,
@@ -2336,6 +2429,7 @@ function emptySnapshotOf(context: RepoContext, now: number): Snapshot {
     thisIssueNumber: null,
     unreadableCount: 0,
     errors: [],
+    githubReadAt: null,
     stale: false,
     truncated: false,
     truncatedLimits: [],
@@ -2708,6 +2802,8 @@ export const register: Register = on => {
     const snapshot = await read($, snapshotAtom)
     return renderPane($.ui.resolve(e), {
       snapshot,
+      // The poll's clock, so every age in the pane counts from the same time the snapshot was read.
+      now: await $.clock.now(),
       logos: await logosOf($, snapshot),
       loadFailed: await read($, loadFailedAtom),
       lang: await read($, langAtom),

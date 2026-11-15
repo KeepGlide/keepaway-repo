@@ -132,6 +132,7 @@ function snapshotWith(overrides: Partial<Snapshot> = {}): Snapshot {
     thisIssue: SAMPLE_THIS_ISSUE,
     unreadableCount: 0,
     errors: [],
+    githubReadAt: null,
     stale: false,
     truncated: false,
     truncatedLimits: [],
