@@ -161,8 +161,9 @@ declare module 'claude-code' {
       turn: { startedAt: number | null; endedAt: number | null; tool: string | null; endedTurnStart?: number | null }
       // The agents that have not ended (pending, running or waiting), as $.agent.list() counted them, and when their run began.
       agentRun: { count: number; since: number | null }
-      // Whether this window's session waits for the person (the engine asked about a tool call), set by the tool.check hook (hooks/register.tsx).
-      waiting: boolean
+      // The tool_use_ids of the calls this window's session waits for the person on (the engine asked about them), set by the tool.check hook
+      // and cleared when each call runs or is answered (hooks/register.tsx).
+      pendingAsks: string[]
       // Whether the first poll settled with no snapshot to show (no repo context): the pane draws the failure line, not Loading (ux4-2).
       loadFailed: boolean
     }

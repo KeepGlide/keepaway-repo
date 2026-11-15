@@ -182,8 +182,9 @@ const langAtom = atom({ plugin: 'keepaway-repo', key: 'lang' } as const, 'en' as
 const utcOffsetAtom = atom({ plugin: 'keepaway-repo', key: 'utcOffset' } as const, runtimeUtcOffset())
 // The main loop's turn, written by turn.start, tool.call, turn.complete and turn.abort: the band's status line reads it.
 const turnAtom = atom({ plugin: 'keepaway-repo', key: 'turn' } as const, IDLE_TURN)
-// Whether this window's session waits for the person: the engine asked about a tool call (tool.check answered ask) and the call has not run.
-const waitingAtom = atom({ plugin: 'keepaway-repo', key: 'waiting' } as const, false)
+// The tool calls this window's session waits on: the engine put each to the person (tool.check answered ask) and it has neither run nor
+// been refused. The band waits while the list is not empty. Keyed by the call's id, so a call that is not the asked one leaves it.
+const pendingAsksAtom = atom({ plugin: 'keepaway-repo', key: 'pendingAsks' } as const, [] as string[])
 // The agents that have not ended, from $.agent.list(), and since when the current run of them began (readAgents).
 type AgentRun = { count: number; since: number | null }
 const agentRunAtom = atom({ plugin: 'keepaway-repo', key: 'agentRun' } as const, { count: 0, since: null } as AgentRun)
@@ -890,7 +891,7 @@ async function sessionsOf(
   const members = await memberRecordsOf($, scan.records, context, thisId)
   const candidates = admittedOf(await withBranches($, members.records), new Set(github.prs.map(pr => pr.headRefName)), thisId)
   await requestRepoLogos($, candidates)
-  const ownWaiting = await read($, waitingAtom)
+  const ownWaiting = (await read($, pendingAsksAtom)).length > 0
   const inputs: TreeInputs = {
     now,
     thisId,
@@ -2456,10 +2457,17 @@ async function setIssue($: EngineInterface, value: string): Promise<void> {
   const sessionId = await thisSessionLinkOf($)
   if (sessionId === null || !isSessionLinkId(sessionId)) return $.ui.toast(t(await read($, langAtom), 'toast.noSession'))
   const key = `${OVERRIDE_PREFIX}${sessionId}`
-  if (issue === 'none') await $.store.delete(key)
-  else await $.store.set(key, { issue, ts: await $.clock.now() })
-  // A poll in flight may have read the old override: the new one is polled once it settles (st-5).
-  if (await read($, openAtom)) repollSoon($)
+  const lang = await read($, langAtom)
+  if (issue === 'none') {
+    await $.store.delete(key)
+    $.ui.toast(t(lang, 'toast.issueCleared'))
+  } else {
+    await $.store.set(key, { issue, ts: await $.clock.now() })
+    $.ui.toast(t(lang, 'toast.issueSet', { number: issue }))
+  }
+  // A poll in flight may have read the old override: the new one is polled once it settles (st-5). The band's slow cadence is not
+  // waited for, so the window's issue shows at once with the pane closed too.
+  repollSoon($)
 }
 
 // /keepaway lang en|pt-BR|auto: stores the choice (auto removes it) and switches the language at once.
@@ -2592,19 +2600,20 @@ async function runCommand($: EngineInterface, args: string): Promise<void> {
   const [verb = 'open', value = ''] = words
   if (verb === 'open') return words.length > 1 ? toastUsage($) : openPane($)
   if (verb === 'issue') return words.length > 2 ? toastUsage($) : setIssue($, value)
-  if (verb === 'lang') return setLanguage($, value)
+  if (verb === 'lang') return words.length > 2 ? toastUsage($) : setLanguage($, value)
   if (verb === 'summary') return words.length > 2 ? toastUsage($) : setSummary($, value)
   return toastUsage($)
 }
 
-// The band's waiting flag: this window's session waits for the person while the engine has put a tool call to them (tool.check
-// answers ask). It clears when the call runs, when a turn starts or ends, and when a session starts. A write from a session that was
+// The pending asks change: `change` returns the new list, and the band redraws only when it differs. A write from a session that was
 // replaced in flight writes nothing (state2-7).
-async function setWaiting($: EngineInterface, waiting: boolean, epoch: number): Promise<void> {
+async function changePendingAsks($: EngineInterface, epoch: number, change: (asks: readonly string[]) => string[]): Promise<void> {
   if (epoch !== sessionEpoch) return
   try {
-    if ((await read($, waitingAtom)) === waiting) return
-    await update($, waitingAtom, () => waiting)
+    const before = await read($, pendingAsksAtom)
+    const after = change(before)
+    if (after.length === before.length && after.every((id, index) => id === before[index])) return
+    await update($, pendingAsksAtom, () => after)
   } catch (error: unknown) {
     logLine($, `waiting flag failed (${failureNameOf(error)})`)
     return
@@ -2625,7 +2634,7 @@ export const register: Register = on => {
     // dropped here, and a poll still in flight from it writes nothing (its epoch is old). The new session polls at once, since the
     // last poll's time may be within the cadence.
     await update($, turnAtom, () => IDLE_TURN)
-    await update($, waitingAtom, () => false)
+    await update($, pendingAsksAtom, () => [])
     await update($, agentRunAtom, () => ({ count: 0, since: null }))
     await update($, snapshotAtom, snapshot =>
       snapshot === null ? null : { ...snapshot, sessions: [], thisIssue: null, thisIssueNumber: null },
@@ -2681,7 +2690,7 @@ export const register: Register = on => {
         open: await read($, openAtom),
         repo: bandRepoOf(snapshot),
         issue: bandIssueOf(snapshot),
-        waiting: await read($, waitingAtom),
+        waiting: (await read($, pendingAsksAtom)).length > 0,
         error: bandErrorOf(snapshot),
         turn: await read($, turnAtom),
         agents: run.count,
@@ -2698,30 +2707,38 @@ export const register: Register = on => {
   // unchanged (SPEC section 18).
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) await beginTurn($)
-    if (e.agentId === undefined) await setWaiting($, false, sessionEpoch)
+    if (e.agentId === undefined) await changePendingAsks($, sessionEpoch, () => [])
     report($, refreshAgents($))
     return next(e)
   })
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) await finishTurn($)
-    if (e.agentId === undefined) await setWaiting($, false, sessionEpoch)
+    if (e.agentId === undefined) await changePendingAsks($, sessionEpoch, () => [])
     report($, refreshAgents($))
     return next(e)
   })
   on('turn.abort', async ($, e, next) => {
     if (e.agentId === undefined) await finishTurn($)
-    if (e.agentId === undefined) await setWaiting($, false, sessionEpoch)
+    if (e.agentId === undefined) await changePendingAsks($, sessionEpoch, () => [])
     return next(e)
   })
-  // The engine asks the person about a tool call (decision ask): this window waits until the call runs, or a verdict clears the ask.
+  // The engine asks the person about a tool call (decision ask): this window waits until that call runs or is refused. Only an ask the
+  // person decides counts (approver person): a host's or the auto-mode classifier's ask is not waited on. A query has no call id, and an
+  // allowed check of another call leaves the ask standing.
   on('tool.check', async ($, e, next) => {
     const epoch = sessionEpoch
     const verdict = await next(e)
-    await setWaiting($, verdict.decision === 'ask', epoch)
+    const id = e.tool_use_id
+    // An ask the person decides is added; any other verdict answers it (a refusal, or an approval the call then runs under).
+    if (id !== undefined)
+      await changePendingAsks($, epoch, asks =>
+        verdict.decision === 'ask' && e.approver === 'person' ? [...asks.filter(ask => ask !== id), id] : asks.filter(ask => ask !== id),
+      )
     return verdict
   })
   on('tool.call', async ($, e, next) => {
-    await setWaiting($, false, sessionEpoch)
+    const id = e.tool_use_id
+    if (id !== undefined) await changePendingAsks($, sessionEpoch, asks => asks.filter(ask => ask !== id))
     // The main loop's call names the band's tool; a subagent's call only redraws the band (at most once per second).
     if (e.agentId === undefined) await noteTool($, e.tool)
     else await redrawForTool($)

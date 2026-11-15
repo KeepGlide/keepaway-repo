@@ -335,9 +335,11 @@ scale as the rows: `just now` (pt-BR `agora`) under one minute, then `N min ago`
 
 ## 13. Commands and state
 
-- `/keepaway open`: open the pane (no verb means open). The band's button (section 18) does the same. `/keepaway issue <n>`: this window's override. `/keepaway issue none`:
-  clear it. `/keepaway lang <choice>`. `/keepaway summary on|off` (section 21). Any other argument: a toast with the usage line and no change. `/keepaway open` and
-  `/keepaway issue <n>` followed by extra words also show the usage toast and change nothing.
+- `/keepaway open`: open the pane (no verb means open). The band's button (section 18) does the same. `/keepaway issue <n>`: this window's override, with
+  or without the pane open; a toast names the issue (`Issue set to #<n>`), and the window polls it at once. `/keepaway issue none`: clear it, with a toast
+  (`Issue cleared`). `/keepaway lang <choice>`. `/keepaway summary on|off` (section 21). Any other argument: a toast with the usage line and no change.
+  `/keepaway open`, `/keepaway issue <n>` and `/keepaway lang <choice>` followed by extra words also show the usage toast and change nothing. The toasts
+  are in the session's language.
 - A window that is not a Desktop session (no record with its `cliSessionId`) cannot set an issue: a toast says so.
 - Store keys: `override:<sessionId>` = `{ issue, ts }`, `lang`, `summary` (boolean, absent is on; section 21), `legendOpen` (`true` while the legend is open, absent when closed; section 19), `briefs` (section 21), `timelineOpen` (section 22), `explains` (section 24), `logo:<repo>` = `{ source, at, failed }` (where a repo's logo came from and when it was looked up; `hooks/repo-logo.ts` `STORE_PREFIX`), and `logo-lock:<repo>` = `{ at }` (a short lock while a lookup runs; `LOGO_LOCK_PREFIX`). Nothing else is persisted. The `summary:<sessionId>` keys an earlier build wrote are deleted once per window. An override is dropped on a poll when no record in the records folder names its session (any repo's: the store is shared by every window) or its `ts` is over 30 days old (not on a poll with an unreadable folder). The 30-day lifetime (`OVERRIDE_TTL_MS`) also applies on read: an expired override is ignored
   even when the record scan was partial and the prune did not run. Module memory holds the file read
@@ -461,7 +463,7 @@ Done in the Claude Desktop with the mod installed, not by the build:
   idle 💤, working 🟢 (the running word), thinking 💭, waiting ⏳, MCP 🔌, shell 💻 (`Bash`), read 📖 (`Read`), edit ✏️ (`Edit`, `Write`, `MultiEdit`, `NotebookEdit`),
   search 🔎 (`Grep`, `Glob`), web 🌐 (`WebFetch`, `WebSearch`), agent 🤖 (`Agent`, and the agent count), any other tool 🔧,
   milestone 🎯, in progress 🛠️ (this window's issue, was 📌), no milestone ⭕ (missing before this change: the band threw on that word), no issue 📭, no GitHub remote 🚫, error ⚠️. The register passes two flags: `waiting`, when this window's session is waiting for the user (its node in the session tree reads
-  `waiting`: set when the engine's tool check answers `ask` (the engine puts a tool call to the person), cleared when that call runs, when a turn starts or ends, and when a session starts; the status line starts with `waiting for you`, pt-BR `esperando você`); and `error`, when the
+  `waiting`: the band waits while a list of pending asks is not empty. Each tool check that the engine answers `ask` with `approver` `person` (`ToolCheckInput.approver`; `host` or no approver adds nothing: the host or the auto-mode classifier decides it) adds its call's id (`tool_use_id`, the engine's id of the call; a query has none and adds nothing). An ask leaves the list when its own call runs (`tool.call`, from any loop), when its check is answered `deny` or `allow`, and the whole list is dropped when a turn starts or ends, and when a session starts; an allowed check of another call leaves it standing; the status line starts with `waiting for you`, pt-BR `esperando você`); and `error`, when the
   snapshot holds an error other than `no-remote`, `gh-missing` or `gh-auth` (the band does not flag those three, which the repo line already names) (the repo context line ends with `data error`, pt-BR `erro nos dados`).
 - Status line (`bandStatusWords`, `hooks/band.tsx`), from the main loop only (turn events without an `agentId`), as words, each with
   its icon:
