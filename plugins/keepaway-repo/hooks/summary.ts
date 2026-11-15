@@ -138,11 +138,14 @@ function promptOfLine(line: string): string {
   return text === null ? '' : promptOf(text)
 }
 
+// Whether a transcript head reached TRANSCRIPT_HEAD_BYTES, so the file may hold more than the head.
+export const headIsCutOf = (head: string): boolean => new TextEncoder().encode(head).length >= TRANSCRIPT_HEAD_BYTES
+
 // The lines of a transcript head. A head cut at TRANSCRIPT_HEAD_BYTES may end in a partial line, which is dropped; a whole file keeps
 // its last line, which may have no newline.
 function linesOf(head: string): string[] {
   const lines = head.split('\n')
-  return head.length >= TRANSCRIPT_HEAD_BYTES ? lines.slice(0, -1) : lines
+  return headIsCutOf(head) ? lines.slice(0, -1) : lines
 }
 
 // The first prompt of a transcript head: the first user line that carries one, cleaned and whole; null when none does.

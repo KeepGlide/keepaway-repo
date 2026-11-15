@@ -14,6 +14,7 @@ import {
   SUMMARY_KEEP_MAX,
   SUMMARY_RETRY_MS,
   TRANSCRIPT_HEAD_BYTES,
+  headIsCutOf,
   briefOfReply,
   briefRequestOf,
   hasUserLine,
@@ -1007,14 +1008,16 @@ async function transcriptHeadOf($: EngineInterface, record: ProjectedRecord): Pr
 }
 
 // A session's summary from its transcript, and whether it is final: the first prompt, cut, or no text when the transcript has a user line
-// with none, which is final. A missing or refused transcript, or one with no user line yet (a session that has just started), is not:
-// it is read again after SUMMARY_RETRY_MS.
+// with none, which is final. A head that reached its cap with no complete user line (a first line longer than the cap) is final with no
+// text too: the line is never read whole. A missing or refused transcript, or one with no user line yet (a session that has just
+// started), is not: it is read again after SUMMARY_RETRY_MS.
 async function readSummaryOf($: EngineInterface, record: ProjectedRecord): Promise<{ summary: SessionSummary; final: boolean; longPrompt: string | null }> {
   const head = await transcriptHeadOf($, record)
   if (head === null) return { summary: { text: null }, final: false, longPrompt: null }
   const prompt = promptOfTranscript(head)
   const text = prompt === null ? null : shownPromptOf(prompt)
-  return { summary: { text }, final: text !== null || hasUserLine(head), longPrompt: prompt !== null && needsBrief(prompt) ? prompt : null }
+  const final = text !== null || hasUserLine(head) || headIsCutOf(head)
+  return { summary: { text }, final, longPrompt: prompt !== null && needsBrief(prompt) ? prompt : null }
 }
 
 // The stored condensed lines, by session id; anything malformed is left out.

@@ -3605,6 +3605,20 @@ test('a session with no activity since its last read is not read again', async (
   expect(tailCalls(host)).toHaveLength(first)
 })
 
+// #22: a first user line longer than the head cap settles as a session with no summary text, and its head is not read again.
+test('#22: a first user line longer than the head cap gives a final summary with no text, and its head is not read again', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine(`Pasted image ${'A'.repeat(300 * 1024)}`) } })
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  const first = headCalls(host).length
+  expect(first).toBeGreaterThan(0)
+  await host.clock.advance(11 * 60_000)
+  await host.clock.settle()
+  expect(headCalls(host)).toHaveLength(first)
+  expect(await drawnPane($)).not.toContain('Pasted image')
+})
+
 test('a transcript whose last line has no newline yet keeps that line for the next read', async ($: Engine, on) => {
   const whole = userLine('Fix it')
   const half = planLine('2026-11-02T10:19:00Z', [{ content: 'Half written', status: 'in_progress' }]).slice(0, -1)
