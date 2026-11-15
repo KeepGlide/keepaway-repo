@@ -3712,6 +3712,22 @@ test('with the pane open, one poll starts at most BRIEFS_PER_POLL condensing cal
   expect(new Set(calls).size).toBe(4)
 })
 
+test('two condensed lines that land in the same tick are both stored', async ($: Engine, on) => {
+  const records = [recordOf('local_dddd0001', { cliSessionId: 'sess-d1' })]
+  const transcripts = { [`${HOME}/.claude/projects/-work-app/sess-d1.jsonl`]: userLine(`${LONG_PROMPT} ZULU`) }
+  const host = stubHost(on, { records: [OWN_RECORD, ...records], transcripts: { ...transcripts, [TRANSCRIPT_OWN]: userLine(`${LONG_PROMPT} ALPHA`) } })
+  on('model.complete', (_$, event) => ({
+    value: { isAnswered: true, text: event.prompt.includes('ZULU') ? 'Handoff: line of ZULU' : 'Handoff: line of ALPHA', usage: NO_USAGE },
+  }))
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  await host.clock.settle()
+  const stored = JSON.stringify(host.store.get('briefs'))
+  expect(stored).toContain('Handoff: line of ALPHA')
+  expect(stored).toContain('Handoff: line of ZULU')
+})
+
 test('a failed condensing keeps the cut prompt, is logged once by its reason, and is asked again after SUMMARY_RETRY_MS', async ($: Engine, on) => {
   const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine(LONG_PROMPT) } })
   const calls = stubModel(on, { isAnswered: false, reason: 'api-error' })

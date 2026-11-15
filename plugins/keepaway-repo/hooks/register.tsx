@@ -1027,13 +1027,20 @@ async function storedBriefsOf($: EngineInterface): Promise<Record<string, Stored
   return briefs
 }
 
+// The brief writes, one after another, so two lines landing together both stay in the store (as explainWrites does for explanations).
+let briefWrites: Promise<void> = Promise.resolve()
+
 // Stores one condensed line, keeping the BRIEF_KEEP_MAX newest.
 async function storeBriefOf($: EngineInterface, sessionId: string, brief: StoredBrief): Promise<void> {
-  const briefs = { ...(await storedBriefsOf($)), [sessionId]: brief }
-  const kept = Object.entries(briefs)
-    .sort((a, b) => b[1].at - a[1].at)
-    .slice(0, BRIEF_KEEP_MAX)
-  await $.store.set(BRIEFS_KEY, Object.fromEntries(kept))
+  const write = briefWrites.then(async () => {
+    const briefs = { ...(await storedBriefsOf($)), [sessionId]: brief }
+    const kept = Object.entries(briefs)
+      .sort((a, b) => b[1].at - a[1].at)
+      .slice(0, BRIEF_KEEP_MAX)
+    await $.store.set(BRIEFS_KEY, Object.fromEntries(kept))
+  })
+  briefWrites = write.catch(() => undefined)
+  await write
 }
 
 // A brief failure, logged once by its reason or the error's name: a prompt never reaches the log.
@@ -1075,11 +1082,13 @@ function rememberBriefOf(sessionId: string, text: string): void {
 }
 
 // The condensed lines of this poll's long prompts: a stored one takes the cut prompt's place; a missing one is asked of the model, at
-// most BRIEFS_PER_POLL per poll, never while one for the same session runs or before a failed one's retry time.
+// most BRIEFS_PER_POLL per poll, never while one for the same session runs or before a failed one's retry time, and none while the pane is
+// closed (the closed-pane poll draws stored lines only).
 async function applyBriefs($: EngineInterface, summaries: Map<string, SessionSummary>, now: number): Promise<void> {
   const waiting = [...summaries.keys()].filter(id => (summaryMemory.get(id)?.longPrompt ?? null) !== null)
   if (waiting.length === 0) return
   const stored = await storedBriefsOf($)
+  const open = await read($, openAtom)
   let started = 0
   for (const id of waiting) {
     const brief = stored[id]
