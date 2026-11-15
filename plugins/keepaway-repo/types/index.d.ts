@@ -151,8 +151,9 @@ export type SessionInput = ProjectedRecord & {
 declare module 'claude-code' {
   interface PluginState {
     'keepaway-repo': {
-      // The last poll's result, or null before the first poll.
-      snapshot: Snapshot | null
+      // The last poll's result, or null before the first poll. A Shaped value (the engine's Shaped<T>): the atom's shape tag
+      // makes a value written under another tag read as absent.
+      snapshot: { shape: string; value: Snapshot | null }
       // Whether the pane is open (set by the command and by ui.close).
       open: boolean
       // The language in use: the stored choice, else the environment's.
