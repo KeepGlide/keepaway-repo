@@ -644,7 +644,36 @@ test('/keepaway issue <n> sets this window override, issue none clears it', asyn
   expect(stored?.issue).toBe(106)
   await $.command.run({ command: 'keepaway', args: 'issue none', ...COMMAND_CONTEXT })
   expect(host.store.has(`override:${SESSION_ID}`)).toBe(false)
-  expect(host.toasts).toEqual([])
+  expect(host.toasts).toEqual(['Issue set to #106', 'Issue cleared'])
+})
+
+// #18: /keepaway issue confirms in the session's language and refreshes with the pane closed; lang rejects extra words.
+test('#18: /keepaway issue 12 with the pane closed stores the override, toasts it, and polls issue 12 without waiting for the band cadence', async ($: Engine, on) => {
+  const host = stubHost(on)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'issue 12', ...COMMAND_CONTEXT })
+  expect(host.store.get(`override:${SESSION_ID}`)).toMatchObject({ issue: 12 })
+  expect(host.toasts).toEqual(['Issue set to #12'])
+  await host.clock.settle()
+  const viewed = host.argvs.filter(argv => argv.includes('view')).map(argv => argv[3])
+  expect(viewed.length).toBeGreaterThan(0)
+  expect(new Set(viewed)).toEqual(new Set(['12']))
+})
+
+test('#18: /keepaway issue none toasts the cleared text, in pt-BR too', async ($: Engine, on) => {
+  const host = stubHost(on)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'lang pt-BR', ...COMMAND_CONTEXT })
+  await $.command.run({ command: 'keepaway', args: 'issue none', ...COMMAND_CONTEXT })
+  expect(host.toasts).toEqual(['Issue limpa'])
+})
+
+test('#18: /keepaway lang en extra shows the usage toast and does not change the language', async ($: Engine, on) => {
+  const host = stubHost(on)
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'lang en extra', ...COMMAND_CONTEXT })
+  expect(host.toasts).toEqual([USAGE_TOAST])
+  expect(host.store.has('lang')).toBe(false)
 })
 
 // The usage toast, in English (hooks/i18n.ts toast.usage).

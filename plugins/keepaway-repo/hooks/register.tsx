@@ -2457,10 +2457,17 @@ async function setIssue($: EngineInterface, value: string): Promise<void> {
   const sessionId = await thisSessionLinkOf($)
   if (sessionId === null || !isSessionLinkId(sessionId)) return $.ui.toast(t(await read($, langAtom), 'toast.noSession'))
   const key = `${OVERRIDE_PREFIX}${sessionId}`
-  if (issue === 'none') await $.store.delete(key)
-  else await $.store.set(key, { issue, ts: await $.clock.now() })
-  // A poll in flight may have read the old override: the new one is polled once it settles (st-5).
-  if (await read($, openAtom)) repollSoon($)
+  const lang = await read($, langAtom)
+  if (issue === 'none') {
+    await $.store.delete(key)
+    $.ui.toast(t(lang, 'toast.issueCleared'))
+  } else {
+    await $.store.set(key, { issue, ts: await $.clock.now() })
+    $.ui.toast(t(lang, 'toast.issueSet', { number: issue }))
+  }
+  // A poll in flight may have read the old override: the new one is polled once it settles (st-5). The band's slow cadence is not
+  // waited for, so the window's issue shows at once with the pane closed too.
+  repollSoon($)
 }
 
 // /keepaway lang en|pt-BR|auto: stores the choice (auto removes it) and switches the language at once.
@@ -2593,7 +2600,7 @@ async function runCommand($: EngineInterface, args: string): Promise<void> {
   const [verb = 'open', value = ''] = words
   if (verb === 'open') return words.length > 1 ? toastUsage($) : openPane($)
   if (verb === 'issue') return words.length > 2 ? toastUsage($) : setIssue($, value)
-  if (verb === 'lang') return setLanguage($, value)
+  if (verb === 'lang') return words.length > 2 ? toastUsage($) : setLanguage($, value)
   if (verb === 'summary') return words.length > 2 ? toastUsage($) : setSummary($, value)
   return toastUsage($)
 }
