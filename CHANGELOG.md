@@ -15,11 +15,14 @@ Commit hashes name the change in `git log`. Entries below the rename keep the na
 ### Changed
 - **Briefs wait for the pane**: a long first prompt is condensed only while the pane is open, so a window that never opens it makes no model call.
 - **Own commits only**: a session's timeline lists the commits of its own branch, not the default branch's.
+- **Issue command confirms and refreshes**: the issue command confirms the issue it set or cleared, and refreshes the band at once, with the pane closed too. The language command rejects extra words.
 
 ### Fixed
 - **Privacy and security text** now matches the code. The README and the security policy list the paid model calls, which run only while the pane is open, the avatar downloads, the GitLab calls and the stored state. They no longer say the mod makes no paid calls or that summaries are never stored.
 - **Install and repository docs** now match the current state. The version badge shows 0.2.0-beta.26, the clone and zip steps use the new repository name and no longer call the repository private, the install spec's expected usage toast lists the summary option, and the repo logo is 32 px.
 - **Band icons read their state**: a screen reader now hears running, idle or waiting for the band's state icons.
+- **Waiting icon stays while a question is open**: the band keeps the waiting icon while any question the person must answer is still open, even when other tool calls run.
+- **Waiting icon only for questions you decide**: the band shows the waiting icon only for questions a person decides, not for calls the host or the classifier decides.
 - **Wording fixes**: one issue left reads "falta 1" in Portuguese; the timeline markers read in the window's language; the band shows a milestone's name the way the pane does.
 - **No lost briefs**: two condensed lines that land together are both kept.
 - **Clearer load and sign-in messages**: the load-failed line names the remote and gh checks, and the sign-in line says how to sign in to gh.

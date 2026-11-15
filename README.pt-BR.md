@@ -256,11 +256,11 @@ Reinicie o Claude Code, ou rode `/reload-plugins`, depois. O que o mod deixa par
 | Comando | O que faz |
 |---|---|
 | `/keepaway` ou `/keepaway open` | Abre o painel. Consulta na hora quando o snapshot é mais antigo que um intervalo. O botão Open da faixa faz o mesmo. |
-| `/keepaway issue <n>` | Define a issue desta janela, de 1 a 999999. Guardada por sessão como `override:<id da sessão>` por 30 dias. Só uma sessão do Desktop pode defini-la; qualquer outra janela recebe um toast. |
-| `/keepaway issue none` | Limpa a issue desta janela. |
-| `/keepaway lang en\|pt-BR\|auto` | Guarda o idioma (não importa maiúsculas) e troca na hora. `auto` remove a escolha guardada e segue o ambiente. |
-| `/keepaway summary on\|off` | Mostra ou esconde a linha de resumo de cada sessão (ligada por padrão). Desligada, nenhum transcript é lido. |
-| Qualquer outro argumento | Um toast com a linha de uso. Nada muda. Palavras a mais depois de `open` ou de `issue <n>` (por exemplo `/keepaway open now`) contam como outro argumento. |
+| `/keepaway issue <n>` | Define a issue desta janela, de 1 a 999999. Guardada por sessão como `override:<id da sessão>` por 30 dias. Só uma sessão do Desktop pode defini-la; qualquer outra janela recebe um toast. Um toast nomeia a issue (`Issue definida como #<n>`), e a faixa é atualizada na hora, mesmo com o painel fechado. |
+| `/keepaway issue none` | Limpa a issue desta janela. Um toast diz `Issue limpa`. |
+| `/keepaway lang en\|pt-BR\|auto` | Guarda o idioma (não importa maiúsculas) e troca na hora. `auto` remove a escolha guardada e segue o ambiente. Palavras a mais depois da escolha (por exemplo `/keepaway lang pt-BR agora`) mostram o toast de uso e não mudam nada. |
+| `/keepaway summary on\|off` | Mostra ou esconde a linha de resumo de cada sessão (ligada por padrão). Desligada, nenhum transcript de resumo é lido, nenhuma linha de resumo é desenhada e nenhuma chamada ao modelo é feita para resumos ou explicações de passo. Os eventos de passo continuam lendo os bytes novos de cada transcript. |
+| Qualquer outro argumento | Um toast com a linha de uso. Nada muda. Palavras a mais depois de `open`, `issue <n>`, `lang` ou `summary` (por exemplo `/keepaway open now`) contam como outro argumento. |
 
 ## 🎛️ Configuração
 
@@ -346,17 +346,17 @@ Limitações conhecidas, como o código se comporta hoje:
 | Categoria | Testes |
 |---|---|
 | Regras: leitura de remote, árvore de sessões, grupos de issues, linhas do tempo e detalhes dos eventos, projeção de registros, leitura do fuso UTC (`tests/model.test.ts`) | 129 |
-| Módulo de hooks: consulta, comando do painel, temporizadores, fechamento, fuso UTC do host, leitura das etapas do plano, corpos de commit e explicações das etapas (`tests/register.test.ts`) | 225 |
-| Faixa: linha de status, estados e botão Open (`tests/band.test.ts`) | 41 |
-| Painel: desenho do snapshot, relógio do host, datas de prazo, o acordeão Anteriores, a linha do tempo do desktop, a linha sob o cabeçalho e os blocos de milestone (`tests/pane.test.ts`) | 131 |
-| Idioma: dicionários em inglês e português do Brasil (`tests/i18n.test.ts`) | 10 |
+| Módulo de hooks: consulta, comando do painel, temporizadores, fechamento, fuso UTC do host, leitura das etapas do plano, corpos de commit e explicações das etapas (`tests/register.test.ts`) | 240 |
+| Faixa: linha de status, estados e botão Open (`tests/band.test.ts`) | 43 |
+| Painel: desenho do snapshot, relógio do host, datas de prazo, o acordeão Anteriores, a linha do tempo do desktop, a linha sob o cabeçalho e os blocos de milestone (`tests/pane.test.ts`) | 136 |
+| Idioma: dicionários em inglês e português do Brasil (`tests/i18n.test.ts`) | 11 |
 | Transições de turno da faixa (`tests/turn.test.ts`) | 8 |
 | Logo do repo: busca do arquivo, checagem da imagem e script de download do avatar (`tests/repo-logo.test.ts`) | 15 |
 | Resumo: limpeza do transcript, cortes, a varredura linear das tags e a linha condensada (`tests/summary.test.ts`) | 30 |
 | Etapas do plano: entradas de update_plan e TodoWrite, eventos, a etapa atual, o contexto da etapa e o pedido de explicação (`tests/steps.test.ts`) | 12 |
-| **Total** | **601** |
+| **Total** | **624** |
 
-Contagens de `claude plugin test plugins/keepaway-repo` na árvore 0.2.0-beta.26 (marcadores coloridos, 7 eventos, a linha sob o cabeçalho e os blocos de milestone): 601 aprovados, 0 falhas, 9 arquivos. A verificação de aparência (`scripts/keepaway-look-selftest.sh`) é um script de shell e não entra na contagem.
+Contagens de `claude plugin test plugins/keepaway-repo` na árvore 0.2.0-beta.26 (marcadores coloridos, 7 eventos, a linha sob o cabeçalho e os blocos de milestone): 624 aprovados, 0 falhas, 9 arquivos. A verificação de aparência (`scripts/keepaway-look-selftest.sh`) é um script de shell e não entra na contagem.
 
 ## 🔧 Desenvolvimento
 

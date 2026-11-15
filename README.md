@@ -256,11 +256,11 @@ Restart Claude Code, or run `/reload-plugins`, afterwards. What the mod leaves b
 | Command | What it does |
 |---|---|
 | `/keepaway` or `/keepaway open` | Opens the pane. It polls at once when the snapshot is older than one interval. The band's Open button does the same. |
-| `/keepaway issue <n>` | Sets the issue of this window, from 1 to 999999. Stored per session as `override:<session id>` for 30 days. Only a Desktop session can set it; any other window gets a toast. |
-| `/keepaway issue none` | Clears the issue of this window. |
-| `/keepaway lang en\|pt-BR\|auto` | Stores the language (case does not matter) and switches it at once. `auto` removes the stored choice and follows the environment. |
-| `/keepaway summary on\|off` | Shows or hides the summary line of each session (on by default). Off, no transcript is read. |
-| Any other argument | A toast with the usage line. Nothing changes. Extra words after `open` or `issue <n>` (for example `/keepaway open now`) count as another argument. |
+| `/keepaway issue <n>` | Sets the issue of this window, from 1 to 999999. Stored per session as `override:<session id>` for 30 days. Only a Desktop session can set it; any other window gets a toast. A toast names the issue (`Issue set to #<n>`), and the band refreshes at once, with the pane closed too. |
+| `/keepaway issue none` | Clears the issue of this window. A toast says `Issue cleared`. |
+| `/keepaway lang en\|pt-BR\|auto` | Stores the language (case does not matter) and switches it at once. `auto` removes the stored choice and follows the environment. Extra words after the choice (for example `/keepaway lang pt-BR now`) show the usage toast and change nothing. |
+| `/keepaway summary on\|off` | Shows or hides the summary line of each session (on by default). Off, no summary transcript is read, no summary line is drawn and no model call is made for summaries or step explanations. Step events still read the new bytes of each transcript. |
+| Any other argument | A toast with the usage line. Nothing changes. Extra words after `open`, `issue <n>`, `lang` or `summary` (for example `/keepaway open now`) count as another argument. |
 
 ## 🎛️ Configuration
 
@@ -346,17 +346,17 @@ Known limitations, as the code does them today:
 | Category | Tests |
 |---|---|
 | Rules: remote parsing, session tree, issue groups, timelines and event details, record projection, UTC offset parsing (`tests/model.test.ts`) | 129 |
-| Hooks module: poll, pane command, timers, close, host UTC offset, plan-step reads, commit bodies and step explanations (`tests/register.test.ts`) | 225 |
-| Band: status line, states and Open button (`tests/band.test.ts`) | 41 |
-| Pane: snapshot drawing, host clock, due dates, the Earlier accordion, the desktop timeline line, the header rule and the milestone blocks (`tests/pane.test.ts`) | 131 |
-| Language: English and pt-BR dictionaries (`tests/i18n.test.ts`) | 10 |
+| Hooks module: poll, pane command, timers, close, host UTC offset, plan-step reads, commit bodies and step explanations (`tests/register.test.ts`) | 240 |
+| Band: status line, states and Open button (`tests/band.test.ts`) | 43 |
+| Pane: snapshot drawing, host clock, due dates, the Earlier accordion, the desktop timeline line, the header rule and the milestone blocks (`tests/pane.test.ts`) | 136 |
+| Language: English and pt-BR dictionaries (`tests/i18n.test.ts`) | 11 |
 | Turn transitions of the band (`tests/turn.test.ts`) | 8 |
 | Repo logo: file lookup, raster checks and the avatar fetch script (`tests/repo-logo.test.ts`) | 15 |
 | Summary: transcript cleanup, cuts, the linear tag scan and the condensed line (`tests/summary.test.ts`) | 30 |
 | Plan steps: update_plan and TodoWrite inputs, events, the current step, step context and the explanation request (`tests/steps.test.ts`) | 12 |
-| **Total** | **601** |
+| **Total** | **624** |
 
-Counts from `claude plugin test plugins/keepaway-repo` on the 0.2.0-beta.26 tree (coloured markers, 7 events, the header rule and the milestone blocks): 601 pass, 0 fail, 9 files. The look self-check (`scripts/keepaway-look-selftest.sh`) is a shell script and is not counted.
+Counts from `claude plugin test plugins/keepaway-repo` on the 0.2.0-beta.26 tree (coloured markers, 7 events, the header rule and the milestone blocks): 624 pass, 0 fail, 9 files. The look self-check (`scripts/keepaway-look-selftest.sh`) is a shell script and is not counted.
 
 ## 🔧 Development
 
