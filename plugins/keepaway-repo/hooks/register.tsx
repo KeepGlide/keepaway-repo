@@ -2715,15 +2715,18 @@ export const register: Register = on => {
     if (e.agentId === undefined) await changePendingAsks($, sessionEpoch, () => [])
     return next(e)
   })
-  // The engine asks the person about a tool call (decision ask): this window waits until that call runs or is refused. A query has no
-  // call id and is not waited on; an allowed check of another call leaves the ask standing.
+  // The engine asks the person about a tool call (decision ask): this window waits until that call runs or is refused. Only an ask the
+  // person decides counts (approver person): a host's or the auto-mode classifier's ask is not waited on. A query has no call id, and an
+  // allowed check of another call leaves the ask standing.
   on('tool.check', async ($, e, next) => {
     const epoch = sessionEpoch
     const verdict = await next(e)
     const id = e.tool_use_id
-    // An ask is added; any other verdict answers it (a refusal, or an approval the call then runs under).
+    // An ask the person decides is added; any other verdict answers it (a refusal, or an approval the call then runs under).
     if (id !== undefined)
-      await changePendingAsks($, epoch, asks => (verdict.decision === 'ask' ? [...asks.filter(ask => ask !== id), id] : asks.filter(ask => ask !== id)))
+      await changePendingAsks($, epoch, asks =>
+        verdict.decision === 'ask' && e.approver === 'person' ? [...asks.filter(ask => ask !== id), id] : asks.filter(ask => ask !== id),
+      )
     return verdict
   })
   on('tool.call', async ($, e, next) => {

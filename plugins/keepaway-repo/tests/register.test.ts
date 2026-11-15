@@ -1826,7 +1826,8 @@ test('a snapshot whose only error is no-remote draws no data error in the band',
 })
 
 // A check of one call by its id, as the engine raises it (the kit's query form has no id, so the test passes it).
-const checkCall = ($: Engine, id: string, tool = 'Bash') => $.tool.check({ tool, input: { command: 'ls' }, tool_use_id: id } as never)
+const checkCall = ($: Engine, id: string, approver: 'host' | 'person' | undefined = 'person') =>
+  $.tool.check({ tool: 'Bash', input: { command: 'ls' }, tool_use_id: id, approver } as never)
 
 test('waiting: the band draws the waiting icon while the engine asks the person about a tool call, and drops it when the call runs', async ($: Engine, on) => {
   const options: StubOptions = { permission: 'ask' }
@@ -1899,6 +1900,25 @@ test('#15: two asks pending, one runs: still waiting for the other', async ($: E
   await $.tool.call({ tool: 'Bash', tool_use_id: 'call-b' } as never)
   expect(await bandDrawn($)).toContain(actionIconEmoji('waiting'))
   await $.tool.call({ tool: 'Bash', tool_use_id: 'call-a' } as never)
+  expect(await bandDrawn($)).not.toContain(actionIconEmoji('waiting'))
+})
+
+// #16: an ask goes to the person only when the engine says the person decides it; a host's ask (headless host, auto-mode classifier) does not.
+test('#16: an ask from a host approver does not set waiting; one from a person approver does', async ($: Engine, on) => {
+  stubHost(on, { permission: 'ask' })
+  await $.session.start(SESSION)
+  await $.turn.start({ text: 'work', turnId: 't1' })
+  await checkCall($, 'call-host', 'host')
+  expect(await bandDrawn($)).not.toContain(actionIconEmoji('waiting'))
+  await checkCall($, 'call-person', 'person')
+  expect(await bandDrawn($)).toContain(actionIconEmoji('waiting'))
+})
+
+test('#16: an ask with no approver named does not set waiting', async ($: Engine, on) => {
+  stubHost(on, { permission: 'ask' })
+  await $.session.start(SESSION)
+  await $.turn.start({ text: 'work', turnId: 't1' })
+  await $.tool.check({ tool: 'Bash', input: { command: 'ls' }, tool_use_id: 'call-none' } as never)
   expect(await bandDrawn($)).not.toContain(actionIconEmoji('waiting'))
 })
 
