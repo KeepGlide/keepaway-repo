@@ -16,6 +16,13 @@ The look gate checks that the drawn code has no hex colour, colour function or e
 bash plugins/keepaway-repo/scripts/keepaway-look-check.sh
 ```
 
+The version check fails, and names each place, when a version string differs from the version in `plugins/keepaway-repo/.claude-plugin/plugin.json`: the marketplace entry, the README badge, Status and Tests lines (both languages), the CHANGELOG header and its top released entry, and the supported version in SECURITY.md. Run it before a release. Its self-check plants a mismatch in a copy and expects a failure:
+
+```bash
+bash plugins/keepaway-repo/scripts/keepaway-version-check.sh
+bash plugins/keepaway-repo/scripts/keepaway-version-selftest.sh
+```
+
 ## Layout
 
 | Path | Contents |
@@ -36,4 +43,4 @@ bash plugins/keepaway-repo/scripts/keepaway-look-check.sh
 - Every `CHANGELOG.md` bullet opens with a bold feature name in plain words, for example `- **Timeline markers**: ...`.
 - The public text of a bullet has no `SPEC-` ids, no `#issue` numbers, no milestone names and no file paths. The keepglide.com feed takes plain text only: no backticks and no URLs.
 - Use one of the sections `Added`, `Changed`, `Fixed`, `Security`, `Performance` or `Documentation`.
-- Release step: after the release, run the site exporter, `scripts/publish-changelogs.mjs` in `sophia-phillipa/keepglide-web`. Nothing is published until the beta ships.
+- Release step: before the release, run the version check (see Run the tests). After the release, run the site exporter, `scripts/publish-changelogs.mjs` in `sophia-phillipa/keepglide-web`. Nothing is published until the beta ships.

@@ -378,6 +378,12 @@ Rode a verificação de aparência, que falha em qualquer cor hexadecimal, funç
 bash plugins/keepaway-repo/scripts/keepaway-look-check.sh
 ```
 
+Rode a verificação de versões antes de um release. Ela falha, e aponta cada lugar, quando uma string de versão difere de `plugins/keepaway-repo/.claude-plugin/plugin.json`:
+
+```bash
+bash plugins/keepaway-repo/scripts/keepaway-version-check.sh
+```
+
 A organização do repositório e o protocolo de testes estão em [CONTRIBUTING.md](CONTRIBUTING.md), em inglês.
 
 ## 🌿 Branches e releases
