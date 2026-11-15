@@ -124,7 +124,7 @@ sequenceDiagram
     K-->>T: one snapshot written to the atom, then a redraw
 ```
 
-The timer polls every 60 seconds while the pane is open and every 5 minutes while it is closed, so the band stays current. A poll that is not settled after 30 seconds is abandoned, and a newer poll may start. The pane and the band only read the snapshot; they call no process and no file.
+The timer polls every 60 seconds while the pane is open and every 5 minutes while it is closed, so the band stays current. A poll that is not settled after 30 seconds is abandoned, and a newer poll may start. The pane and the band only read the snapshot; they call no process and no file. After GitHub's rate limit, the mod waits 2 minutes before it reads GitHub again; each limited poll doubles the wait, up to 15 minutes, and a poll whose reads all answer clears the wait.
 
 The session-to-issue mapping takes the first match and never merges two sessions. The full rules are in [the spec](plugins/keepaway-repo/SPEC.md).
 
@@ -306,7 +306,7 @@ Fixed in the code, not configurable:
   - The Desktop session records, and the Desktop config (its sidebar Groups only).
   - The checkout's logo files (a PNG or JPEG logo at the repository root or in a folder).
   - Each session's transcript under `~/.claude/projects/`: with summaries on, the first 256 KiB, for its first prompt (`head`); for step events, the bytes added since the last read (`tail`), whether or not summaries are on.
-- **What is written:** only the mod's state in its store, never the repository or GitHub. The keys are: `override:<sessionId>` (the issue set by `/keepaway issue`, dropped after 30 days), `lang`, `summary` (on or off), `legendOpen`, `timelineOpen`, `briefs` (the newest one-line summaries, by session; the prompt itself is never stored), `explains` (the newest step explanations), `logo:<repo>` (where a repo's logo came from, and when it was looked up) and `logo-lock:<repo>` (a short lock while a lookup runs).
+- **What is written:** only the mod's state in its store, never the repository or GitHub. The keys are: `override:<sessionId>` (the issue set by `/keepaway issue`, dropped after 30 days), `lang`, `summary` (on or off), `legendOpen`, `timelineOpen`, `briefs` (the newest one-line summaries, by session; the prompt itself is never stored), `explains` (the newest step explanations), `logo:<repo>` (where a repo's logo came from, and when it was looked up) `logo-lock:<repo>` (a short lock while a lookup runs), and `model-lock:<id>` (a short lock, two minutes, held while one model call for a summary line or a step explanation runs, released when it ends).
 - To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## 🩺 Troubleshooting
@@ -316,9 +316,12 @@ Fixed in the code, not configurable:
 | `claude plugin install keepaway-repo@keepglide` finds no plugin | The catalog entry is not published yet (see [Installation](#-installation)). | Install from `sophia-mods`, or wait for the entry. |
 | `gh not found: showing sessions only` | `gh` cannot start (not installed, or not on the path Claude Code sees). | Install [`gh`](https://cli.github.com/) and check it with `gh --version`. |
 | `gh is not signed in` | `gh` exits with a login message. | Run `gh auth login`. The next poll uses it (60 s with the pane open, 5 min closed). |
-| `GitHub rate limit: showing the last data` | GitHub's API rate limit was reached. | Wait. The last data stays on screen until a poll succeeds. |
-| `GitHub did not answer in time` | A `gh` call ran longer than 15 s. | Check the network, and run the failing call by hand. The next poll retries. |
-| `GitHub did not answer as expected: showing the last data` | A `gh` call failed without a known cause, or its output could not be read. | Run `gh issue list -R <owner>/<repo> --state open` by hand to see the error. |
+| `GitHub rate limit: showing the last data` | GitHub's API rate limit was reached. With no good read yet, the line has no age. | Wait. The last data stays on screen until a poll succeeds. |
+| `GitHub rate limit: showing data last read 12 min ago` (e.g.) | The same limit, with a good read behind the data on screen. The age is the time since that read. | Wait, as above. The wait doubles on each limited poll, up to 15 minutes (see the polling paragraph). |
+| `GitHub did not answer in time` | A `gh` call ran longer than 15 s. With no good read yet, the line has no age. | Check the network, and run the failing call by hand. The next poll retries. |
+| `GitHub did not answer in time: showing data last read 12 min ago` (e.g.) | The same timeout, with a good read behind the data on screen. | Check the network. The next poll retries. |
+| `GitHub did not answer as expected: showing the last data` | A `gh` call failed without a known cause, or its output could not be read. With no good read yet, the line has no age. | Run `gh issue list -R <owner>/<repo> --state open` by hand to see the error. |
+| `GitHub did not answer as expected: showing data last read 12 min ago` (e.g.) | The same failure, with a good read behind the data on screen. | Run `gh issue list -R <owner>/<repo> --state open` by hand to see the error. |
 | `no GitHub remote for this repo` | The repository has no remote on GitHub. | Check `git remote -v`. The remote must point to `github.com`, or to an SSH alias with `github` in its name. |
 | `list is partial (first 500)` (or `first 100`) | The repository has more open issues (or pull requests) than one poll reads. Exactly 500 open issues does not show the line. | None in the mod. The list is partial by design. |
 | `{count} session records could not be read` | A records file did not parse, or a text field is over 4096 characters. For one record the line reads `1 session record could not be read`. Only `local_<id>.json` files are read as records; other files in the folder, such as `scheduled-tasks.json` and `deleted_<id>` tombstones, are ignored. | The bad record is skipped and the other sessions are shown. |
