@@ -240,7 +240,7 @@ test('a session event in the timeline is drawn with the diamond glyph on the ter
   expect(glyphs).toContain('🚀')
   expect(glyphs).not.toContain('▪')
   const marks = nodesOf(drawDesktop()).filter(node => node.tag === 'Svg' && String(node.props.key).startsWith('mark-local_'))
-  expect(marks.map(node => node.props.alt)).toContain('session')
+  expect(marks.map(node => node.props.alt)).toContain('session event')
   expect(nodesOf(drawDesktop()).some(node => node.props.key === 'glyph')).toBe(false)
 })
 
@@ -670,6 +670,9 @@ const STATE_KEYS = { working: 'state.working', idle: 'state.idle', waiting: 'sta
 const STATE_EMOJI = { working: '🟢', idle: '💤', waiting: '⏳' } as const
 
 // The title of every session row, as drawn: the Markdown label on the desktop, the text on the terminal.
+const buttonLabelsOf = (tree: unknown): string[] =>
+  nodesOf(tree).filter(node => node.tag === 'Button').map(node => String(node.props.label))
+
 const titleRows = (tree: unknown): string[] =>
   nodesOf(tree)
     .filter(node => /^title-(?!block$)/.test(String(node.props.key)))
@@ -804,22 +807,22 @@ test('the legend is a Labels table: a bold heading, then one row per icon in gro
   ]
   // On the desktop the timeline's emoji rows (commit, open PR, session event) give way to the line's markers, in their place.
   const englishMarks = [
-    ['[in progress]', 'now', 'the step the session is doing now.'],
+    ['[now]', 'now', 'the step the session is doing now.'],
     ['[release]', 'release', 'a release: a version published or a release commit.'],
     ['[commit]', 'commit', "a commit made on the session's branch."],
     ['[test]', 'test', 'a step that ran or wrote tests.'],
-    ['[pull request]', 'open PR', "a pull request opened from the session's branch."],
-    ['[session]', 'session event', 'the session started, or was forked or spawned from another.'],
+    ['[open PR]', 'open PR', "a pull request opened from the session's branch."],
+    ['[session event]', 'session event', 'the session started, or was forked or spawned from another.'],
     ['[step]', 'step', "another step of the session's plan."],
   ]
   const portugueseMarks = [
-    ['[in progress]', 'agora', 'a etapa que a sessão está fazendo agora.'],
+    ['[agora]', 'agora', 'a etapa que a sessão está fazendo agora.'],
     ['[release]', 'release', 'um release: uma versão publicada ou um commit de release.'],
     ['[commit]', 'commit', 'um commit feito no branch da sessão.'],
-    ['[test]', 'teste', 'uma etapa que rodou ou escreveu testes.'],
-    ['[pull request]', 'PR aberto', 'um pull request aberto a partir do branch da sessão.'],
-    ['[session]', 'evento de sessão', 'a sessão começou ou foi derivada (fork ou spawn) de outra.'],
-    ['[step]', 'etapa', 'outra etapa do plano da sessão.'],
+    ['[teste]', 'teste', 'uma etapa que rodou ou escreveu testes.'],
+    ['[PR aberto]', 'PR aberto', 'um pull request aberto a partir do branch da sessão.'],
+    ['[evento de sessão]', 'evento de sessão', 'a sessão começou ou foi derivada (fork ou spawn) de outra.'],
+    ['[etapa]', 'etapa', 'outra etapa do plano da sessão.'],
   ]
   const onDesktop = (rows: string[][], marks: string[][]): string[][] => [...rows.slice(0, 7), ...marks, ...rows.slice(10)]
   for (const [tree, rows] of [
@@ -1019,7 +1022,7 @@ test('each pane error draws its line above the groups', () => {
   ]
   const lines = [
     '⚠️ gh not found: showing sessions only',
-    '⚠️ gh is not signed in',
+    '⚠️ gh is not signed in: run gh auth login',
     '⚠️ GitHub rate limit: showing the last data',
     '⚠️ GitHub did not answer in time',
     '⚠️ no GitHub remote for this repo',
@@ -1065,9 +1068,9 @@ test('no-github mode draws the sessions and the no-remote line, and no issue sec
 
 test('ux4-2: a first poll that settled with no snapshot draws the failure line, not Loading, in both languages', () => {
   const texts = drawnTexts(drawDesktop({ snapshot: null, loadFailed: true }))
-  expect(texts).toContain('❌ Could not read the repo: state unknown')
+  expect(texts).toContain('❌ Could not read the repo: state unknown. Check the remote with git remote -v, and gh with gh auth login.')
   expect(texts).not.toContain('Loading the repo...')
-  expect(drawnTexts(drawDesktop({ snapshot: null, loadFailed: true, lang: 'pt' }))).toContain('❌ Não foi possível ler o repo: estado desconhecido')
+  expect(drawnTexts(drawDesktop({ snapshot: null, loadFailed: true, lang: 'pt' }))).toContain('❌ Não foi possível ler o repo: estado desconhecido. Confira o remote com git remote -v, e o gh com gh auth login.')
 })
 
 test('a snapshot not yet read draws the loading line only', () => {
@@ -1541,6 +1544,15 @@ test('no open milestone, or a total of 0, reads the empty wording and the workin
   expect(heroTextsOf(zeroPt)).toEqual(['nenhum milestone aberto · 0 trabalhando'])
 })
 
+// #27: one issue left reads in the singular in pt-BR (falta 1), and the plural keeps faltam.
+test('one issue left reads falta 1 in pt-BR, and more than one keeps faltam', () => {
+  const one = drawDesktop({ snapshot: oneMilestone(milestoneOf({ openIssues: 1, closedIssues: 4 })), lang: 'pt' })
+  expect(heroTextsOf(one).join(' ')).toContain('falta 1')
+  expect(heroTextsOf(one).join(' ')).not.toContain('faltam 1')
+  const many = drawDesktop({ snapshot: oneMilestone(milestoneOf({ openIssues: 2, closedIssues: 4 })), lang: 'pt' })
+  expect(heroTextsOf(many).join(' ')).toContain('faltam 2')
+})
+
 test('inexact counts read the partial count, with no bar, no percentage and no "faltam"', () => {
   const texts = heroTextsOf(drawDesktop({ snapshot: oneMilestone(milestoneOf({ countsExact: false, openIssues: 4, closedIssues: 10 })) }))
   expect(texts).toEqual(['~10 of ~14 closed (partial count)', '0 working'])
@@ -1771,11 +1783,58 @@ test('a group past 20 top-level sessions draws the first 20 and a "+k more" line
   // A row's title carries its state icon after the name, so the name is matched as a prefix.
   expect(titleRows(over).some(row => row.startsWith('Cap session 19 '))).toBe(true)
   expect(titleRows(over).some(row => row.startsWith('Cap session 20 '))).toBe(false)
-  expect(drawnTexts(over)).toContain('+5 more')
-  expect(drawnTexts(drawTerminal({ snapshot: snapshotWith({ sessions: sessionsOf(25) }), lang: 'pt' }))).toContain('+5 mais')
+  expect(buttonLabelsOf(over)).toContain('+5 more')
+  expect(buttonLabelsOf(drawTerminal({ snapshot: snapshotWith({ sessions: sessionsOf(25) }), lang: 'pt' }))).toContain('+5 mais')
   const exact = drawTerminal({ snapshot: snapshotWith({ sessions: sessionsOf(20) }) })
   expect(titleRows(exact)).toHaveLength(20)
-  expect(drawnTexts(exact).some(text => /^\+\d+ more$/.test(text))).toBe(false)
+  expect(buttonLabelsOf(exact).some(label => /^\+\d+ more$/.test(label))).toBe(false)
+})
+
+// #24: the load-failed line and the sign-in line name the cause and the command for the next step, in both languages.
+test('#24: the load-failed line names the remote and gh with their commands, in en and pt-BR', () => {
+  expect(drawnTexts(drawDesktop({ snapshot: null, loadFailed: true })).join(' ')).toContain(
+    'Could not read the repo: state unknown. Check the remote with git remote -v, and gh with gh auth login.',
+  )
+  expect(drawnTexts(drawDesktop({ snapshot: null, loadFailed: true, lang: 'pt' })).join(' ')).toContain(
+    'Não foi possível ler o repo: estado desconhecido. Confira o remote com git remote -v, e o gh com gh auth login.',
+  )
+})
+
+test('#24: the gh sign-in line names gh auth login, in en and pt-BR', () => {
+  expect(drawnTexts(drawDesktop({ snapshot: snapshotWith({ errors: ['gh-auth'] }) })).join(' ')).toContain('gh is not signed in: run gh auth login')
+  expect(drawnTexts(drawDesktop({ snapshot: snapshotWith({ errors: ['gh-auth'] }), lang: 'pt' })).join(' ')).toContain('gh sem login: rode gh auth login')
+})
+
+// #28: the "+k more" button lifts the cut for its group; a second press cuts it again, and the hint names the command for this window.
+test('#28: the "+k more" button lifts the cut for its group, and a second press cuts it again', () => {
+  const capped = buildTree(
+    Array.from({ length: 25 }, (_, index) =>
+      makeRecord({ sessionId: `local_e${String(index).padStart(7, '0')}`, title: `Lift session ${index}`, lastActivityAt: NOW - (index + 1) * MINUTE }),
+    ),
+    { now: NOW, cutoffMs: 24 * HOUR, thisCliSessionId: 'cli-this', issueFacts: SAMPLE_ISSUE_FACTS },
+  )
+  const pressed: string[] = []
+  const cut = drawTerminal({ snapshot: snapshotWith({ sessions: capped }), onTimelineToggle: id => pressed.push(id) })
+  expect(titleRows(cut)).toHaveLength(20)
+  const onPress = nodesOf(cut).find(node => node.tag === 'Button' && node.props.label === '+5 more')?.props.onPress
+  if (typeof onPress !== 'function') throw new Error('the +5 more button has no press handler')
+  onPress()
+  expect(pressed).toHaveLength(1)
+  const lifted = drawTerminal({ snapshot: snapshotWith({ sessions: capped }), timelineOpen: new Set(pressed) })
+  expect(titleRows(lifted)).toHaveLength(25)
+  expect(buttonLabelsOf(lifted)).toContain('Show fewer')
+  expect(buttonLabelsOf(lifted).some(label => /^\+\d+ more$/.test(label))).toBe(false)
+})
+
+test('#28: this window with no issue shows the hint under its crumb, and no other row does', () => {
+  const noIssue = buildTree(
+    sampleSessions().map(record => (record.sessionId === THIS_WINDOW ? { ...record, override: null } : record)),
+    { now: NOW, cutoffMs: 24 * HOUR, thisCliSessionId: 'cli-this', issueFacts: SAMPLE_ISSUE_FACTS },
+  )
+  const hint = 'set it with /keepaway issue <n>'
+  expect(drawnTexts(drawDesktop({ snapshot: snapshotWith({ sessions: noIssue, thisIssue: null }) })).filter(text => text === hint)).toHaveLength(1)
+  expect(drawnTexts(drawDesktop({ snapshot: snapshotWith({ sessions: noIssue, thisIssue: null }), lang: 'pt' }))).toContain('defina com /keepaway issue <n>')
+  expect(drawnTexts(drawDesktop({ snapshot: snapshotWith() })).filter(text => text === hint)).toHaveLength(0)
 })
 
 test('a session waiting for the person under the 21st top of a group is drawn: the top ranks with its waiting child (Mock S Q7)', () => {
@@ -1822,7 +1881,7 @@ test('the current task is drawn as Now: <task> in English and Agora: <task> in P
   // The desktop line draws it as its own top row, the time replaced by the word, with the green marker.
   const desktop = drawDesktop({ snapshot, lang: 'pt' })
   expect(lineRowsOf(desktop)[0]).toEqual(['Agora', 'Fix the pane'])
-  expect(keyed(desktop, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('in progress')
+  expect(keyed(desktop, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('agora')
   const none = drawnTexts(drawTerminal({ snapshot: withCurrentTask(snapshot, null) }))
   expect(none.some(text => text.startsWith('Now:'))).toBe(false)
 })
@@ -1901,7 +1960,7 @@ test('the desktop line alternates its rows left and right, marks each row by its
     expect(nodesOf(row).some(node => node.props.key === 'rule')).toBe(index < rows.length - 1)
   })
   const alts = rows.map((_, index) => keyed(tree, `mark-${THIS_WINDOW}-${index}`)?.props.alt)
-  expect(alts).toEqual(['commit', 'pull request', 'session', 'test', 'release'])
+  expect(alts).toEqual(['commit', 'open PR', 'session event', 'test', 'release'])
 })
 
 test('the step in progress is marked in progress, and a current task that is one of the steps adds no row of its own', () => {
@@ -1911,7 +1970,7 @@ test('the step in progress is marked in progress, and a current task that is one
   ]
   const tree = drawDesktop({ snapshot: withCurrentTask(withWindowTimeline(events), 'Fix the pane') })
   expect(lineTitlesOf(lineOf(tree))).toEqual(['Fix the pane', 'Read the spec'])
-  expect(keyed(tree, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('in progress')
+  expect(keyed(tree, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('now')
   expect(keyed(tree, `mark-${THIS_WINDOW}-1`)?.props.alt).toBe('step')
 })
 
@@ -1921,7 +1980,7 @@ test('a current task with no step of its own is the first row, read Now in Engli
   expect(lineTitlesOf(lineOf(tree))).toEqual(['Fix the pane', 'Step 1', 'Step 2', 'Step 3', 'Step 4', 'Step 5', 'Step 6', 'Step 7'])
   expect(keyed(tree, 'line-earlier')).toBeUndefined()
   expect(keyed(tree, `earlier-${THIS_WINDOW}`)?.props.label).toBe(`${DISCLOSURE_CLOSED} Earlier (3)`)
-  expect(keyed(tree, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('in progress')
+  expect(keyed(tree, `mark-${THIS_WINDOW}-0`)?.props.alt).toBe('now')
 })
 
 test('a row\'s time is bold and its title italic, linked when the event has a page; its detail is dim Text, and only when it has one', () => {

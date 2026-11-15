@@ -75,3 +75,11 @@ test('a count of 1 takes the singular form in both languages, and a plural count
   expect(t('en', 'error.records', { count: 2 })).toBe('2 session records could not be read')
   expect(t('pt', 'error.records', { count: 2 })).toBe('2 registros de sessão não puderam ser lidos')
 })
+
+// #27: the pt-BR singular of hero.left reads falta; the plural keeps faltam; en reads the same count the same way.
+test('hero.left takes its singular form at a count of 1 in both languages (#27)', () => {
+  expect(t('pt', 'hero.left', { count: 1 })).toBe('falta 1')
+  expect(t('pt', 'hero.left', { count: 7 })).toBe('faltam 7')
+  expect(t('en', 'hero.left', { count: 1 })).toBe('1 left')
+  expect(t('en', 'hero.left', { count: 7 })).toBe('7 left')
+})

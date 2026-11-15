@@ -182,9 +182,12 @@ test('the repo context names the milestone with its progress and the issue', () 
   expect(bandContextWords(view({ repo: 'unknown' }))).toBeNull()
 })
 
-test('a long milestone title is cut to 24 characters in the band', () => {
-  const issue = { number: 7, milestoneTitle: LONG_TITLE, progress: { closed: 2, total: 5 } }
-  expect(lineOf(bandContextWords(view({ issue })))).toBe(`${LONG_TITLE.slice(0, 23)}… 2/5 · #7`)
+// #27: the band shows the pane's label: the title before " · ", cut at a word past 40 characters.
+test('#27: a milestone title reads as the pane shows it: before " · ", cut at a word past 40 characters', () => {
+  const issue = { number: 7, milestoneTitle: `${LONG_TITLE} · Phase 2`, progress: { closed: 2, total: 5 } }
+  expect(lineOf(bandContextWords(view({ issue })))).toBe('Sprint-with-a-very-long-milestone-title 2/5 · #7')
+  const long = { number: 7, milestoneTitle: 'Alpha beta gamma delta epsilon zeta eta theta iota', progress: null }
+  expect(lineOf(bandContextWords(view({ issue: long })))).toBe('Alpha beta gamma delta epsilon zeta… · #7')
 })
 
 for (const [surface, ui] of [['desktop', DESKTOP], ['terminal', TERMINAL]] as const) {
@@ -382,6 +385,28 @@ test('the KeepGlide mark sits immediately before the Open button on the desktop 
   expect(terminal.some(node => node.props.alt === KEEPGLIDE_ALT)).toBe(false)
 })
 
+const svgAltsOf = (drawn: unknown): string[] => drawnNodes(drawn).filter(node => node.tag === 'Svg').map(node => String(node.props.alt))
+
+// #17 (WCAG 1.1.1): an icon alone names its state in the window's language; an icon beside its text stays decorative.
+test('#17: the state icons read their state as alt text on the desktop, in en and pt-BR', () => {
+  const en = svgAltsOf(renderBand(DESKTOP, view({ surface: 'desktop' }), () => {}, heldButtons()))
+  expect(en).toContain('idle')
+  expect(svgAltsOf(renderBand(DESKTOP, view({ surface: 'desktop', turn: RUNNING }), () => {}, heldButtons()))).toContain('working')
+  expect(svgAltsOf(renderBand(DESKTOP, view({ surface: 'desktop', waiting: true }), () => {}, heldButtons()))).toContain('waiting for you')
+  const pt = view({ surface: 'desktop', lang: 'pt', turn: RUNNING, waiting: true })
+  const ptAlts = svgAltsOf(renderBand(DESKTOP, pt, () => {}, heldButtons()))
+  expect(ptAlts).toContain('trabalhando')
+  expect(ptAlts).toContain('esperando você')
+  expect(svgAltsOf(renderBand(DESKTOP, view({ surface: 'desktop', lang: 'pt' }), () => {}, heldButtons()))).toContain('ociosa')
+})
+
+test('#17: an icon beside its text keeps alt "" (the tool icon of a running turn)', () => {
+  const drawn = drawnNodes(renderBand(DESKTOP, view({ surface: 'desktop', turn: RUNNING }), () => {}, heldButtons()))
+  const shell = drawn.find(node => node.tag === 'Svg' && node.props.source === actionIconSvg('shell', ACTION_ICON_SIZE))
+  expect(shell?.props.alt).toBe('')
+  expect(svgAltsOf(renderBand(DESKTOP, view({ surface: 'desktop', turn: RUNNING }), () => {}, heldButtons()))).toContain('working')
+})
+
 test('R2-05: an agent still running after its turn ended counts the elapsed time from the turn start', () => {
   const turn = turnEnded(turnToolNamed(turnStarted(NOW - 3 * MINUTE), 'Bash'), NOW - MINUTE)
   const words = bandStatusWords(view({ turn, agents: 1, agentsSince: NOW - 2 * MINUTE }))
@@ -448,8 +473,8 @@ test('agents still running after the main turn ended: the working icon with thei
 })
 
 test('F19: a milestone title is cut by characters, so an emoji is never split in the band', () => {
-  const title = '🚀'.repeat(30)
-  expect(lineOf(bandContextWords(view({ issue: { number: 7, milestoneTitle: title, progress: null } })))).toBe(`${'🚀'.repeat(23)}… · #7`)
+  const title = '🚀'.repeat(50)
+  expect(lineOf(bandContextWords(view({ issue: { number: 7, milestoneTitle: title, progress: null } })))).toBe(`${'🚀'.repeat(39)}… · #7`)
 })
 
 test('F08: a window whose issue details are missing reads #<n> alone, never no issue', () => {
