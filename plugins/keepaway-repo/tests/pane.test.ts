@@ -1022,7 +1022,7 @@ test('each pane error draws its line above the groups', () => {
   ]
   const lines = [
     '⚠️ gh not found: showing sessions only',
-    '⚠️ gh is not signed in',
+    '⚠️ gh is not signed in: run gh auth login',
     '⚠️ GitHub rate limit: showing the last data',
     '⚠️ GitHub did not answer in time',
     '⚠️ no GitHub remote for this repo',
@@ -1068,9 +1068,9 @@ test('no-github mode draws the sessions and the no-remote line, and no issue sec
 
 test('ux4-2: a first poll that settled with no snapshot draws the failure line, not Loading, in both languages', () => {
   const texts = drawnTexts(drawDesktop({ snapshot: null, loadFailed: true }))
-  expect(texts).toContain('❌ Could not read the repo: state unknown')
+  expect(texts).toContain('❌ Could not read the repo: state unknown. Check the remote with git remote -v, and gh with gh auth login.')
   expect(texts).not.toContain('Loading the repo...')
-  expect(drawnTexts(drawDesktop({ snapshot: null, loadFailed: true, lang: 'pt' }))).toContain('❌ Não foi possível ler o repo: estado desconhecido')
+  expect(drawnTexts(drawDesktop({ snapshot: null, loadFailed: true, lang: 'pt' }))).toContain('❌ Não foi possível ler o repo: estado desconhecido. Confira o remote com git remote -v, e o gh com gh auth login.')
 })
 
 test('a snapshot not yet read draws the loading line only', () => {
@@ -1788,6 +1788,21 @@ test('a group past 20 top-level sessions draws the first 20 and a "+k more" line
   const exact = drawTerminal({ snapshot: snapshotWith({ sessions: sessionsOf(20) }) })
   expect(titleRows(exact)).toHaveLength(20)
   expect(buttonLabelsOf(exact).some(label => /^\+\d+ more$/.test(label))).toBe(false)
+})
+
+// #24: the load-failed line and the sign-in line name the cause and the command for the next step, in both languages.
+test('#24: the load-failed line names the remote and gh with their commands, in en and pt-BR', () => {
+  expect(drawnTexts(drawDesktop({ snapshot: null, loadFailed: true })).join(' ')).toContain(
+    'Could not read the repo: state unknown. Check the remote with git remote -v, and gh with gh auth login.',
+  )
+  expect(drawnTexts(drawDesktop({ snapshot: null, loadFailed: true, lang: 'pt' })).join(' ')).toContain(
+    'Não foi possível ler o repo: estado desconhecido. Confira o remote com git remote -v, e o gh com gh auth login.',
+  )
+})
+
+test('#24: the gh sign-in line names gh auth login, in en and pt-BR', () => {
+  expect(drawnTexts(drawDesktop({ snapshot: snapshotWith({ errors: ['gh-auth'] }) })).join(' ')).toContain('gh is not signed in: run gh auth login')
+  expect(drawnTexts(drawDesktop({ snapshot: snapshotWith({ errors: ['gh-auth'] }), lang: 'pt' })).join(' ')).toContain('gh sem login: rode gh auth login')
 })
 
 // #28: the "+k more" button lifts the cut for its group; a second press cuts it again, and the hint names the command for this window.
