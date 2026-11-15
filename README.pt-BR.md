@@ -196,7 +196,7 @@ Regras de base:
 
 - 🔑 **Segredos:** o agente nunca lê, digita nem imprime um token ou chave. O `gh` usa o próprio login; a pessoa roda `gh auth login` se o passo 1 falhar.
 - 🧑 **Com OK da pessoa:** os passos 3, 4 e os passos de desfazer mudam a configuração do Claude Code (marketplace, instalação e remoção do plugin). Pergunte antes.
-- 💸 **Custo:** nenhum passo custa dinheiro. O mod chama só `gh` e `git` (veja [Segurança e privacidade](#-segurança-e-privacidade)).
+- 💸 **Custo:** os passos abaixo não fazem chamada paga por conta própria. O mod faz chamadas pagas ao modelo enquanto os resumos de sessão estão ligados (veja [Segurança e privacidade](#-segurança-e-privacidade)).
 - **Plataformas:** Linux é ✅ (veja [Pré-requisitos](#-pré-requisitos)); macOS e Windows são ⚠️, não testados. Os passos 5 a 8 rodam em uma sessão do Claude Code Desktop, não em um terminal comum.
 
 | # | Passo | Rodar | Expect |
@@ -296,9 +296,17 @@ Fixo no código, não configurável:
 
 ## 🔒 Segurança e privacidade
 
-- **O que sai da máquina:** só chamadas do `gh` ao GitHub, para ler milestones, issues abertas, pull requests abertos, os totais dos milestones e os detalhes de uma issue. Não há chamadas pagas nem chamadas a outros serviços. Para os logos, o conteúdo do repositório e o tipo do dono pelo `gh`, o avatar da organização em `avatars.githubusercontent.com` (só https) e o avatar do GitLab pelo `glab`.
-- **O que é lido localmente:** o remote, a branch e o log do git do repositório e das suas sessões, os registros de sessão do Desktop, e a config do Desktop (só os Grupos da barra lateral). Com o resumo ligado, os primeiros 256 KiB do transcript de cada sessão listada, para o primeiro prompt; o resumo fica só na memória e nunca é gravado.
-- **O que é gravado:** só o estado do mod (o sinal de aberto, o idioma e a issue definida por `/keepaway issue`). Nada é gravado no GitHub nem no repositório.
+- **O que sai da máquina:**
+  - Chamadas do `gh` ao GitHub: milestones, issues abertas, pull requests abertos, totais dos milestones, os detalhes de uma issue, e o tipo e o avatar do dono de um repositório.
+  - Chamadas do `glab` ao GitLab, só para um repositório GitLab: o projeto e o avatar dele.
+  - O `curl` baixa o avatar de um repositório por https, do host que a resposta indica, e de mais nenhum lugar.
+  - Chamadas pagas ao modelo (`$.model.complete`, Haiku), ligadas por padrão e paradas por `/keepaway summary off`: (1) para uma sessão cujo primeiro prompt tem mais de 300 caracteres, os primeiros 8000 caracteres desse prompt, para escrever o seu resumo de uma linha; (2) para um passo concluído, o título dele e até 1200 caracteres do texto do assistente em volta, para escrever a sua explicação.
+- **O que é lido localmente:**
+  - O remote, a branch e o log do git do repositório e da pasta de cada sessão listada, `ssh -G` para um alias de SSH, e `date +%z` para o deslocamento UTC.
+  - Os registros de sessão do Desktop, e a config do Desktop (só os Grupos da barra lateral).
+  - Os arquivos de logo do checkout (um logo PNG ou JPEG na raiz do repositório ou numa pasta).
+  - O transcript de cada sessão em `~/.claude/projects/`: com os resumos ligados, os primeiros 256 KiB, para o primeiro prompt; para os eventos de passo, os bytes acrescidos desde a última leitura, com os resumos ligados ou não.
+- **O que é gravado:** só o estado do mod no seu store, nunca o repositório nem o GitHub. As chaves são: `override:<sessionId>` (a issue definida por `/keepaway issue`, descartada após 30 dias), `lang`, `summary` (ligado ou desligado), `legendOpen`, `timelineOpen`, `briefs` (os resumos de uma linha mais recentes, por sessão; o próprio prompt nunca é gravado), `explains` (as explicações de passo mais recentes), `logo:<repo>` (de onde veio o logo de um repositório, e quando foi consultado) e `logo-lock:<repo>` (uma trava curta enquanto uma consulta roda).
 - Para reportar uma vulnerabilidade, veja [SECURITY.md](SECURITY.md).
 
 ## 🩺 Solução de problemas

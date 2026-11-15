@@ -196,7 +196,7 @@ Ground rules:
 
 - 🔑 **Secrets:** the agent never reads, types or prints a token or key. `gh` uses its own login; the human runs `gh auth login` if step 1 fails.
 - 🧑 **Human OK:** steps 3, 4 and the undo steps change Claude Code's configuration (marketplace, plugin install and removal). Ask the human first.
-- 💸 **Cost:** no step costs money. The mod calls only `gh` and `git` (see [Security and privacy](#-security-and-privacy)).
+- 💸 **Cost:** the steps below make no paid call of their own. The mod makes paid model calls while session summaries are on (see [Security and privacy](#-security-and-privacy)).
 - **Platforms:** Linux is ✅ (see [Prerequisites](#-prerequisites)); macOS and Windows are ⚠️, not tested. Steps 5 to 8 run in a Claude Code Desktop session, not a plain terminal.
 
 | # | Step | Run | Expect |
@@ -296,9 +296,17 @@ Fixed in the code, not configurable:
 
 ## 🔒 Security and privacy
 
-- **What leaves the machine:** only `gh` calls to GitHub, to read milestones, open issues, open pull requests, the milestone totals and one issue's details. There are no paid calls and no calls to other services. For repo logos, GitHub's contents and owner type through `gh`, the organization avatar from `avatars.githubusercontent.com` (https only), and the GitLab avatar through `glab`.
-- **What is read locally:** the git remote, branch and log of the repository and of its sessions, the Desktop session records, and the Desktop config (its sidebar Groups only). With summaries on, the first 256 KiB of each listed session's transcript, for its first prompt; the summary stays in memory and is never stored.
-- **What is written:** only the state of the mod (the open flag, the language and the issue set by `/keepaway issue`). Nothing is written to GitHub or to the repository.
+- **What leaves the machine:**
+  - `gh` calls to GitHub: milestones, open issues, open pull requests, milestone totals, one issue's details, and a repo owner's type and avatar.
+  - `glab` calls to GitLab, for a GitLab repo only: the project and its avatar.
+  - `curl` downloads a repo's avatar over https, from the host that the answer names, and nowhere else.
+  - Paid model calls (`$.model.complete`, Haiku), on by default and stopped by `/keepaway summary off`: (1) for a session whose first prompt is over 300 characters, the first 8000 characters of that prompt, to write its one-line summary; (2) for a finished step, its title and up to 1200 characters of the assistant text around it, to write its explanation.
+- **What is read locally:**
+  - The git remote, branch and log of the repository and of each listed session's folder, `ssh -G` for an SSH alias, and `date +%z` for the UTC offset.
+  - The Desktop session records, and the Desktop config (its sidebar Groups only).
+  - The checkout's logo files (a PNG or JPEG logo at the repository root or in a folder).
+  - Each session's transcript under `~/.claude/projects/`: with summaries on, the first 256 KiB, for its first prompt; for step events, the bytes added since the last read, whether or not summaries are on.
+- **What is written:** only the mod's state in its store, never the repository or GitHub. The keys are: `override:<sessionId>` (the issue set by `/keepaway issue`, dropped after 30 days), `lang`, `summary` (on or off), `legendOpen`, `timelineOpen`, `briefs` (the newest one-line summaries, by session; the prompt itself is never stored), `explains` (the newest step explanations), `logo:<repo>` (where a repo's logo came from, and when it was looked up) and `logo-lock:<repo>` (a short lock while a lookup runs).
 - To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## 🩺 Troubleshooting

@@ -8,6 +8,9 @@ Commit hashes name the change in `git log`. Entries below the rename keep the na
 
 ## [Unreleased]
 
+### Fixed
+- **Privacy and security text** now matches the code. The README and SECURITY.md list the paid model calls, the avatar downloads and the GitLab calls, and the stored state; they no longer say the mod makes no paid calls or that summaries are never stored.
+
 ## [0.2.0-beta.26] - 2026-11-08
 
 ### Changed
