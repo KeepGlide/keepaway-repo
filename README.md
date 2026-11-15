@@ -378,6 +378,12 @@ Run the look check, which fails on any hex colour, colour function or emoji in t
 bash plugins/keepaway-repo/scripts/keepaway-look-check.sh
 ```
 
+Run the version check before a release. It fails, and names each place, when a version string differs from `plugins/keepaway-repo/.claude-plugin/plugin.json`:
+
+```bash
+bash plugins/keepaway-repo/scripts/keepaway-version-check.sh
+```
+
 The layout of the repository and the test protocol are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## 🌿 Branching and releases
