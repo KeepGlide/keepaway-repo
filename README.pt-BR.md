@@ -299,13 +299,13 @@ Fixo no código, não configurável:
 - **O que sai da máquina:**
   - Chamadas do `gh` ao GitHub: milestones, issues abertas, pull requests abertos, totais dos milestones, os detalhes de uma issue, e o tipo e o avatar do dono de um repositório.
   - Chamadas do `glab` ao GitLab, só para um repositório GitLab: o projeto e o avatar dele.
-  - O `curl` baixa o avatar de um repositório por https, do host que a resposta indica, e de mais nenhum lugar.
+  - O `sh` roda o `curl` e o `base64` para baixar o avatar de um repositório por https, do host que a resposta indica, e de mais nenhum lugar.
   - Chamadas pagas ao modelo (`$.model.complete`, Haiku), feitas só com o painel do KeepAway aberto, ligadas por padrão, e paradas por `/keepaway summary off`: (1) para uma sessão cujo primeiro prompt tem mais de 300 caracteres, os primeiros 8000 caracteres desse prompt, para escrever o seu resumo de uma linha; (2) para um passo concluído, o título dele e até 1200 caracteres do texto do assistente em volta, para escrever a sua explicação.
 - **O que é lido localmente:**
-  - O remote, a branch e o log do git do repositório e da pasta de cada sessão listada, `ssh -G` para um alias de SSH, e `date +%z` para o deslocamento UTC.
+  - O remote, a branch e o log do `git` do repositório e da pasta de cada sessão listada, `ssh -G` para um alias de SSH, e `date +%z` para o deslocamento UTC.
   - Os registros de sessão do Desktop, e a config do Desktop (só os Grupos da barra lateral).
   - Os arquivos de logo do checkout (um logo PNG ou JPEG na raiz do repositório ou numa pasta).
-  - O transcript de cada sessão em `~/.claude/projects/`: com os resumos ligados, os primeiros 256 KiB, para o primeiro prompt; para os eventos de passo, os bytes acrescidos desde a última leitura, com os resumos ligados ou não.
+  - O transcript de cada sessão em `~/.claude/projects/`: com os resumos ligados, os primeiros 256 KiB, para o primeiro prompt (`head`); para os eventos de passo, os bytes acrescidos desde a última leitura (`tail`), com os resumos ligados ou não.
 - **O que é gravado:** só o estado do mod no seu store, nunca o repositório nem o GitHub. As chaves são: `override:<sessionId>` (a issue definida por `/keepaway issue`, descartada após 30 dias), `lang`, `summary` (ligado ou desligado), `legendOpen`, `timelineOpen`, `briefs` (os resumos de uma linha mais recentes, por sessão; o próprio prompt nunca é gravado), `explains` (as explicações de passo mais recentes), `logo:<repo>` (de onde veio o logo de um repositório, e quando foi consultado) e `logo-lock:<repo>` (uma trava curta enquanto uma consulta roda).
 - Para reportar uma vulnerabilidade, veja [SECURITY.md](SECURITY.md).
 
@@ -382,6 +382,13 @@ Rode a verificação de versões antes de um release. Ela falha, e aponta cada l
 
 ```bash
 bash plugins/keepaway-repo/scripts/keepaway-version-check.sh
+```
+
+Rode também a verificação dos documentos antes de um release. Ela falha, e aponta cada lugar, quando as seções de Segurança e privacidade deixam de fora um programa que os hooks executam ou uma chamada ao modelo; a autoverificação planta os dois casos numa cópia e espera uma falha:
+
+```bash
+bash plugins/keepaway-repo/scripts/keepaway-docs-check.sh
+bash plugins/keepaway-repo/scripts/keepaway-docs-selftest.sh
 ```
 
 A organização do repositório e o protocolo de testes estão em [CONTRIBUTING.md](CONTRIBUTING.md), em inglês.

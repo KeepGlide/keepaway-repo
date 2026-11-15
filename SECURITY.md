@@ -23,8 +23,8 @@ We acknowledge a report within 7 days and aim to publish a fix or a mitigation w
 
 The full list is in the README's [Security and privacy](README.md#-security-and-privacy) section (the [pt-BR](README.pt-BR.md#-segurança-e-privacidade) version mirrors it).
 
-- **Sends:** `gh` calls to GitHub, with the account of the local `gh` login; `glab` calls to GitLab for GitLab repos; a `curl` download of a repo's avatar over https; and paid Haiku model calls for session summary lines and step explanations. The model calls run only while the pane is open, are on by default, and stop with `/keepaway summary off`.
-- **Reads:** the git remote, branch and log of the repository and its sessions; Desktop session records and the Desktop config (sidebar Groups only); session transcripts under `~/.claude/projects/`; a checkout's logo files.
+- **Sends:** `gh` calls to GitHub, with the account of the local `gh` login; `glab` calls to GitLab for GitLab repos; an avatar download over https, run by `sh` with `curl` and `base64`; and paid Haiku model calls for session summary lines and step explanations. The model calls run only while the pane is open, are on by default, and stop with `/keepaway summary off`.
+- **Reads:** the git remote, branch and log of the repository and its sessions (`git`); the SSH alias config (`ssh -G`); the UTC offset (`date`); Desktop session records and the Desktop config (sidebar Groups only); session transcripts under `~/.claude/projects/` (`head` for a first prompt, `tail` for new step bytes); a checkout's logo files.
 - **Stores:** only the mod's own state in its store, never the repository: the issue override, the language, the summary and legend and timeline flags, the newest one-line summaries and step explanations, and the logo lookup records. The prompt itself is never stored.
 
 The mod writes nothing to GitHub or to the repository.
