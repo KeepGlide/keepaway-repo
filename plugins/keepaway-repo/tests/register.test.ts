@@ -84,6 +84,8 @@ type StubOptions = {
   milestones?: string
   // The answer of `gh issue view` (its comments included); absent: ISSUE_VIEW_JSON.
   issueView?: string
+  // The stderr of every `gh issue view` call, which then fails with exit 1 (an absent number, or a network failure).
+  issueViewStderr?: string
   // The issue counts GraphQL answers for the open milestones (issues only, no PRs); 'fail' is a refused query. Absent: no count answers,
   // so every milestone keeps its REST counts, not exact.
   milestoneCounts?: { number: number; open: number; closed: number }[] | 'fail'
@@ -443,6 +445,7 @@ async function ghAnswerOf(argv: readonly string[], options: StubOptions): Promis
   if (options.viewGate !== undefined && argv.includes('view')) await options.viewGate
   if (typeof options.gh === 'object') return processOutput('', options.gh.exitCode, options.gh.stderr)
   if (options.gh === 'unreadable') return processOutput('<html>not JSON</html>')
+  if (argv.includes('view') && options.issueViewStderr !== undefined) return processOutput('', 1, options.issueViewStderr)
   if (argv.includes('view')) return processOutput(options.issueView ?? ISSUE_VIEW_JSON)
   if (argv.some(arg => arg.includes('milestones('))) return milestoneCountsOf(options)
   if (argv.includes('graphql')) {
@@ -2115,6 +2118,47 @@ test('F13: a gh timeout after a good poll keeps the last good issues and draws i
   expect(drawn).toContain('1 open issue')
   expect(drawn).toContain('GitHub did not answer in time')
   expect(host.logs).toContain('keepaway: gh issue call failed (timeout)')
+})
+
+// #19: the window's issue view. A number gh does not have is asked once; a closed issue outside the open list is kept for five minutes;
+// a real failure stays stale and is asked again.
+const viewCalls = (host: Host): number => host.argvs.filter(argv => argv.includes('view')).length
+
+test('#19: a number gh does not have is asked once across polls, with no error logged', async ($: Engine, on) => {
+  const host = stubHost(on, { issueViewStderr: 'GraphQL: Could not resolve to an Issue with the number of 999' })
+  host.store.set(`override:${SESSION_ID}`, { issue: 999, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  await host.clock.advance(POLL_MS)
+  await host.clock.advance(POLL_MS)
+  expect(viewCalls(host)).toBe(1)
+  expect(host.logs.some(line => line.includes('gh issue call failed'))).toBe(false)
+})
+
+test('#19: a closed issue outside the open list is fetched once within its five-minute time-to-live', async ($: Engine, on) => {
+  const closed = JSON.stringify({ ...JSON.parse(ISSUE_VIEW_JSON), state: 'CLOSED' })
+  const host = stubHost(on, { issueView: closed })
+  host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  for (let poll = 0; poll < 4; poll++) await host.clock.advance(POLL_MS)
+  expect(viewCalls(host)).toBe(1)
+  await host.clock.advance(POLL_MS)
+  expect(viewCalls(host)).toBe(2)
+})
+
+test('#19: a real gh failure marks the window issue stale and is asked again on the next poll', async ($: Engine, on) => {
+  const host = stubHost(on, { issueViewStderr: 'error connecting to api.github.com\ncheck your internet connection' })
+  host.store.set(`override:${SESSION_ID}`, { issue: ISSUE, ts: 0 })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const first = viewCalls(host)
+  await host.clock.advance(POLL_MS)
+  expect(viewCalls(host)).toBeGreaterThan(first)
+  expect(host.logs.some(line => line.includes('gh issue call failed'))).toBe(true)
 })
 
 // The log names each gh failure's kind, and never its stderr (F03).
