@@ -2384,6 +2384,24 @@ test('DL11: a detached HEAD is no branch and no git failure', async ($: Engine, 
   expect(await drawnPane($)).not.toContain('git failed')
 })
 
+test('a branch\'s commits are read as its own range over the default branch: origin/main..HEAD', async ($: Engine, on) => {
+  const host = stubHost(on, { log: `${COMMIT_SHA}\t1700000000\tfix the thing` })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  const logs = host.argvs.filter(argv => argv.includes('log'))
+  expect(logs.some(argv => argv.at(-1) === 'origin/main..HEAD')).toBe(true)
+  expect(logs.some(argv => argv.at(-1) === 'HEAD' && !argv.includes('origin/main..HEAD'))).toBe(false)
+})
+
+test('a branch with no commit of its own reads none, even when its log answer is empty', async ($: Engine, on) => {
+  const host = stubHost(on, { log: '' })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(await drawnPane($)).not.toContain(COMMIT_SHA)
+})
+
 test('DL13: a last commit with an empty subject is still a commit', async ($: Engine, on) => {
   const host = stubHost(on, { log: `${'a'.repeat(40)}\t1700000000\t` })
   await $.session.start(SESSION)
@@ -3655,6 +3673,59 @@ test('a stored condensed line is drawn with no model call', async ($: Engine, on
   await host.clock.settle()
   expect(await drawnPane($)).toContain('Handoff: stored goal line')
   expect(calls).toHaveLength(0)
+})
+
+test('a closed pane makes no condensing call on its poll; the call waits for the pane to open', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine(LONG_PROMPT) } })
+  const calls = stubModel(on, { isAnswered: true, text: 'Handoff: asked once open' })
+  await $.session.start(SESSION)
+  await host.clock.settle()
+  expect(calls).toHaveLength(0)
+  await host.clock.advance(BAND_POLL_MS)
+  await host.clock.settle()
+  expect(calls).toHaveLength(0)
+  await openPane($)
+  await host.clock.settle()
+  expect(calls).toHaveLength(1)
+})
+
+test('with the pane open, one poll starts at most BRIEFS_PER_POLL condensing calls', async ($: Engine, on) => {
+  const records = Array.from({ length: 4 }, (_, index) => recordOf(`local_cccc000${index}`, { cliSessionId: `sess-c${index}` }))
+  const transcripts = Object.fromEntries(records.map((_, index) => [`${HOME}/.claude/projects/-work-app/sess-c${index}.jsonl`, userLine(`${LONG_PROMPT} ${index}`)]))
+  const host = stubHost(on, { records: [OWN_RECORD, ...records], transcripts: { ...transcripts, [TRANSCRIPT_OWN]: userLine(LONG_PROMPT) } })
+  // The calls never answer, so none finishes and starts another within this poll.
+  const held = new Promise<void>(() => undefined)
+  const calls: string[] = []
+  on('model.complete', async (_$, event) => {
+    calls.push(event.prompt)
+    await held
+    return { value: { isAnswered: true, text: 'never', usage: NO_USAGE } }
+  })
+  await openPane($)
+  // The first poll with the pane open asks two of the four; the next poll asks the other two, never two for one session.
+  expect(calls.length).toBeLessThanOrEqual(2)
+  await host.clock.settle()
+  expect(calls).toHaveLength(2)
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(calls).toHaveLength(4)
+  expect(new Set(calls).size).toBe(4)
+})
+
+test('two condensed lines that land in the same tick are both stored', async ($: Engine, on) => {
+  const records = [recordOf('local_dddd0001', { cliSessionId: 'sess-d1' })]
+  const transcripts = { [`${HOME}/.claude/projects/-work-app/sess-d1.jsonl`]: userLine(`${LONG_PROMPT} ZULU`) }
+  const host = stubHost(on, { records: [OWN_RECORD, ...records], transcripts: { ...transcripts, [TRANSCRIPT_OWN]: userLine(`${LONG_PROMPT} ALPHA`) } })
+  on('model.complete', (_$, event) => ({
+    value: { isAnswered: true, text: event.prompt.includes('ZULU') ? 'Handoff: line of ZULU' : 'Handoff: line of ALPHA', usage: NO_USAGE },
+  }))
+  await $.session.start(SESSION)
+  await openPane($)
+  await host.clock.settle()
+  await host.clock.settle()
+  const stored = JSON.stringify(host.store.get('briefs'))
+  expect(stored).toContain('Handoff: line of ALPHA')
+  expect(stored).toContain('Handoff: line of ZULU')
 })
 
 test('a failed condensing keeps the cut prompt, is logged once by its reason, and is asked again after SUMMARY_RETRY_MS', async ($: Engine, on) => {
