@@ -2784,7 +2784,11 @@ export const register: Register = on => {
   // A new session drops the old timer and registers the command in the session's language.
   on('session.start', async ($, e, next) => {
     sessionEpoch += 1
-    const lang = await currentLang($)
+    // A store that refuses the language setting falls back to the detected language, so the resets below still run.
+    const lang = await currentLang($).catch((error: unknown) => {
+      logLine($, `language setting not read (${failureNameOf(error)})`)
+      return detectedLang($)
+    })
     await update($, langAtom, () => lang)
     await registerCommand($, lang)
     stopTimer()

@@ -10,6 +10,9 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # A hex colour: a hash, 3 to 8 hex digits, at least one of them a letter (so a PR or issue number such as #106 is not one).
 hex_colour='#(?=[0-9a-fA-F]*[a-fA-F])[0-9a-fA-F]{3,8}\b'
+# A quoted hash of exactly 3, 6 or 8 hex digits: a colour literal whatever its digits (#000, #333333), so the letter rule above does not hide it.
+# Code lines only: a comment may quote an issue number such as "#106" (see the band's comment), so a line that opens with a comment is not scanned.
+quoted_hex='^(?!\s*(?://|/\*|\*)).*["'"'"'`]#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})["'"'"'`]'
 colour_function='(?i)\b(?:rgba?|hsla?)\('
 # Emoji and pictographic blocks, plus the watch and hourglass (U+231A-U+231B, U+23E9-U+23FA) that sit outside them. The text glyphs the
 # drawn code keeps (▶ on the band, ▪, ▰, ▱, ├, └, ↗, ←) are not emoji and stay outside the scan.
@@ -43,6 +46,7 @@ scan() {
 }
 
 scan "a hex colour" "$hex_colour" "${files[@]}"
+scan "a quoted hex colour" "$quoted_hex" "${files[@]}"
 scan "a colour function" "$colour_function" "${files[@]}"
 scan "an emoji" "$emoji" "${emoji_files[@]}"
 

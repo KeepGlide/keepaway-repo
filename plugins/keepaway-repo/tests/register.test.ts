@@ -174,6 +174,8 @@ type StubOptions = {
   // The store refuses every read, write and delete of a logo key (logo:, logo-lock:): the pane must go on.
   logoStoreRefuses?: boolean
   // The store refuses every read, write and delete of the legend's open state (legendOpen): the pane draws the legend closed and goes on.
+  // The store refuses every read of the language setting (lang): a new session starts in the detected language.
+  langStoreRefuses?: boolean
   legendStoreRefuses?: boolean
   // `glab --version` times out (the engine's process timeout): the answer is asked again, not kept.
   glabTimesOut?: boolean
@@ -281,7 +283,9 @@ function stubHost(on: On, options: StubOptions = {}): Host {
   const seededLogo = { source: null, at: Number.MAX_SAFE_INTEGER, failed: false }
   // The logo keys (logo: and logo-lock:) are refused when the test says so; every other key is kept as before.
   const refusesKey = (key: string): boolean =>
-    (options.logoStoreRefuses === true && key.startsWith('logo')) || (options.legendStoreRefuses === true && key === 'legendOpen')
+    (options.logoStoreRefuses === true && key.startsWith('logo')) ||
+    (options.legendStoreRefuses === true && key === 'legendOpen') ||
+    (options.langStoreRefuses === true && key === 'lang')
   on('store.get', (_$, event) => {
     if (refusesKey(event.key)) return refuse('logo store unavailable')
     return {
@@ -4307,4 +4311,14 @@ test('#30: the decision is drawn when it is among an issue\'s newest 30 comments
 test('#30: a decision older than the newest 30 comments is not drawn', async ($: Engine, on) => {
   const drawn = await decisionDrawnAt(5, $, on)
   expect(drawn).not.toContain('keep the newest thirty window')
+})
+
+// #33: a store that refuses the language setting does not stop a new session: it runs in the detected language and the pane still draws.
+test('#33: a store that refuses the language setting does not stop session.start, and the pane still draws', async ($: Engine, on) => {
+  const host = stubHost(on, { langStoreRefuses: true })
+  await $.session.start(SESSION)
+  await $.command.run({ command: 'keepaway', args: 'open', ...COMMAND_CONTEXT })
+  await host.clock.settle()
+  expect(host.logs.some(line => line.startsWith('keepaway: language setting not read'))).toBe(true)
+  expect(await drawnPane($)).toContain('Updated')
 })

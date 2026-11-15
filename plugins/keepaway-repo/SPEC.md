@@ -38,13 +38,13 @@ where it differs from that record (section 9).
 | `hooks/i18n.ts` | English and pt-BR dictionaries and `t()`; `group.recents` is `Recents` in both languages, the Desktop sidebar's own label (the app bundle has `Recents` 24 times and `Recentes` 0 times, counted on this machine on 2026-10-22, `/usr/lib/claude-desktop/version`: `44.9.0`). |
 | `hooks/look.ts`, `hooks/logo.ts` | Theme keys and glyphs (`look.ts`); the one violet of the logo (`logo.ts`, exempt from the look gate). |
 | `types/index.d.ts` | The contracts: records, issues, PRs, `SessionNode`, `IssueDetails`, `Snapshot`, the drawn state. |
-| `scripts/keepaway-look-check.sh` | Look gate: no hex colour, colour function or emoji in the drawn code (emoji only in `action-icons.ts`). |
-| `scripts/keepaway-look-selftest.sh` | Self-check of the gate on a copy: the real tree passes; an emoji outside `action-icons.ts` fails; one inside passes; a hex colour there fails. |
+| `scripts/keepaway-look-check.sh` | Look gate: no hex colour, no quoted 3, 6 or 8 digit hash as a colour (code lines only, so a comment's `#106` passes), no colour function or emoji in the drawn code (emoji only in `action-icons.ts`). |
+| `scripts/keepaway-look-selftest.sh` | Self-check of the gate on a copy: the real tree passes; an emoji outside `action-icons.ts` fails; one inside passes; a hex colour there fails; a quoted `'#000'` or `"#333333"` fails; an issue number in a comment passes. |
 | `tests/*.test.ts`, `tests/fixtures/sample.ts` | Unit tests of the rules, the pane, the band, the i18n and the hooks module. |
 
 ## 3. Data flow
 
-1. `session.start` sets the language, registers `/keepaway`, drops the old timer and starts the band's tick (section 18). It resets
+1. `session.start` sets the language (a store that refuses the `lang` read falls back to the detected language and logs one line, #33), registers `/keepaway`, drops the old timer and starts the band's tick (section 18). It resets
    the band's turn to idle, drops the waiting flag, the agent run, the window issue (`thisIssue`, `thisIssueNumber`) and the
    repo context (a failed repo read in the new session draws no old repo, st-6), and marks the snapshot stale. Then it starts the window's timer at its cadence and polls at once: the
    poll is not held back by the cadence or by the time of the last poll, since that poll belongs to the previous session. A poll still in flight at that session.start is not skipped: the new session's poll starts when that one settles (state2-3). A `/keepaway issue` override set during a poll in flight is polled
