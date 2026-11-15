@@ -3657,6 +3657,43 @@ test('a stored condensed line is drawn with no model call', async ($: Engine, on
   expect(calls).toHaveLength(0)
 })
 
+test('a closed pane makes no condensing call on its poll; the call waits for the pane to open', async ($: Engine, on) => {
+  const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine(LONG_PROMPT) } })
+  const calls = stubModel(on, { isAnswered: true, text: 'Handoff: asked once open' })
+  await $.session.start(SESSION)
+  await host.clock.settle()
+  expect(calls).toHaveLength(0)
+  await host.clock.advance(BAND_POLL_MS)
+  await host.clock.settle()
+  expect(calls).toHaveLength(0)
+  await openPane($)
+  await host.clock.settle()
+  expect(calls).toHaveLength(1)
+})
+
+test('with the pane open, one poll starts at most BRIEFS_PER_POLL condensing calls', async ($: Engine, on) => {
+  const records = Array.from({ length: 4 }, (_, index) => recordOf(`local_cccc000${index}`, { cliSessionId: `sess-c${index}` }))
+  const transcripts = Object.fromEntries(records.map((_, index) => [`${HOME}/.claude/projects/-work-app/sess-c${index}.jsonl`, userLine(`${LONG_PROMPT} ${index}`)]))
+  const host = stubHost(on, { records: [OWN_RECORD, ...records], transcripts: { ...transcripts, [TRANSCRIPT_OWN]: userLine(LONG_PROMPT) } })
+  // The calls never answer, so none finishes and starts another within this poll.
+  const held = new Promise<void>(() => undefined)
+  const calls: string[] = []
+  on('model.complete', async (_$, event) => {
+    calls.push(event.prompt)
+    await held
+    return { value: { isAnswered: true, text: 'never', usage: NO_USAGE } }
+  })
+  await openPane($)
+  // The first poll with the pane open asks two of the four; the next poll asks the other two, never two for one session.
+  expect(calls.length).toBeLessThanOrEqual(2)
+  await host.clock.settle()
+  expect(calls).toHaveLength(2)
+  await host.clock.advance(POLL_MS)
+  await host.clock.settle()
+  expect(calls).toHaveLength(4)
+  expect(new Set(calls).size).toBe(4)
+})
+
 test('a failed condensing keeps the cut prompt, is logged once by its reason, and is asked again after SUMMARY_RETRY_MS', async ($: Engine, on) => {
   const host = stubHost(on, { transcripts: { [TRANSCRIPT_OWN]: userLine(LONG_PROMPT) } })
   const calls = stubModel(on, { isAnswered: false, reason: 'api-error' })

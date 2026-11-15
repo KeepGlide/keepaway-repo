@@ -1087,7 +1087,7 @@ async function applyBriefs($: EngineInterface, summaries: Map<string, SessionSum
       summaries.set(id, { text: brief.text })
       continue
     }
-    if (started >= BRIEFS_PER_POLL || briefsInFlight.has(id) || now < (briefRetryAt.get(id) ?? 0)) continue
+    if (!open || started >= BRIEFS_PER_POLL || briefsInFlight.has(id) || now < (briefRetryAt.get(id) ?? 0)) continue
     started += 1
     startBrief($, id, summaryMemory.get(id)?.longPrompt ?? '', now)
   }
