@@ -1825,27 +1825,88 @@ test('a snapshot whose only error is no-remote draws no data error in the band',
   expect(await bandDrawn($)).not.toContain('data error')
 })
 
+// A check of one call by its id, as the engine raises it (the kit's query form has no id, so the test passes it).
+const checkCall = ($: Engine, id: string, tool = 'Bash') => $.tool.check({ tool, input: { command: 'ls' }, tool_use_id: id } as never)
+
 test('waiting: the band draws the waiting icon while the engine asks the person about a tool call, and drops it when the call runs', async ($: Engine, on) => {
   const options: StubOptions = { permission: 'ask' }
   stubHost(on, options)
   await $.session.start(SESSION)
   await $.turn.start({ text: 'work', turnId: 't1' })
-  await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })
+  await checkCall($, 'call-a')
   expect(await bandDrawn($)).toContain(actionIconEmoji('waiting'))
   // The person approves: the engine's own check of the call now allows it, and the call runs.
   options.permission = 'allow'
-  await $.tool.call({ tool: 'Bash' })
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'call-a' } as never)
   expect(await bandDrawn($)).not.toContain(actionIconEmoji('waiting'))
 })
 
-test('waiting: a verdict other than ask clears the flag, so an answered question does not keep the waiting icon', async ($: Engine, on) => {
+test('waiting: a verdict other than ask answers the ask of its own call, so an answered question does not keep the waiting icon', async ($: Engine, on) => {
   const options: StubOptions = { permission: 'ask' }
   stubHost(on, options)
   await $.session.start(SESSION)
   await $.turn.start({ text: 'work', turnId: 't1' })
-  await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })
+  await checkCall($, 'call-a')
   expect(await bandDrawn($)).toContain(actionIconEmoji('waiting'))
   options.permission = 'allow'
+  await checkCall($, 'call-a')
+  expect(await bandDrawn($)).not.toContain(actionIconEmoji('waiting'))
+})
+
+// #15: the waiting flag follows the asked call, not the last call the engine checked or ran.
+test('#15: ask for call A, then a subagent call B runs: still waiting', async ($: Engine, on) => {
+  const options: StubOptions = { permission: 'ask' }
+  stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.turn.start({ text: 'work', turnId: 't1' })
+  await checkCall($, 'call-a')
+  options.permission = 'allow'
+  await $.tool.call({ tool: 'Read', tool_use_id: 'sub-b', agentId: 'sub-1' } as never)
+  expect(await bandDrawn($)).toContain(actionIconEmoji('waiting'))
+})
+
+test('#15: ask for call A, then an allowed check of call C: still waiting', async ($: Engine, on) => {
+  const options: StubOptions = { permission: 'ask' }
+  stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.turn.start({ text: 'work', turnId: 't1' })
+  await checkCall($, 'call-a')
+  options.permission = 'allow'
+  await checkCall($, 'call-c')
+  expect(await bandDrawn($)).toContain(actionIconEmoji('waiting'))
+})
+
+test('#15: call A is refused: not waiting', async ($: Engine, on) => {
+  const options: StubOptions = { permission: 'ask' }
+  stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.turn.start({ text: 'work', turnId: 't1' })
+  await checkCall($, 'call-a')
+  options.permission = 'deny'
+  await checkCall($, 'call-a')
+  expect(await bandDrawn($)).not.toContain(actionIconEmoji('waiting'))
+})
+
+test('#15: two asks pending, one runs: still waiting for the other', async ($: Engine, on) => {
+  const options: StubOptions = { permission: 'ask' }
+  stubHost(on, options)
+  await $.session.start(SESSION)
+  await $.turn.start({ text: 'work', turnId: 't1' })
+  await checkCall($, 'call-a')
+  await checkCall($, 'call-b')
+  // The call's own check runs first inside $.tool.call: the person has approved, so it is allowed.
+  options.permission = 'allow'
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'call-b' } as never)
+  expect(await bandDrawn($)).toContain(actionIconEmoji('waiting'))
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'call-a' } as never)
+  expect(await bandDrawn($)).not.toContain(actionIconEmoji('waiting'))
+})
+
+// #15: a query has no call id, so no ask of it can wait for a call that never runs.
+test('#15: a query ask with no call id does not set the waiting icon', async ($: Engine, on) => {
+  stubHost(on, { permission: 'ask' })
+  await $.session.start(SESSION)
+  await $.turn.start({ text: 'work', turnId: 't1' })
   await $.tool.check({ tool: 'Bash', input: { command: 'ls' } })
   expect(await bandDrawn($)).not.toContain(actionIconEmoji('waiting'))
 })
