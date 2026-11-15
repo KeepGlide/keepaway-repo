@@ -10,9 +10,9 @@
 
 **Um mod do Claude Code Desktop para quem mantém várias sessões em um mesmo repositório do GitHub. Ele mostra qual issue cada sessão está trabalhando, e o que o repositório está fazendo agora.**
 
-[![Versão](https://img.shields.io/badge/vers%C3%A3o-0.2.0--beta.15-2BB8AE.svg)](CHANGELOG.md) [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-1E2A47.svg)](LICENSE) ![Plataforma](https://img.shields.io/badge/Claude%20Code%20Desktop-mod-1E2A47.svg)
+[![Versão](https://img.shields.io/badge/vers%C3%A3o-0.2.0--beta.26-2BB8AE.svg)](CHANGELOG.md) [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-1E2A47.svg)](LICENSE) ![Plataforma](https://img.shields.io/badge/Claude%20Code%20Desktop-mod-1E2A47.svg)
 
-[🌐 Site](https://keepglide.com/pt-br/keeptrack) · [Instalação](#-instalação) · [Uso](#-uso) · [Changelog](CHANGELOG.md) · [Reportar um bug](https://github.com/KeepGlide/keeptrack/issues/new) · [Segurança](SECURITY.md)
+[🌐 Site](https://keepglide.com/pt-br/keeptrack) · [Instalação](#-instalação) · [Uso](#-uso) · [Changelog](CHANGELOG.md) · [Reportar um bug](https://github.com/KeepGlide/keepaway-repo/issues/new) · [Segurança](SECURITY.md)
 
 </div>
 
@@ -68,7 +68,7 @@ Ele **não** altera nada no GitHub nem no seu repositório. Não registra tempo,
 - **Uma faixa acima do prompt** com o estado desta janela: executando ou ociosa, a ferramenta ou o servidor MCP atual com seu ícone, a quantidade de agentes, o tempo decorrido, um estado de espera por você, um estado de erro de dados, o progresso do milestone e o número da issue. A faixa mostra o estado só pelo ícone, sem palavra.
 - **Um botão Open** na faixa, com a marca KeepGlide antes dele (a marca aparece só no Desktop).
 - **Inglês e português do Brasil** no painel e na faixa.
-- **Logo do repositório**: no desktop, a linha de uma sessão mostra o logo do repositório (16 px) antes do título, quando o repositório tem um: um arquivo de logo PNG ou JPEG no checkout (sem SVG), senão o conteúdo do GitHub, senão o avatar de uma organização do GitHub dona do repositório. Um repositório GitLab recebe o avatar do projeto pelo `glab`. Um remoto nomeado por um alias de SSH é lido como o host para o qual o alias resolve. Sem logo, nada é desenhado.
+- **Logo do repositório**: no desktop, a linha de uma sessão mostra o logo do repositório (32 px) antes do título, quando o repositório tem um: um arquivo de logo PNG ou JPEG no checkout (sem SVG), senão o conteúdo do GitHub, senão o avatar de uma organização do GitHub dona do repositório. Um repositório GitLab recebe o avatar do projeto pelo `glab`. Um remoto nomeado por um alias de SSH é lido como o host para o qual o alias resolve. Sem logo, nada é desenhado.
 - **Links**: no desktop o título de uma sessão abre essa sessão. No desktop, milestones, commits, PRs e issues levam às suas páginas.
 - **Riscos primeiro**: acima das sessões, chips para milestone atrasado (⚠️), milestone que vence em até 14 dias (📅, `vence hoje` no dia) e as outras sessões que pararam esperando você (⏳, com os números das issues); depois `14 de 24 fechadas nos milestones abertos`, a barra, as issues que faltam e as sessões trabalhando.
 - **Sessões em espera**: outra sessão cujo último turno parou precisando de você (o resumo de fim de turno do Desktop, última atividade há menos de 24 h) mostra ⏳ e uma linha `Precisa de você:` de até 90 caracteres, e vem logo depois da sessão desta janela. Um grupo lista 20 sessões de topo e depois `+k mais`.
@@ -165,14 +165,14 @@ Reinicie o Claude Code, ou rode `/reload-plugins` se a sua versão tiver esse co
 <details>
 <summary><strong>Caminho manual: carregar o mod de um clone, sem marketplace</strong></summary>
 
-Clone este repositório (ele é privado: você precisa de acesso de leitura) e inicie o Claude Code com a pasta do mod. A flag `--plugin-dir` carrega o plugin só para aquela sessão, então repita a cada início. Não conferido no Claude Code Desktop.
+Clone este repositório e inicie o Claude Code com a pasta do mod. A flag `--plugin-dir` carrega o plugin só para aquela sessão, então repita a cada início. Não conferido no Claude Code Desktop.
 
 ```bash
-git clone https://github.com/KeepGlide/keeptrack.git
+git clone https://github.com/KeepGlide/keepaway-repo.git
 ```
 
 ```bash
-claude --plugin-dir keeptrack/plugins/keepaway-repo
+claude --plugin-dir keepaway-repo/plugins/keepaway-repo
 ```
 
 </details>
@@ -184,8 +184,8 @@ claude --plugin-dir keeptrack/plugins/keepaway-repo
 
 Use este caminho quando você tiver o `.zip` deste repositório, sem acesso ao marketplace. A raiz tem `.claude-plugin/marketplace.json`, então a pasta extraída é um marketplace local. Não conferido no Claude Code Desktop.
 
-1. Extraia o zip numa pasta vazia, por exemplo `keeptrack-main`.
-2. No Claude Code, rode `/plugin marketplace add ./keeptrack-main` (um caminho absoluto também funciona).
+1. Extraia o zip numa pasta vazia, por exemplo `keepaway-repo-main`.
+2. No Claude Code, rode `/plugin marketplace add ./keepaway-repo-main` (um caminho absoluto também funciona).
 3. Instale pelo painel `/plugin`, com **+ › Add plugins** (Claude Desktop), ou rode `/plugin install keepaway-repo@keepglide-local`.
 
 ## 🤖 Instalação por um agente de IA (spec)
@@ -196,7 +196,7 @@ Regras de base:
 
 - 🔑 **Segredos:** o agente nunca lê, digita nem imprime um token ou chave. O `gh` usa o próprio login; a pessoa roda `gh auth login` se o passo 1 falhar.
 - 🧑 **Com OK da pessoa:** os passos 3, 4 e os passos de desfazer mudam a configuração do Claude Code (marketplace, instalação e remoção do plugin). Pergunte antes.
-- 💸 **Custo:** nenhum passo custa dinheiro. O mod chama só `gh` e `git` (veja [Segurança e privacidade](#-segurança-e-privacidade)).
+- 💸 **Custo:** os passos abaixo não fazem chamada paga por conta própria. O mod faz chamadas pagas ao modelo enquanto o painel está aberto e os resumos de sessão estão ligados (veja [Segurança e privacidade](#-segurança-e-privacidade)).
 - **Plataformas:** Linux é ✅ (veja [Pré-requisitos](#-pré-requisitos)); macOS e Windows são ⚠️, não testados. Os passos 5 a 8 rodam em uma sessão do Claude Code Desktop, não em um terminal comum.
 
 | # | Passo | Rodar | Expect |
@@ -205,7 +205,7 @@ Regras de base:
 | 2 | Conferir se o repositório tem um remote no GitHub | `git remote get-url origin` | Saída 0 e uma URL cujo host é `github.com`, ou um alias SSH com `github` no nome (por exemplo `git@github-<label>:<owner>/<repo>.git`). Se não, o painel mostra `sem remote no GitHub para este repo`. |
 | 3 🧑 | Adicionar o marketplace, a menos que `claude plugin marketplace list` já mostre `sophia-mods` | `claude plugin marketplace add ~/.claude/mods` | Saída 0, e `claude plugin marketplace list` mostra `sophia-mods` com `Source: Folder (<path>)`. |
 | 4 🧑 | Instalar o plugin | `claude plugin install keepaway-repo@sophia-mods` | Saída 0, e `claude plugin list` mostra `keepaway-repo@sophia-mods` com `Version: 0.2.0-beta.26` e `Status: ✔ enabled`. |
-| 5 | Conferir se o comando está registrado | Em uma sessão do Desktop, `/keepaway bogus` | Um toast com a linha de uso `Usage: /keepaway open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em inglês, ou `Uso: /keepaway open \| issue <n> \| issue none \| lang en\|pt-BR\|auto` em português. Nada muda. |
+| 5 | Conferir se o comando está registrado | Em uma sessão do Desktop, `/keepaway bogus` | Um toast com a linha de uso `Usage: /keepaway open \| issue <n> \| issue none \| lang en\|pt-BR\|auto \| summary on\|off` em inglês, ou `Uso: /keepaway open \| issue <n> \| issue none \| lang en\|pt-BR\|auto \| summary on\|off` em português. Nada muda. |
 | 6 | Abrir o painel | `/keepaway` | Abre um painel com o título `KeepAway Repo`. Mostra `Carregando o repo...`, depois as issues abertas por milestone, ou uma linha de erro de [Solução de problemas](#-solução-de-problemas). |
 | 7 | Trocar o idioma para português | `/keepaway lang pt-BR` | O painel e a faixa mudam para português. Durante o carregamento, o painel mostra `Carregando o repo...`. |
 | 8 | Voltar ao idioma automático | `/keepaway lang auto` | A escolha guardada é removida. O idioma segue a primeira variável definida entre `LC_ALL`, `LC_MESSAGES`, `LANG` ou `LANGUAGE`: `pt*` dá português; qualquer outra coisa dá inglês. |
@@ -296,9 +296,17 @@ Fixo no código, não configurável:
 
 ## 🔒 Segurança e privacidade
 
-- **O que sai da máquina:** só chamadas do `gh` ao GitHub, para ler milestones, issues abertas, pull requests abertos, os totais dos milestones e os detalhes de uma issue. Não há chamadas pagas nem chamadas a outros serviços. Para os logos, o conteúdo do repositório e o tipo do dono pelo `gh`, o avatar da organização em `avatars.githubusercontent.com` (só https) e o avatar do GitLab pelo `glab`.
-- **O que é lido localmente:** o remote, a branch e o log do git do repositório e das suas sessões, os registros de sessão do Desktop, e a config do Desktop (só os Grupos da barra lateral). Com o resumo ligado, os primeiros 256 KiB do transcript de cada sessão listada, para o primeiro prompt; o resumo fica só na memória e nunca é gravado.
-- **O que é gravado:** só o estado do mod (o sinal de aberto, o idioma e a issue definida por `/keepaway issue`). Nada é gravado no GitHub nem no repositório.
+- **O que sai da máquina:**
+  - Chamadas do `gh` ao GitHub: milestones, issues abertas, pull requests abertos, totais dos milestones, os detalhes de uma issue, e o tipo e o avatar do dono de um repositório.
+  - Chamadas do `glab` ao GitLab, só para um repositório GitLab: o projeto e o avatar dele.
+  - O `curl` baixa o avatar de um repositório por https, do host que a resposta indica, e de mais nenhum lugar.
+  - Chamadas pagas ao modelo (`$.model.complete`, Haiku), feitas só com o painel do KeepAway aberto, ligadas por padrão, e paradas por `/keepaway summary off`: (1) para uma sessão cujo primeiro prompt tem mais de 300 caracteres, os primeiros 8000 caracteres desse prompt, para escrever o seu resumo de uma linha; (2) para um passo concluído, o título dele e até 1200 caracteres do texto do assistente em volta, para escrever a sua explicação.
+- **O que é lido localmente:**
+  - O remote, a branch e o log do git do repositório e da pasta de cada sessão listada, `ssh -G` para um alias de SSH, e `date +%z` para o deslocamento UTC.
+  - Os registros de sessão do Desktop, e a config do Desktop (só os Grupos da barra lateral).
+  - Os arquivos de logo do checkout (um logo PNG ou JPEG na raiz do repositório ou numa pasta).
+  - O transcript de cada sessão em `~/.claude/projects/`: com os resumos ligados, os primeiros 256 KiB, para o primeiro prompt; para os eventos de passo, os bytes acrescidos desde a última leitura, com os resumos ligados ou não.
+- **O que é gravado:** só o estado do mod no seu store, nunca o repositório nem o GitHub. As chaves são: `override:<sessionId>` (a issue definida por `/keepaway issue`, descartada após 30 dias), `lang`, `summary` (ligado ou desligado), `legendOpen`, `timelineOpen`, `briefs` (os resumos de uma linha mais recentes, por sessão; o próprio prompt nunca é gravado), `explains` (as explicações de passo mais recentes), `logo:<repo>` (de onde veio o logo de um repositório, e quando foi consultado) e `logo-lock:<repo>` (uma trava curta enquanto uma consulta roda).
 - Para reportar uma vulnerabilidade, veja [SECURITY.md](SECURITY.md).
 
 ## 🩺 Solução de problemas
@@ -317,10 +325,12 @@ Fixo no código, não configurável:
 | `git failed in this folder · sessions shown without branch` (`git falhou nesta pasta · sessões sem branch`) | O `git` falhou na pasta de uma sessão. | Confira se a pasta existe e se `git status` funciona lá. |
 | `This window is not a Desktop session: nothing to set` (`Esta janela não é uma sessão do Desktop: nada a definir`) | `/keepaway issue` foi rodado em uma janela sem registro do Desktop. | Rode o comando em uma janela de sessão do Desktop. |
 | O painel fica em `Loading the repo...` (`Carregando o repo...`) | A primeira consulta não terminou, ou foi abandonada após 30 s. | Aguarde uma consulta. O mod registra `poll skipped` quando há duas consultas abandonadas ainda rodando, e então não inicia outra até uma terminar. |
+| `Não foi possível ler o repo: estado desconhecido. Confira o remote com git remote -v, e o gh com gh auth login.` | Não foi possível ler o estado do repo. | Confira o remote com `git remote -v`, depois entre no gh com `gh auth login`. |
+| `gh sem login: rode gh auth login` | O `gh` não está logado. | Rode `gh auth login`. |
 
 ## 🐞 Problemas conhecidos
 
-Nenhum problema conhecido em aberto em 2026-10-22. Achou um? [Abra uma issue](https://github.com/KeepGlide/keeptrack/issues/new).
+Nenhum problema conhecido em aberto em 2026-10-22. Achou um? [Abra uma issue](https://github.com/KeepGlide/keepaway-repo/issues/new).
 
 Limitações conhecidas, como o código se comporta hoje:
 

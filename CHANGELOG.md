@@ -3,10 +3,25 @@
 All notable changes to KeepAway Repo are recorded here, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The project follows
 [SemVer](https://semver.org/); while the version is `0.y.z`, any release may change behavior.
-The version in `plugins/keepaway-repo/.claude-plugin/plugin.json` is 0.2.0-beta.8.
+The version in `plugins/keepaway-repo/.claude-plugin/plugin.json` is 0.2.0-beta.26.
 Commit hashes name the change in `git log`. Entries below the rename keep the names they were written with (KeepTrack, `keeptrack-repo-pane`, `/keeptrack`).
 
 ## [Unreleased]
+
+### Added
+- **Reach every session**: a "+k more" button opens the rest of a long group, and a window with no issue gets a hint on how to set one.
+
+### Changed
+- **Briefs wait for the pane**: a long first prompt is condensed only while the pane is open, so a window that never opens it makes no model call.
+- **Own commits only**: a session's timeline lists the commits of its own branch, not the default branch's.
+
+### Fixed
+- **Privacy and security text** now matches the code. The README and the security policy list the paid model calls, which run only while the pane is open, the avatar downloads, the GitLab calls and the stored state. They no longer say the mod makes no paid calls or that summaries are never stored.
+- **Install and repository docs** now match the current state. The version badge shows 0.2.0-beta.26, the clone and zip steps use the new repository name and no longer call the repository private, the install spec's expected usage toast lists the summary option, and the repo logo is 32 px.
+- **Band icons read their state**: a screen reader now hears running, idle or waiting for the band's state icons.
+- **Wording fixes**: one issue left reads "falta 1" in Portuguese; the timeline markers read in the window's language; the band shows a milestone's name the way the pane does.
+- **No lost briefs**: two condensed lines that land together are both kept.
+- **Clearer load and sign-in messages**: the load-failed line names the remote and gh checks, and the sign-in line says how to sign in to gh.
 
 ## [0.2.0-beta.26] - 2026-11-08
 
