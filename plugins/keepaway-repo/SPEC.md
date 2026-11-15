@@ -107,7 +107,7 @@ where it differs from that record (section 9).
         ordered like any other top, and their timeline names it (`forked from <title>`, `spawned from <title>`).
    9. Commits of each kept session: `git symbolic-ref --quiet --short refs/remotes/origin/HEAD` (no network), then `git log -5 <default>..HEAD` on its
       branch (the commits the branch has of its own) unless the branch is the default branch.
-   10. This window's issue (section 6): one `gh issue view` call when the window maps to an issue.
+   10. This window's issue (section 6): one `gh api graphql` issue call when the window maps to an issue.
    11. Snapshot: sessions, milestones, issue groups (issues no session shows), counters, `thisIssue`, `unreadableCount`,
       errors, `stale`, `truncated`, `truncatedLimits` (section 8).
 5. `ui.render` draws the snapshot. Rendering reads the atom only; it calls no `$.process` and no `$.fs`. The band row above the prompt
@@ -124,7 +124,7 @@ gh calls (argv arrays, no shell; cwd is the repo root; timeout 15 s each):
 | 2 | `gh issue list --repo OWNER/NAME --state open --limit 501 --json number,title,milestone,labels,updatedAt,url` | every poll | open issues (the rows): gh is asked for `ISSUE_LIMIT + 1` (501) and the first 500 are kept; only a 501st issue sets `truncated`, so the truncation line shows only when more than 500 open issues exist. Each issue's milestone title comes from its own `milestone` field, so the issues of a closed milestone keep it (pm1-9) |
 | 3 | `gh api graphql -f query=<milestone query> -f o=OWNER -f r=NAME` | every poll | the exact issue counts of each open milestone: `issues(states: OPEN)` and `issues(states: CLOSED)` `totalCount`, issues only, no PR (pm1-8); the first 100 open milestones; a failed or unreadable answer keeps the REST counts, not exact (see below) |
 | 4 | `gh api graphql -f owner=OWNER -f name=NAME -f query=<PR query>` (`-f` for all of them: `-F` would turn a digit name into a number) | every poll | open PRs (`states: OPEN`, first 100, by update time) with `closingIssuesReferences` (first 50, and their `totalCount`), `reviewDecision`, last commit checks; more than 100 sets `truncated` |
-| 5 | `gh issue view <n> --repo OWNER/NAME --json number,title,url,state,milestone,comments` | only when this window maps to issue `<n>`, and not again while the issue's `updatedAt` in the issue list is unchanged (the last view is reused); an issue outside the open list is kept for 5 minutes, and a number gh says does not exist is kept until the window's number changes | the window's issue (section 6) |
+| 5 | `gh api graphql` with the `issue(number)` query (fields number, title, url, state, milestone, and the newest 30 comments: `comments(last: 30)`; `ISSUE_COMMENTS_MAX`) | only when this window maps to issue `<n>`, and not again while the issue's `updatedAt` in the issue list is unchanged (the last view is reused); an issue outside the open list is kept for 5 minutes, and a number gh says does not exist is kept until the window's number changes | the window's issue (section 6) |
 
 The PR query is GraphQL because gh 2.45 has no `closingIssuesReferences` JSON field.
 
@@ -140,13 +140,13 @@ common dir (cached per common dir; a not-a-repository answer is cached as no rem
 without an engine origin asks the same way on each poll. `symbolic-ref --quiet --short refs/remotes/origin/HEAD` and `log -5 --format=%H%x09%ct%x09%s%x1f%b%x1e <default>..HEAD` per
 kept session with a branch; the log is parsed from git's output as it comes, not trimmed, so a commit with an empty subject still counts. Records end with `\x1e` and the body follows `\x1f` (section 24); output with no `\x1e` is read one commit per line, with no body.
 
-Budget: four gh calls per minute while the pane is open, plus the fifth call (`gh issue view`) while this window maps to an issue. While the pane
+Budget: four gh calls per minute while the pane is open, plus the fifth call (the issue view, `gh api graphql`) while this window maps to an issue. While the pane
 is closed: four gh calls every 5 minutes (`KEEPAWAY_BAND_POLL_MS`), plus the fifth call when mapped, so at most 5 gh calls per 5
 minutes per window, and one poll at session start (and one more when a session.start or a `/keepaway issue` landed during a poll in flight, or while abandoned polls filled every slot). Git is local.
 
 GitHub backoff: a poll in which gh reports the API rate limit starts a wait before the next GitHub read. The first wait is 2 min; each further limited poll doubles it, up to a 15 min ceiling (`RATE_LIMIT_WAIT_MS`, `RATE_LIMIT_WAIT_MAX_MS`). Until the retry time no poll calls gh: the four reads are skipped and the last good data is drawn with the `gh-rate-limit` line. Both the window's timer and a pane open wait for the retry time, so no path waits longer than the ceiling. A poll whose four reads all answer clears the wait. The wait lives in module memory only (no store key). The sessions and the local data keep refreshing during the wait.
 
-Logo lookups (section 11) are not poll calls: a repo's logo is looked up once per repo per TTL (24 h for a logo or none, 1 h after a failed lookup), never on each poll, and a lookup on github.com makes at most three `gh api repos/OWNER/NAME/contents/<path>` calls (`GITHUB_LOGO_CALLS`: the root's `logo.png`, `logo.jpg`, `logo.jpeg`), stopping at the first logo; with no logo found, a GitHub repo's lookup asks `gh api users/<owner>` for the type (and, for an organization, for its avatar URL once more), and its avatar fetch is one curl call (section 11), not a gh call. The checkout's logo folders are listed locally, at no gh cost.
+Logo lookups (section 11) are not poll calls: a repo's logo is looked up once per repo per TTL (24 h for a logo or none, 1 h after a failed lookup), never on each poll, and a lookup on github.com makes at most three `gh api repos/OWNER/NAME/contents/<path>` calls (`GITHUB_LOGO_CALLS`: the root's `logo.png`, `logo.jpg`, `logo.jpeg`), stopping at the first logo; with no logo found, a GitHub repo's lookup asks `gh api users/<owner>` once, for its type and its avatar URL (an avatar is drawn only for an organization), and its avatar fetch is one curl call (section 11), not a gh call. Every logo gh and glab call runs from the window's root (the repo checkout), not from the session's folder (#30); the checkout's logo folders are listed locally from the session's folder, at no gh cost.
 
 Host clock (`date +%z`, `readUtcOffset` in `hooks/register.tsx`): the host's UTC offset is read through the process API, `$.process.run(['date', '+%z'], { timeoutMs: 2000 })`, once at session.start and once per poll, before the poll's other calls. The answer is `±HHMM` and `parseUtcOffset` (`hooks/model.ts`) turns it into minutes east of UTC. The offset is written to the `utcOffset` atom, and the pane reads it with its other inputs. Any failure falls back to the runtime's own offset (`-new Date().getTimezoneOffset()`): no `date` binary (Windows), a timeout, a non-zero exit, or an answer that is not `±HHMM`. A DST change reaches the pane at the next poll. Besides gh and git, the host is asked one more thing: the ssh alias lookup of section 16 (`ssh -G`).
 
@@ -173,7 +173,7 @@ The source that won is kept as `IssueRef.source`. Numbers are 1 to 999999.
 
 ## 6. This window's issue (`Snapshot.thisIssue`)
 
-When this window's node has an issue, one gh call (section 4, call 4) fills `IssueDetails`:
+When this window's node has an issue, one gh call (section 4, call 5) fills `IssueDetails`. Its comments are the newest 30 (`comments(last: 30)`), so the last comment and the decision are read from those: a decision older than them is not drawn (#30):
 
 - `number`, `title`, `url`, `state` (`open` or `closed`), `milestoneTitle` from the view.
 - `branch`: the window's branch. `pr`: the open PR of that branch, or null.
